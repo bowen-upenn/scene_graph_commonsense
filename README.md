@@ -45,7 +45,7 @@
         continue_train: False
         start_epoch: 0
 
-    Execute ```python main.py```.
+Execute ```python main.py```.
 
   ### To evaluate the local prediction module on predicate classification (PredCLS) tasks:
     In config.yaml, set
@@ -55,7 +55,7 @@
         eval_mode: 'pc'
         test_epoch: 2
 
-    Execute ```python main.py```.
+Execute ```python main.py```.
 
   ### To evaluate the local prediction module on scene graph detection (SGDET) tasks:
     In config.yaml, set
@@ -75,7 +75,7 @@
         continue_train: True
         start_epoch: 3
 
-    Execute ```python main.py```.
+Execute ```python main.py```.
 
   ### To evaluate the model with the optional transformer encoder on predicate classification (PredCLS) tasks:
     In config.yaml, set
@@ -85,7 +85,7 @@
         eval_mode: 'pc'
         test_epoch: 5
 
-    Execute ```python main.py```.
+Execute ```python main.py```.
 
   ### To evaluate the local prediction module on scene graph detection (SGDET) tasks:
     In config.yaml, set
