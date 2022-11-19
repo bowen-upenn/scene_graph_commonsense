@@ -1,6 +1,5 @@
 # This repository contains the implementation of the algorithm proposed in the paper "Scene Graph Generation from Hierarchical Relationship Reasoning".
 ![Figure1](figures/flow.png)
-![Figure2](figures/plot.png)
 
 ## Dependencies:
   - python >= 3.6.9
@@ -98,3 +97,6 @@ Execute ```python main.py```.
         test_epoch: 5
 
 Execute ```python main.py```.
+
+
+![Figure2](figures/plot.png)
