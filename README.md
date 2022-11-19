@@ -19,7 +19,7 @@
 
 
 ## Dataset:
-  Please refer to [a relative link](datasets/README.md) to download and prepare the dataset.
+  Please refer to [datasets/README.md](datasets/README.md) to download and prepare the dataset.
 
 
 ## Pretrained Models
