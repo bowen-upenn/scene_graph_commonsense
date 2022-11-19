@@ -37,58 +37,55 @@ No GPU is required at this step.
 	instances_vg_test.json: https://drive.google.com/file/d/1qkiXDw9sMsyCOMB-avBYnF8VGIqds0_k/view?usp=sharing
 
 
-### Step 3 - Execute ```./prepare_datasets.py``` to build the dataloader offline to speed up the later training process.
-	Pre-processed annotations in step 2 will be loaded to form an annotation for each image data ready to be used in the scene graph training process.
-	One GPU is required at this step.
-	Each annotation for each image will be saved under the datasets/vg_scene_graph_annot directory as follows
+### Step 3
+Execute ```./prepare_datasets.py``` to build the dataloader offline to speed up the later training process.
+Pre-processed annotations in step 2 will be loaded to form an annotation for each image data ready to be used in the scene graph training process.
+One GPU is required at this step.
+Each annotation for each image will be saved under the datasets/vg_scene_graph_annot directory as follows
 
 	- datasets
 	  - vg
-			...
-		- vg_scene_graph_annot
-			- VG_100K
-				- 2377357_annotations.pkl
-			  - 2377380_annotations.pkl
-			  - ...
-			- VG_100K_2
-				- 2417985_annotations.pkl
-			  - 2417973_annotations.pkl
-			  - ...
-			...
+	    ...
+	  - vg_scene_graph_annot
+	    - VG_100K
+	      - 2377357_annotations.pkl
+	      - 2377380_annotations.pkl
+	      - ...
+	    - VG_100K_2
+	      - 2417985_annotations.pkl
+	      - 2417973_annotations.pkl
+	      - ...
+	    ...
 
-	#### We provide all processed annotations here (it takes 2.09GB after unzipping)
-	https://drive.google.com/file/d/1hPLP-6Ub7s7zCthrfO-C2b_f_agXCiGv/view?usp=sharing
+#### We provide all processed annotations here (it takes 2.09GB after unzipping)
+https://drive.google.com/file/d/1hPLP-6Ub7s7zCthrfO-C2b_f_agXCiGv/view?usp=sharing
 
 
 ### The final dataset directory should have the following structure
 	- datasets
 	  - vg
-			- annottions
-			  - image_data.json
-			  - objects.json
-			  - relationships.json
-			  - instances_vg_train.json
-			  - instances_vg_test.json
-			- images
-			  - VG_100K
-			    - 2377357.jpg
-			    - 2377380.jpg
-			    - ...
-			  - VG_100K_2
-			  	- 2417985.jpg
-			  	- 2417973.jpg
-			  	- ...
-		- vg_scene_graph_annot
-			- VG_100K
-				- 2377357_annotations.pkl
-			  - 2377380_annotations.pkl
-			  - ...
-			- VG_100K_2
-				- 2417985_annotations.pkl
-			  - 2417973_annotations.pkl
-			  - ...
-			...
-
-
-
-
+	    - annottions
+	      - image_data.json
+	      - objects.json
+	      - relationships.json
+	      - instances_vg_train.json
+	      - instances_vg_test.json
+	    - images
+	      - VG_100K
+	        - 2377357.jpg
+	        - 2377380.jpg
+	        - ...
+	      - VG_100K_2
+		- 2417985.jpg
+		- 2417973.jpg
+		- ...
+	  - vg_scene_graph_annot
+	    - VG_100K
+	      - 2377357_annotations.pkl
+	      - 2377380_annotations.pkl
+	      - ...
+	    - VG_100K_2
+	      - 2417985_annotations.pkl
+	      - 2417973_annotations.pkl
+	      - ...
+	    ...
