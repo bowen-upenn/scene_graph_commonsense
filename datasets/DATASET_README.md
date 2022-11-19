@@ -39,7 +39,7 @@ No GPU is required at this step.
 
 ### Step 3
 Execute ```./prepare_datasets.py``` to build the dataloader offline to speed up the later training process.
-Pre-processed annotations in step 2 will be loaded to form an annotation for each image data ready to be used in the scene graph training process.
+Pre-processed annotations in step 2 will be loaded to form an annotation for each image data, which is ready to be used in the scene graph training process.
 One GPU is required at this step.
 Each annotation for each image will be saved under the datasets/vg_scene_graph_annot directory as follows
 
