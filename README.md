@@ -65,7 +65,7 @@ Execute ```python main.py```.
         eval_mode: 'sgd'
         test_epoch: 2
 
-    Execute ```python main.py```.
+Execute ```python main.py```.
 
   ### To train the model with the optional transformer encoder:
     In config.yaml, set
