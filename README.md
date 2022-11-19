@@ -96,3 +96,4 @@
         test_epoch: 5
 
     Execute ```python main.py```.
+```python main.py```
