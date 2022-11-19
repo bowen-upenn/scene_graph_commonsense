@@ -101,6 +101,12 @@ Execute ```python main.py```.
 Execute ```python main.py```.
 
 
+| First Header  | Second Header |
+| ------------- | ------------- |
+| Content Cell  | Content Cell  |
+| Content Cell  | Content Cell  |
+
+
 ## Examples of the generated scene graphs
 ![Figure2](figures/plot.png)
 
