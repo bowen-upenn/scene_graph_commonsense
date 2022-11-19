@@ -23,7 +23,7 @@
 
 
 ## Pretrained Models
-  We provide the pretrained models in our paper. Please download and put them under the checkpoints/ directory.
+  We provide the pretrained models in our paper. Please download and put them under the [checkpoints/](checkpoints/) directory.
 
   - DETR-101 object detection module: https://drive.google.com/file/d/1fnTP1VXhFzwPFLYqQAEtjuENg2nQUFJ_/view?usp=sharing
   - Local prediction modules on the third epoch: https://drive.google.com/file/d/1z9XNCPCZgCIkPFy54oEWsG-saYnLny-J/view?usp=sharing
