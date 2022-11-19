@@ -17,20 +17,20 @@ Download the following annotations and images from the Visual Genome website htt
 		- 2417973.jpg
 		- ...
 
-### Step 2 - Execute ```./preprocess.py``` to pre-process the dataset annotations
-	We implement in our own code the same dataset pre-processing techniques in https://github.com/danfeiX/scene-graph-TF-release/tree/master/data_tools.
-	No GPU is required at this step.
-	The following two files will be saved to the datasets/vg/annottions directory.
-	#### You can SKIP this step by directly using the processed annotations provided in step 3.
+### Step 2 
+Execute ```./preprocess.py``` to pre-process the dataset annotations, and the following two files will be saved to the datasets/vg/annottions directory.
+We implement in our own code the same dataset pre-processing techniques in https://github.com/danfeiX/scene-graph-TF-release/tree/master/data_tools.
+No GPU is required at this step.
+#### You can SKIP this step by directly using the processed annotations provided in step 3.
 
 	- datasets
 	  - vg
-			- annottions
-			  - instances_vg_train.json
-			  - instances_vg_test.json
-			  - ...
-			- images
-				...
+	    - annottions
+	      - instances_vg_train.json
+	      - instances_vg_test.json
+	      - ...
+            - images
+	      ...
 
 	We provide the pre-processed dataset annotations here
 	instances_vg_train: https://drive.google.com/file/d/1xEUk6jqZtKE0Myrs1I-lPoQZ3-2sTCjF/view?usp=sharing
