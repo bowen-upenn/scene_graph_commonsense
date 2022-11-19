@@ -1,4 +1,4 @@
-# This repository contains the implementation of the algorithm proposed in the paper "Scene Graph Generation from Hierarchical Relationship Reasoning".
+## This repository contains the implementation of the algorithm proposed in the paper "Scene Graph Generation from Hierarchical Relationship Reasoning".
 This paper describes a novel approach to deducing relationships between objects in a scene. It explicitly exploits an informative hierarchical structure that can be imposed to divide the object and relationship categories into disjoint super-categories. Our proposed scheme implements a Bayesian approach to jointly predicts the super-category or type of relationship between the two objects, along with the specific relationship within that super-category. We present results on the Visual Genome dataset showing that this factorized approach offers significant performance benefits.
 
 
