@@ -99,4 +99,5 @@ Execute ```python main.py```.
 Execute ```python main.py```.
 
 
+## Examples of the generated scene graphs
 ![Figure2](figures/plot.png)
