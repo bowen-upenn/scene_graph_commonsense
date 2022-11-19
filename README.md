@@ -1,5 +1,7 @@
 # This repository contains the implementation of the algorithm proposed in the paper "Scene Graph Generation from Hierarchical Relationship Reasoning".
 ![Figure1](figures/flow.png)
+Illustration of our scene graph construction scheme. The DETR detection backbone generates image features, instance bounding boxes and labels. The local predictor predicts pairwise relationships. It uses bounding boxes to extract subject and object feature tensors separately, concatenates them in both directions, and feeds them to our Bayesian prediction head. The figure shows two paths representing the two ways in which the objects can be ordered. Each of these tensors is passed to the Bayesian prediction head in turn. The head predicts the super-category distribution and the conditional probabilities under each super-category. It produces three hypotheses for the relationship, one for each super-category. Each of these hypotheses is scored by computing the product of the edge connectivity score and the maximum entry in each of the three final vectors. In the results, pink predicates are true positive, blue predicates are reasonably true predictions but not annotated in the dataset, and gray predicates are false positive
+
 
 ## Dependencies:
   - python >= 3.6.9
