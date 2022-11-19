@@ -1,0 +1,50 @@
+above,geometric
+across,geometric
+against,geometric
+along,geometric
+and,geometric
+at,geometric
+behind,geometric
+between,geometric
+in,geometric
+in front of,geometric
+near,geometric
+on,geometric
+on back of,geometric
+over,geometric
+under,geometric
+belonging to,posession
+for,posession
+from,posession
+has,posession
+made of,posession
+of,posession
+part of,posession
+to,posession
+wearing,posession
+wears,posession
+with,posession
+attached to,semantic
+carrying,semantic
+covered in,semantic
+covering,semantic
+eating,semantic
+flying in,semantic
+growing on,semantic
+hanging from,semantic
+holding,semantic
+laying on,semantic
+looking at,semantic
+lying on,semantic
+mounted on,semantic
+painted on,semantic
+parked on,semantic
+playing,semantic
+riding,semantic
+says,semantic
+sitting on,semantic
+standing on,semantic
+using,semantic
+walking in,semantic
+walking on,semantic
+watching,semantic
