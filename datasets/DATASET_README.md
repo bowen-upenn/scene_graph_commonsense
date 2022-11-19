@@ -1,21 +1,21 @@
-### Step 1 - Download the following annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html
-and put them under the datasets/vg directory.
+### Step 1
+Download the following annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html and put them under the datasets/vg directory.
 
-- datasets
-  - vg
-    - annottions
-      - image_data.json
-      - objects.json
-      - relationships.json
-    - images
-      - VG_100K
-	- 2377357.jpg
-	- 2377380.jpg
-	- ...
-      - VG_100K_2
-	- 2417985.jpg
-	- 2417973.jpg
-	- ...
+	- datasets
+	  - vg
+	    - annottions
+	      - image_data.json
+	      - objects.json
+	      - relationships.json
+	    - images
+	      - VG_100K
+		- 2377357.jpg
+		- 2377380.jpg
+		- ...
+	      - VG_100K_2
+		- 2417985.jpg
+		- 2417973.jpg
+		- ...
 
 ### Step 2 - Execute ```./preprocess.py``` to pre-process the dataset annotations
 	We implement in our own code the same dataset pre-processing techniques in https://github.com/danfeiX/scene-graph-TF-release/tree/master/data_tools.
