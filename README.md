@@ -101,7 +101,9 @@ Execute ```python main.py```.
 Execute ```python main.py```.
 
 
-| First Header  | Second Header |
+## Training results
+| PredCLS  | SGDET |
+| R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
 | ------------- | ------------- |
 | Content Cell  | Content Cell  |
 | Content Cell  | Content Cell  |
