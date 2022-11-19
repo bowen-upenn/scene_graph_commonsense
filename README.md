@@ -32,9 +32,10 @@
 
 
 ## Quick Start:
-  All hyper-parameters are listed in the config.yaml file.
+  All hyper-parameters are listed in the ```config.yaml``` file.
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
   Training and evaluation results will be automatically recorded and saved in the results/ directory.
+  Please modify ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
 
   ### To train the local prediction module:
     In config.yaml, set
@@ -67,12 +68,12 @@
     Execute ```python main.py```.
 
   ### To train the model with the optional transformer encoder:
-      In config.yaml, set
-        training:
-          run_mode: 'train'
-          train_mode: 'global'
-          continue_train: True
-          start_epoch: 3
+    In config.yaml, set
+      training:
+        run_mode: 'train'
+        train_mode: 'global'
+        continue_train: True
+        start_epoch: 3
 
     Execute ```python main.py```.
 
