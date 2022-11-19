@@ -32,9 +32,9 @@
 
 
 ## Quick Start:
-  All hyper-parameters are listed in the ```config.yaml``` file.
+  All hyper-parameters are listed in the [config.yaml](config.yaml) file.
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
-  Training and evaluation results will be automatically recorded and saved in the results/ directory.
+  Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
   Please modify ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
 
   ### To train the local prediction module:
