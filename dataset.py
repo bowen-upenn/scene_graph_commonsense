@@ -40,12 +40,15 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         """
         Dataloader Outputs:
-            image_feature:     the image feature map from Mask R-CNN
-                               size [num_img_feature, feature_size, feature_size]
-            image_depth:       the image depth map from single-image depth estimation
-                               size [1, feature_size, feature_size]
-            list_seg_masks:    list of segmentation masks for each instance detected by Mask R-CNN
-                               size [num_obj_detected, 1, feature_size, feature_size]
+            image: an image in the Visual Genome dataset (to predict bounding boxes and labels in DETR-101)
+            image_s: an image in the Visual Genome dataset resized to a square shape (to generate a uniform-sized image features)
+            image_depth: the estimated image depth map
+            categories: categories of all objects in the image
+            super_categories: super-categories of all objects in the image
+            masks: squared masks of all objects in the image
+            bbox: bounding boxes of all objects in the image
+            relationships: all target relationships in the image
+            subj_or_obj: the edge directions of all target relationships in the image
         """
         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
         annot_path = os.path.join(self.annot_dir, annot_name)
@@ -88,6 +91,11 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
 
 def prepare_data_offline(args, data_loader, device, annot, image_transform, depth_estimator, start=0):
+    """
+    This function organizes all information that VisualGenomeDataset __getitem__ function needs
+    to provide images, depth maps, ground-truth object categories and relationships.
+    An offline pre-process speeds avoids dealing with data preparations during the actual training process.
+    """
     with open(annot) as f:
         annotations = json.load(f)
         annotations['annotations'] = np.array(annotations['annotations'])
@@ -474,7 +482,7 @@ def sync_objects(raw_obj_data, raw_relation_data):
         raw_obj_data[i]['objects'] = objs
 
 
-def filter_object_boxes(raw_obj_data, images_id2area, area_frac_thresh):
+def filter_object_boxes(raw_obj_data, images_id2area, area_frac_thresh=0.002):
     """
     filter boxes by a box area-image area ratio threshold
     """

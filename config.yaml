@@ -1,21 +1,20 @@
 dataset:
-    image_dir: '../datasets/vg/images'
-    annot_dir: '../datasets/vg_scene_graph_annot'
+    image_dir: 'datasets/vg/images'
+    annot_dir: 'datasets/vg_scene_graph_annot'
     raw_annot_dir: 'datasets/vg/annotations/'
-    annotation_train: '../datasets/vg/annotations/instances_vg_train.json'
-    annotation_test: '../datasets/vg/annotations/instances_vg_test.json'
-    object_alias: '../datasets/vg_scene_graph_annot/object_alias.txt'
-    predicate_alias: '../datasets/vg_scene_graph_annot/predicate_alias.txt'
-    object_types: '../datasets/vg_scene_graph_annot/object_types.txt'
-    object_list: '../datasets/vg_scene_graph_annot/object_list.txt'
-    sub2super_cat_dict: '../datasets/vg_scene_graph_annot/sub2super_cat_dict.pt'
+    annotation_train: 'datasets/vg/annotations/instances_vg_train.json'
+    annotation_test: 'datasets/vg/annotations/instances_vg_test.json'
+    object_alias: 'datasets/vg_scene_graph_annot/object_alias.txt'
+    predicate_alias: 'datasets/vg_scene_graph_annot/predicate_alias.txt'
+    object_types: 'datasets/vg_scene_graph_annot/object_types.txt'
+    object_list: 'datasets/vg_scene_graph_annot/object_list.txt'
+    sub2super_cat_dict: 'datasets/vg_scene_graph_annot/sub2super_cat_dict.pt'
     train_test_split: 0.7
-    percent_train: 1 #0.005
-    percent_test: 1 #0.01
-    area_frac_thresh: 0.002
+    percent_train: 1
+    percent_test: 1
 models:
-    detr101_key_before: '../datasets/vg_scene_graph_annot/detr101_key_before.txt'
-    detr101_key_after: '../datasets/vg_scene_graph_annot/detr101_key_after.txt'
+    detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
+    detr101_key_after: 'datasets/vg_scene_graph_annot/detr101_key_after.txt'
     detr101_pretrained: 'checkpoints/detr101_vg_ckpt.pth'
     image_size: 1024
     feature_size: 32
@@ -25,10 +24,9 @@ models:
     num_relations: 50
     num_super_classes: 17
     hidden_dim: 128
-    use_depth: True
     depth_model_type: 'DPT_Large'
     hierarchical_pred: True
-    topk_cat: 1
+    topk_cat: 2
     nms: 0.5
 transformers:
     in_model: 566
@@ -37,29 +35,27 @@ transformers:
     dim_feedforward: 768
     num_encoder_layers: 6
     pre_norm: False
-    lambda_not_connected: 0.1
-    batched: False
     sparsity: 0.5
 training:
-    run_mode: 'train'      # train, eval, or vis
-    train_mode: 'local'  # local or global
-    eval_mode: 'pc'       # pc or sgd
+    run_mode: 'train'      # train or eval
+    train_mode: 'local'    # local or global
+    eval_mode: 'pc'        # pc or sgd
     learning_rate: 0.005
     weight_decay: 0.0001
     batch_size: 32
     num_epoch: 6
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
-    continue_train: False
-    start_epoch: 0
+    continue_train: True
+    start_epoch: 3
     scheduler_param1: 2
     scheduler_param2: 5
-    test_epoch: 2
+    test_epoch: 5
     load_model: True
     lambda_sparsity: 0
     lambda_connectivity: 1
     lambda_not_connected: 1
-    print_freq: 50
-    eval_freq: 50
+    print_freq: 10
+    eval_freq: 10
     print_freq_test: 20
     eval_freq_test: 1

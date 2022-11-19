@@ -49,7 +49,7 @@ preprocess_object_labels(raw_obj_data, alias_dict=obj_alias_dict)
 preprocess_predicates(raw_relation_data, alias_dict=pred_alias_dict)
 
 images_id2area = {img['image_id']: img['width'] * img['height'] for img in raw_img_data}
-filter_object_boxes(raw_obj_data, images_id2area, args['dataset']['area_frac_thresh'])
+filter_object_boxes(raw_obj_data, images_id2area)
 
 merge_duplicate_boxes(raw_obj_data)
 

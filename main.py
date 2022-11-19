@@ -46,8 +46,9 @@ if __name__ == "__main__":
     test_subset = Subset(test_dataset, test_subset_idx)
     print('num of train, test:', len(train_subset), len(test_subset))
 
+    # select training or evaluation
     if args['training']['run_mode'] == 'train':
-        # Train the model
+        # local prediction module or the model with optional transformer encoder
         if args['training']['train_mode'] == 'local':
             mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
         elif args['training']['train_mode'] == 'global':
@@ -56,13 +57,12 @@ if __name__ == "__main__":
             print('Invalid arguments.')
 
     elif args['training']['run_mode'] == 'eval':
+        # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
             mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
         elif args['training']['eval_mode'] == 'sgd':       # scene graph detection
             mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset))
         else:
             print('Invalid arguments.')
-    elif args['training']['run_mode'] == 'vis':
-        mp.spawn(inference, nprocs=world_size, args=(args, train_subset, test_subset))
     else:
         print('Invalid arguments.')

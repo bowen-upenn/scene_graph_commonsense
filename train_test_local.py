@@ -25,13 +25,11 @@ def setup(rank, world_size):
 
 def train_local(gpu, args, train_subset, test_subset):
     """
-    Model Inputs:
-        image_feature:     the image feature map from Mask R-CNN
-                              size [num_img_feature, feature_size, feature_size]
-        image_depth:       the image depth map from single-image depth estimation
-                              size [1, feature_size, feature_size]
-        list_seg_masks:    list of segmentation masks for each instance detected by Mask R-CNN
-                           size [num_obj][1, feature_size, feature_size]
+    This function trains and evaluates the local prediction module on predicate classification tasks.
+    :param gpu: current gpu index
+    :param args: input arguments in config.yaml
+    :param train_subset: training dataset
+    :param test_subset: testing dataset
     """
     rank = gpu
     world_size = torch.cuda.device_count()
@@ -76,12 +74,12 @@ def train_local(gpu, args, train_subset, test_subset):
     input_proj.eval()
     feature_encoder.eval()
 
-    map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
+    map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(args['training']['start_epoch'] - 1) + '_' + str(rank) + '.pth', map_location=map_location))
+            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
-            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(args['training']['start_epoch'] - 1) + '_' + str(rank) + '.pth', map_location=map_location))
+            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
     optimizer = optim.SGD([{'params': edge_head.parameters(), 'initial_lr': args['training']['learning_rate']}],
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
@@ -109,9 +107,9 @@ def train_local(gpu, args, train_subset, test_subset):
             lr_decay *= 0.1
 
         for batch_count, data in enumerate(tqdm(train_loader), 0):
-            '''
+            """
             PREPARE INPUT DATA
-            '''
+            """
             _, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
 
             images = [image.to(rank) for image in images]
@@ -137,11 +135,9 @@ def train_local(gpu, args, train_subset, test_subset):
                     mask[j, int(bbox[i][j][2]):int(bbox[i][j][3]), int(bbox[i][j][0]):int(bbox[i][j][1])] = 1
                 masks.append(mask)
 
-            '''
+            """
             PREPARE TARGETS
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images. To do mini-batch parallel training,
-            need to convert size [batch_size][curr_num_obj][from 1 to curr_num_obj-1] to [max_num_obj][from 1 to max_num_obj-1][<=batch_size]
-            '''
+            """
             relations_target = []
             direction_target = []
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks]) - 1
@@ -150,12 +146,9 @@ def train_local(gpu, args, train_subset, test_subset):
                 relations_target.append(torch.vstack([relationships[i][graph_iter] for i in which_in_batch]).T.to(rank))  # integer labels
                 direction_target.append(torch.vstack([subj_or_obj[i][graph_iter] for i in which_in_batch]).T.to(rank))
 
-            '''
-            FORWARD PASS
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images.
-            To do mini-batch parallel training, in each graph-level iteration,
-            only stack the data samples whose total num of RNN iterations not exceeding the current iteration.
-            '''
+            """
+            FORWARD PASS THROUGH THE LOCAL PREDICTOR
+            """
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
                 which_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1)
@@ -308,9 +301,9 @@ def train_local(gpu, args, train_subset, test_subset):
                     losses.backward()
                     optimizer.step()
 
-            '''
+            """
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
-            '''
+            """
             if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                 recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
                 if args['models']['hierarchical_pred']:
@@ -366,15 +359,6 @@ def train_local(gpu, args, train_subset, test_subset):
 
 
 def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_loader, test_record, epoch, rank):
-    """
-    Model Inputs:
-        image_feature:     the image feature map from Mask R-CNN
-                              size [num_img_feature, feature_size, feature_size]
-        image_depth:       the image depth map from single-image depth estimation
-                              size [1, feature_size, feature_size]
-        list_seg_masks:    list of segmentation masks for each instance detected by Mask R-CNN
-                           size [num_obj][1, feature_size, feature_size]
-    """
     edge_head.eval()
     feature_encoder.eval()
 
@@ -385,9 +369,9 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
     print('Start Testing PC...')
     with torch.no_grad():
         for batch_count, data in enumerate(tqdm(test_loader), 0):
-            '''
+            """
             PREPARE INPUT DATA
-            '''
+            """
             _, images_s, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
 
             images_s = [image.to(rank) for image in images_s]
@@ -411,11 +395,9 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
                     mask[j, int(bbox[i][j][2]):int(bbox[i][j][3]), int(bbox[i][j][0]):int(bbox[i][j][1])] = 1
                 masks.append(mask)
 
-            '''
+            """
             PREPARE TARGETS
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images. To do mini-batch parallel training, 
-            need to convert size [batch_size][curr_num_obj][from 1 to curr_num_obj-1] to [max_num_obj][from 1 to max_num_obj-1][<=batch_size]
-            '''
+            """
             relations_target = []
             direction_target = []
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks]) - 1
@@ -424,12 +406,9 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
                 relations_target.append(torch.vstack([relationships[i][graph_iter] for i in which_in_batch]).T.to(rank))  # integer labels
                 direction_target.append(torch.vstack([subj_or_obj[i][graph_iter] for i in which_in_batch]).T.to(rank))
 
-            '''
-            FORWARD PASS
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images.
-            To do mini-batch parallel training, in each graph-level iteration, 
-            only stack the data samples whose total num of RNN iterations not exceeding the current iteration.
-            '''
+            """
+            FORWARD PASS THROUGH THE LOCAL PREDICTOR
+            """
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
                 which_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1)
@@ -508,9 +487,9 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
                             Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                                    cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
-            '''
-            EVALUATE AND PRINT CURRENT TRAINING RESULTS
-            '''
+            """
+            EVALUATE AND PRINT CURRENT RESULTS
+            """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
                 if args['models']['hierarchical_pred']:

@@ -12,11 +12,23 @@ import torchvision
 
 
 def collate_fn(batch):
+    """
+    This function solves the problem when some data samples in a batch are None.
+    :param batch: the current batch in dataloader
+    :return: a new batch with all non-None data samples
+    """
     batch = list(filter(lambda x: x is not None, batch))
     return tuple(zip(*batch))
 
 
 def resize_boxes(boxes, original_size, new_size):
+    """
+    This function resizes an object bounding box.
+    :param boxes: original bounding box
+    :param original_size: original image size
+    :param new_size: target image size
+    :return: the resized bounding box
+    """
     ratios = [s / s_orig for s, s_orig in zip(new_size, original_size)]
     ratio_height, ratio_width = ratios
     xmin, ymin, xmax, ymax = boxes[0], boxes[1], boxes[2], boxes[3]
@@ -30,6 +42,12 @@ def resize_boxes(boxes, original_size, new_size):
 
 
 def iou(bbox_target, bbox_pred):
+    """
+    This function calculates the IOU score between two bounding boxes.
+    :param bbox_target: target bounding box
+    :param bbox_pred: predicted bounding box
+    :return: the IOU score
+    """
     mask_pred = torch.zeros(32, 32)
     mask_pred[int(bbox_pred[0]):int(bbox_pred[1]), int(bbox_pred[2]):int(bbox_pred[3])] = 1
     mask_target = torch.zeros(32, 32)
@@ -43,6 +61,13 @@ def iou(bbox_target, bbox_pred):
 
 
 def build_detr101(args):
+    """
+    This function builds the DETR-101 object detection backbone.
+    It loads the model from source, change key names in the model state dict if needed,
+    and loads state dict from a pretrained checkpoint
+    :param args: input arguments in config.yaml file
+    :return: the pretrained model
+    """
     with open(args['models']['detr101_key_before'], 'r') as f:
         name_before = f.readlines()
         name_before = [line[:-1] for line in name_before]
@@ -117,55 +142,6 @@ def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
     else:
         raise ValueError('not supported')
     return NestedTensor(tensor, mask)
-
-
-def cat_by_direction(cat_graph, cat_edge, direction_target):
-    subject_cat = torch.where(direction_target == 1, cat_graph, cat_edge)
-    object_cat = torch.where(direction_target == 0, cat_graph, cat_edge)
-    return subject_cat, object_cat
-
-
-def scat_by_direction(scat_graph, scat_edge, direction_target):
-    choice = torch.where(direction_target == 0)[0]
-    subject_scat = scat_graph.copy()
-    for c in choice:
-        subject_scat[c] = scat_edge[c]
-    choice = torch.where(direction_target == 1)[0]
-    object_scat = scat_graph.copy()
-    for c in choice:
-        object_scat[c] = scat_edge[c]
-    return subject_scat, object_scat
-
-
-def bbox_by_direction(bbox_graph, bbox_edge, direction_target):
-    choice = torch.where(direction_target == 0)[0]
-    subject_bbox = bbox_graph.clone()
-    subject_bbox[choice] = bbox_edge[choice]
-    choice = torch.where(direction_target == 1)[0]
-    object_bbox = bbox_graph.clone()
-    object_bbox[choice] = bbox_edge[choice]
-    return subject_bbox, object_bbox
-
-
-def h_by_direction(h_graph, h_edge, direction_target):
-    choice = torch.where(direction_target == 0)[0]
-    subject_h = h_graph.clone()
-    subject_h[choice] = h_edge[choice]
-    choice = torch.where(direction_target == 1)[0]
-    object_h = h_graph.clone()
-    object_h[choice] = h_edge[choice]
-    return subject_h, object_h
-
-
-def rel_vec2img(rel, joint_masks, num_relations, bs, rank, feature_size):
-    relation_3d = torch.zeros(bs, num_relations, feature_size, feature_size).to(rank)
-    if len(rel.shape) == 1:  # groundtruth 1d integer labels
-        idx = torch.arange(bs)
-        relation_3d[idx, rel] += joint_masks[:, 0, :, :]
-    else:  # predicted 2d soft labels
-        relation_3d += joint_masks
-        relation_3d *= rel.view(bs, num_relations, 1, 1)
-    return relation_3d
 
 
 def get_num_each_class():  # number of training data in total for each relationship class

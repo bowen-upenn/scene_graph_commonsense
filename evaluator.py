@@ -6,6 +6,11 @@ import math
 
 
 class Evaluator_PC:
+    """
+    The class evaluate the model performance on Recall@k and mean Recall@k evaluation metrics on predicate classification tasks.
+    In our hierarchical relationship scheme, each edge has three predictions per direction under three disjoint super-categories.
+    Therefore, each directed edge outputs three individual candidates to be ranked in the top k most confident predictions instead of one.
+    """
     def __init__(self, num_classes, iou_thresh, top_k):
         self.top_k = top_k
         self.num_classes = num_classes
@@ -130,6 +135,10 @@ class Evaluator_PC:
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(3, 1)))
 
     def compute(self, hierarchical_pred, per_class=False):
+        """
+        A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,
+        the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
+        """
         for image in torch.unique(self.which_in_batch):  # image-wise
             curr_image = self.which_in_batch == image
             num_relation_pred = len(self.relation_pred[curr_image])
@@ -190,6 +199,11 @@ class Evaluator_PC:
 
 
 class Evaluator_PC_Top3:
+    """
+    The class evaluate the model performance on Recall@k^{*} and mean Recall@k^{*} evaluation metrics on predicate classification tasks.
+    If any of the three super-category output heads correctly predicts the relationship, we score it as a match.
+    Top3 represents three argmax predicate from three disjoint super-categories, instead of the top 3 predicates under a flat classification.
+    """
     def __init__(self, num_classes, iou_thresh, top_k):
         self.top_k = top_k
         self.num_classes = num_classes
@@ -277,6 +291,10 @@ class Evaluator_PC_Top3:
             self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
     def compute(self, hierarchical_pred, per_class=False):
+        """
+        A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,
+        the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
+        """
         for image in torch.unique(self.which_in_batch):  # image-wise
             curr_image = self.which_in_batch == image
             num_relation_pred = len(self.relation_pred[curr_image])
@@ -362,6 +380,11 @@ class Evaluator_PC_Top3:
 
 
 class Evaluator_SGD:
+    """
+    The class evaluate the model performance on Recall@k and mean Recall@k evaluation metrics on scene graph detection tasks.
+    In our hierarchical relationship scheme, each edge has three predictions per direction under three disjoint super-categories.
+    Therefore, each directed edge outputs three individual candidates to be ranked in the top k most confident predictions instead of one.
+    """
     def __init__(self, num_classes, iou_thresh, top_k):
         self.top_k = top_k
         self.num_classes = num_classes
@@ -480,11 +503,12 @@ class Evaluator_SGD:
                 return True
         return False
 
-    """
-    for each target <subject, relation, object> triplet, find among all top k predicted <subject, relation, object> triplets
-    if there is any one with matched subject, relationship, and object categories, and iou>=0.5 for subject and object bounding boxes
-    """
     def compute(self, hierarchical_pred, per_class=False):
+        """
+        All object bounding boxes and labels are predicted instead of the ground-truth.
+        For each target <subject, relation, object> triplet, find among all top k predicted <subject, relation, object> triplets
+        if there is any one with matched subject, relationship, and object categories, and iou>=0.5 for subject and object bounding boxes
+        """
         for curr_image in range(len(self.relation_target)):
             if self.relation_target[curr_image] is None:
                 continue
@@ -548,6 +572,11 @@ class Evaluator_SGD:
 
 
 class Evaluator_SGD_Top3:
+    """
+    The class evaluate the model performance on Recall@k^{*} and mean Recall@k^{*} evaluation metrics on scene graph detection tasks.
+    If any of the three super-category output heads correctly predicts the relationship, we score it as a match.
+    Top3 represents three argmax predicate from three disjoint super-categories, instead of the top 3 predicates under a flat classification.
+    """
     def __init__(self, num_classes, iou_thresh, top_k):
         self.top_k = top_k
         self.num_classes = num_classes
@@ -651,11 +680,12 @@ class Evaluator_SGD_Top3:
                 return True
         return False
 
-    """
-    for each target <subject, relation, object> triplet, find among all top k predicted <subject, relation, object> triplets
-    if there is any one with matched subject, relationship, and object categories, and iou>=0.5 for subject and object bounding boxes
-    """
     def compute(self, hierarchical_pred, per_class=False):
+        """
+        All object bounding boxes and labels are predicted instead of the ground-truth.
+        For each target <subject, relation, object> triplet, find among all top k predicted <subject, relation, object> triplets
+        if there is any one with matched subject, relationship, and object categories, and iou>=0.5 for subject and object bounding boxes
+        """
         for curr_image in range(len(self.relation_target)):
             if self.relation_target[curr_image] is None:
                 continue

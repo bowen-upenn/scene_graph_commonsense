@@ -27,13 +27,10 @@ def setup(rank, world_size):
 
 def eval_pc(gpu, args, test_subset):
     """
-    Model Inputs:
-        image_feature:     the image feature map from Mask R-CNN
-                              size [num_img_feature, feature_size, feature_size]
-        image_depth:       the image depth map from single-image depth estimation
-                              size [1, feature_size, feature_size]
-        list_seg_masks:    list of segmentation masks for each instance detected by Mask R-CNN
-                           size [num_obj][1, feature_size, feature_size]
+    This function evaluates the model with optional transformer encoder on predicate classification tasks.
+    :param gpu: current gpu index
+    :param args: input arguments in config.yaml
+    :param test_subset: testing dataset
     """
     rank = gpu
     world_size = torch.cuda.device_count()
@@ -74,14 +71,14 @@ def eval_pc(gpu, args, test_subset):
     input_proj.eval()
     feature_encoder.eval()
 
-    map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
+    map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        motif_embedding.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(2) + '_' + str(rank) + '.pth', map_location=map_location), strict=False)
-        motif_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'MotifHeadHier' + str(args['training']['test_epoch']) + '_' + str(rank) + '.pth', map_location=map_location), strict=True)
+        motif_embedding.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(2) + '_0' + '.pth', map_location=map_location), strict=False)
+        motif_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'MotifHeadHier' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location), strict=True)
     else:
-        motif_embedding.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(2) + '_' + str(rank) + '.pth', map_location=map_location), strict=False)
-        motif_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'MotifHead' + str(args['training']['test_epoch']) + '_' + str(rank) + '.pth', map_location=map_location), strict=True)
-    transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransformerEncoder' + str(args['training']['test_epoch']) + '_' + str(rank) + '.pth', map_location=map_location), strict=True)
+        motif_embedding.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(2) + '_0' + '.pth', map_location=map_location), strict=False)
+        motif_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'MotifHead' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location), strict=True)
+    transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransformerEncoder' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location), strict=True)
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     Recall = Evaluator_PC(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
@@ -90,9 +87,9 @@ def eval_pc(gpu, args, test_subset):
     print('Start Testing PC...')
     with torch.no_grad():
         for batch_count, data in enumerate(tqdm(test_loader), 0):
-            '''
+            """
             PREPARE INPUT DATA
-            '''
+            """
             try:
                 images_o, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
             except:
@@ -123,11 +120,9 @@ def eval_pc(gpu, args, test_subset):
                     mask[j, int(bbox[i][j][2]):int(bbox[i][j][3]), int(bbox[i][j][0]):int(bbox[i][j][1])] = 1
                 masks.append(mask)
 
-            '''
+            """
             PREPARE TARGETS
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images. To do mini-batch parallel training, 
-            need to convert size [batch_size][curr_num_obj][from 1 to curr_num_obj-1] to [max_num_obj][from 1 to max_num_obj-1][<=batch_size]
-            '''
+            """
             relations_target = []
             direction_target = []
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks]) - 1
@@ -137,12 +132,9 @@ def eval_pc(gpu, args, test_subset):
                 direction_target.append(torch.vstack([subj_or_obj[i][graph_iter] for i in which_in_batch]).T.to(rank))
             del images, relationships, subj_or_obj
 
-            '''
-            COLLECT ALL MOTIFS HIDDEN STATES
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images.
-            To do mini-batch parallel training, in each graph-level iteration, 
-            only stack the data samples whose total num of RNN iterations not exceeding the current iteration.
-            '''
+            """
+            COLLECT ALL MOTIFS HIDDEN STATES FROM THE LOCAL PREDICTION MODULE
+            """
             hidden_states = None
             relations_targets = None
             which_in_batch_all = None
@@ -233,9 +225,9 @@ def eval_pc(gpu, args, test_subset):
                     bbox_subjects = torch.vstack((bbox_subjects, bbox_edge))
                     bbox_objects = torch.vstack((bbox_objects, bbox_graph))
 
-            '''
-            FORWARD PASS THROUGH BI-DIRECTIONAL RECURRENT NETWORKS
-            '''
+            """
+            THE TRANSFORMER ENCODER NETWORK FOR FURTHER GLOBAL REASONING
+            """
             del image_feature, masks, bbox, categories, super_categories, image_depth, relations_target, direction_target, h_graph, h_edge
 
             confidence_all = torch.max(torch.vstack((torch.max(hidden_states[:, -54:-39], dim=1)[0],
@@ -296,9 +288,9 @@ def eval_pc(gpu, args, test_subset):
                 Recall_top3.accumulate(which_in_batch_all, new_relation_pred, relations_targets, new_super_relation_pred, torch.log(torch.sigmoid(new_connectivity_pred[:, 0])),
                                        cat_subjects, cat_objects, cat_subjects, cat_objects, bbox_subjects, bbox_objects, bbox_subjects, bbox_objects)
 
-            '''
-            EVALUATE AND PRINT CURRENT TRAINING RESULTS
-            '''
+            """
+            EVALUATE AND PRINT CURRENT RESULTS
+            """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
                 recall_top3, _, mean_recall_top3 = Recall_top3.compute(args['models']['hierarchical_pred'], per_class=True)
@@ -328,13 +320,10 @@ def eval_pc(gpu, args, test_subset):
 
 def eval_sgd(gpu, args, test_subset):
     """
-    Model Inputs:
-        image_feature:     the image feature map from Mask R-CNN
-                              size [num_img_feature, feature_size, feature_size]
-        image_depth:       the image depth map from single-image depth estimation
-                              size [1, feature_size, feature_size]
-        list_seg_masks:    list of segmentation masks for each instance detected by Mask R-CNN
-                           size [num_obj][1, feature_size, feature_size]
+    This function evaluates the model with optional transformer encoder on scene graph detection tasks.
+    :param gpu: current gpu index
+    :param args: input arguments in config.yaml
+    :param test_subset: testing dataset
     """
     rank = gpu
     world_size = torch.cuda.device_count()
@@ -393,9 +382,9 @@ def eval_sgd(gpu, args, test_subset):
     print('Start Testing SGD...')
     with torch.no_grad():
         for batch_count, data in enumerate(tqdm(test_loader), 0):
-            '''
-            PREPARE INPUT DATA
-            '''
+            """
+            PREPARE INPUT DATA WITH PREDICTED OBJECT BOUNDING BOXES AND LABELS
+            """
             try:
                 images, images_s, image_depth, categories_target, super_categories_target, masks_target, bbox_target, relationships, subj_or_obj = data
             except:
@@ -483,22 +472,17 @@ def eval_sgd(gpu, args, test_subset):
             super_categories_pred = [[sub2super_cat_dict[c.item()] for c in categories_pred[i]] for i in range(len(categories_pred))]
             super_categories_pred = [[torch.as_tensor(sc).to(rank) for sc in super_category] for super_category in super_categories_pred]
 
-            '''
+            """
             PREPARE TARGETS
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images. To do mini-batch parallel training,
-            need to convert size [batch_size][curr_num_obj][from 1 to curr_num_obj-1] to [max_num_obj][from 1 to max_num_obj-1][<=batch_size]
             relations_target and direction_target: matched targets for each prediction
             cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target, relation_target_origin: sets of original unmatched targets
-            '''
+            """
             cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target, relation_target \
                 = match_target_sgd(rank, relationships, subj_or_obj, categories_target, bbox_target)
 
-            '''
-            FORWARD PASS
-            Different data samples in a batch have different num of RNN iterations, i.e., different number of objects in images.
-            To do mini-batch parallel training, in each graph-level iteration,
-            only stack the data samples whose total num of RNN iterations not exceeding the current iteration.
-            '''
+            """
+            COLLECT ALL MOTIFS HIDDEN STATES FROM THE LOCAL PREDICTION MODULE
+            """
             hidden_states = None
             which_in_batch_all = None
             cat_subjects_pred = None
@@ -601,9 +585,9 @@ def eval_sgd(gpu, args, test_subset):
                     bbox_subjects_pred = torch.vstack((bbox_subjects_pred, bbox_edge_pred[iou_mask]))
                     bbox_objects_pred = torch.vstack((bbox_objects_pred, bbox_graph_pred[iou_mask]))
 
-            '''
-            FORWARD PASS THROUGH TRANSFORMER ENCODER
-            '''
+            """
+            THE TRANSFORMER ENCODER NETWORK FOR FURTHER GLOBAL REASONING
+            """
             # Add binary mask to filter out only top k most confident predictions into the rn
             confidence_all = torch.max(torch.vstack((torch.max(hidden_states[:, -54:-39], dim=1)[0],
                                                      torch.max(hidden_states[:, -39:-28], dim=1)[0],
@@ -664,9 +648,9 @@ def eval_sgd(gpu, args, test_subset):
                 Recall.accumulate_target(relation_target, cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target)
                 Recall_top3.accumulate_target(relation_target, cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target)
 
-            '''
-            EVALUATE AND PRINT CURRENT TRAINING RESULTS
-            '''
+            """
+            EVALUATE AND PRINT CURRENT RESULTS
+            """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
                 recall_top3, _, mean_recall_top3 = Recall_top3.compute(args['models']['hierarchical_pred'], per_class=True)

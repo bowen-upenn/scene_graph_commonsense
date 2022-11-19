@@ -5,6 +5,9 @@ import torch.nn.functional as F
 
 
 class MotifHead(nn.Module):
+    """
+    The prediction head with a flat classification when the optional transformer encoder is used.
+    """
     def __init__(self, input_dim=256, output_dim=50):
         super(MotifHead, self).__init__()
         self.fc3 = nn.Linear(2 * input_dim, output_dim)
@@ -19,6 +22,9 @@ class MotifHead(nn.Module):
 
 
 class MotifHeadHier(nn.Module):
+    """
+    The prediction head with a hierarchical classification when the optional transformer encoder is used.
+    """
     def __init__(self, input_dim=256, T1=1, T2=1, T3=1):
         super(MotifHeadHier, self).__init__()
         self.fc3_1 = nn.Linear(2 * input_dim, 15)
@@ -45,6 +51,11 @@ class MotifHeadHier(nn.Module):
 
 
 class MotifEmbed(nn.Module):
+    """
+    The local prediction module with a flat classification when the optional transformer encoder is used.
+    Its model parameter is always pretrained and frozen.
+    It provides hidden states to the transformer encoder.
+    """
     def __init__(self, input_dim=128, output_dim=50, feature_size=32, num_classes=150, num_super_classes=17):
         super(MotifEmbed, self).__init__()
         self.num_classes = num_classes
@@ -99,6 +110,11 @@ class MotifEmbed(nn.Module):
 
 
 class MotifEmbedHier(nn.Module):
+    """
+    The local prediction module with a hierarchical classification when the optional transformer encoder is used.
+    Its model parameter is always pretrained and frozen.
+    It provides hidden states to the transformer encoder.
+    """
     def __init__(self, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, T1=1, T2=1, T3=1):
         super(MotifEmbedHier, self).__init__()
         self.num_classes = num_classes
@@ -166,6 +182,9 @@ class MotifEmbedHier(nn.Module):
 
 
 class EdgeHead(nn.Module):
+    """
+    The local prediction module with a flat classification.
+    """
     def __init__(self, input_dim=128, output_dim=50, feature_size=32, num_classes=150, num_super_classes=17):
         super(EdgeHead, self).__init__()
         self.num_classes = num_classes
@@ -219,6 +238,9 @@ class EdgeHead(nn.Module):
 
 
 class EdgeHeadHier(nn.Module):
+    """
+    The local prediction module with a hierarchical classification.
+    """
     def __init__(self, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, T1=1, T2=1, T3=1):
         super(EdgeHeadHier, self).__init__()
         self.num_classes = num_classes
