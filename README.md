@@ -6,7 +6,7 @@ This paper describes a novel approach to deducing relationships between objects 
 Illustration of our scene graph construction scheme. 
 
 
-## Dependencies:
+## Dependencies
   - python >= 3.6.9
   - torch >= 1.10.1+cu102 
   - torchvision >= 0.11.2+cu102
@@ -24,7 +24,7 @@ Illustration of our scene graph construction scheme.
   - transformers
 
 
-## Dataset:
+## Dataset
   Please refer to [datasets/README.md](datasets/README.md) or [DATASET_README.md](DATASET_README.md) to download and prepare the dataset.
 
 
@@ -37,7 +37,7 @@ Illustration of our scene graph construction scheme.
   - Prediction head on the fifth epoch if the optional transformer encoder is used: https://drive.google.com/file/d/1MNcaD7UlRpzQ3ad4gL9qpO43yBGurHqP/view?usp=sharing
 
 
-## Quick Start:
+## Quick Start
   All hyper-parameters are listed in the [config.yaml](config.yaml) file.
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
   Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
