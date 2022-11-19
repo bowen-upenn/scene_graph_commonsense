@@ -1,4 +1,4 @@
-## Step 1 - Download the following annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html
+### Step 1 - Download the following annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html
 and put them under the datasets/vg directory.
 
 - datasets
@@ -18,8 +18,7 @@ and put them under the datasets/vg directory.
 		  	- ...
 
 
-################################################################
-## Step 2 - Execute ```./preprocess.py``` to pre-process the dataset annotations and the following two files will then be saved to the datasets/vg/annottions directory.
+### Step 2 - Execute ```./preprocess.py``` to pre-process the dataset annotations and the following two files will then be saved to the datasets/vg/annottions directory.
 We implement in our own code the same dataset pre-processing techniques in https://github.com/danfeiX/scene-graph-TF-release/tree/master/data_tools.
 No GPU is required at this step.
 You can SKIP this step by directly using the processed annotations provided in step 3.
@@ -38,8 +37,7 @@ instances_vg_train: https://drive.google.com/file/d/1xEUk6jqZtKE0Myrs1I-lPoQZ3-2
 instances_vg_test.json: https://drive.google.com/file/d/1qkiXDw9sMsyCOMB-avBYnF8VGIqds0_k/view?usp=sharing
 
 
-################################################################
-## Step 3 - Execute ```./prepare_datasets.py``` to build the dataloader offline to speed up the later training process.
+### Step 3 - Execute ```./prepare_datasets.py``` to build the dataloader offline to speed up the later training process.
 Pre-processed annotations in step 2 will be loaded to form an annotation for each image data ready to be used in the scene graph training process.
 One GPU is required at this step.
 Each annotation for each image will be saved under the datasets/vg_scene_graph_annot directory as follows
@@ -58,12 +56,11 @@ Each annotation for each image will be saved under the datasets/vg_scene_graph_a
 		  - ...
 		...
 
-## We provide all processed annotations here (it takes 2.09GB after unzipping)
+#### We provide all processed annotations here (it takes 2.09GB after unzipping)
 https://drive.google.com/file/d/1hPLP-6Ub7s7zCthrfO-C2b_f_agXCiGv/view?usp=sharing
 
 
-################################################################
-## The final dataset directory should have the following structure
+### The final dataset directory should have the following structure
 - datasets
   - vg
 		- annottions
