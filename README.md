@@ -40,10 +40,12 @@ This paper describes a novel approach to deducing relationships between objects 
   Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
   Please modify ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
   
-  We currently support Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) on Visual Genome, with and without the optional transformer encoder, and PredCLS on OpenImage V6 without the optional transformer encoder.
+  We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome, including the zero-shot learning and the optional transformer encoder. We also support the PredCLS for OpenImage V6.
 
-  ### To train the local prediction module:
+  ### To train the model on Visual Genome or OpenImage V6:
     In config.yaml, set
+      dataset:
+        dataset: 'vg' or 'oiv6'
       training:
         run_mode: 'train'
         train_mode: 'local'
@@ -52,28 +54,22 @@ This paper describes a novel approach to deducing relationships between objects 
 
 Execute ```python main.py```.
 
-  ### To evaluate the local prediction module on predicate classification (PredCLS) tasks:
+  ### To evaluate the model on Visual Genome or OpenImage V6 for PredCLS, SGCLS, or SGDET:
     In config.yaml, set
+      dataset:
+        dataset: 'vg' or 'oiv6'
       training:
         run_mode: 'eval'
         train_mode: 'local'
-        eval_mode: 'pc'
+        eval_mode: 'pc' or 'sgc' or 'sgd'
         test_epoch: 2
 
 Execute ```python main.py```.
 
-  ### To evaluate the local prediction module on scene graph detection (SGDET) tasks:
+  ### To train the model with the optional transformer encoder on Visual Genome:
     In config.yaml, set
-      training:
-        run_mode: 'eval'
-        train_mode: 'local'
-        eval_mode: 'sgd'
-        test_epoch: 2
-
-Execute ```python main.py```.
-
-  ### To train the model with the optional transformer encoder:
-    In config.yaml, set
+      dataset:
+        dataset: 'vg'
       training:
         run_mode: 'train'
         train_mode: 'global'
@@ -82,22 +78,14 @@ Execute ```python main.py```.
 
 Execute ```python main.py```.
 
-  ### To evaluate the model with the optional transformer encoder on predicate classification (PredCLS) tasks:
+  ### To evaluate the model with the optional transformer encoder on PredCLS:
     In config.yaml, set
+      dataset:
+        dataset: 'vg'
       training:
         run_mode: 'eval'
         train_mode: 'global'
         eval_mode: 'pc'
-        test_epoch: 5
-
-Execute ```python main.py```.
-
-  ### To evaluate the local prediction module on scene graph detection (SGDET) tasks:
-    In config.yaml, set
-      training:
-        run_mode: 'eval'
-        train_mode: 'global'
-        eval_mode: 'sgd'
         test_epoch: 5
 
 Execute ```python main.py```.
