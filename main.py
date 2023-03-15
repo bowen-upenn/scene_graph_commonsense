@@ -5,12 +5,13 @@ import torch.optim as optim
 from torch.utils.data import Subset
 import yaml
 import os
+import json
 import torch.multiprocessing as mp
 
-from dataset import VisualGenomeDataset
+from dataset import VisualGenomeDataset, OpenImageV6Dataset
 from train_test_local import train_local
 from train_test_global import train_global
-
+from evaluate_local import eval_pc, eval_sgc, eval_sgd
 
 if __name__ == "__main__":
     print('Torch', torch.__version__, 'Torchvision', torchvision.__version__)
@@ -21,13 +22,6 @@ if __name__ == "__main__":
     except Exception as e:
         print('Error reading the config file')
 
-    if args['training']['train_mode'] == 'local':
-        from evaluate_local import eval_pc, eval_sgd
-    elif args['training']['train_mode'] == 'global':
-        from evaluate_global import eval_pc, eval_sgd
-    else:
-        print('Invalid arguments.')
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world_size = torch.cuda.device_count()
     print('device', device)
@@ -35,9 +29,32 @@ if __name__ == "__main__":
     print('Using %d GPUs' % (torch.cuda.device_count()))
 
     # Prepare datasets
-    print("Loading the datasets...")
-    train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'])
-    test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])
+    if args['dataset']['dataset'] == 'vg':
+        args['models']['num_classes'] = 150
+        args['models']['num_relations'] = 50
+        args['models']['num_super_classes'] = 17
+        args['models']['num_geometric'] = 15
+        args['models']['num_possessive'] = 11
+        args['models']['num_semantic'] = 24
+        args['models']['detr101_pretrained'] = 'checkpoints/detr101_vg_ckpt.pth'
+
+        print("Loading the datasets...")
+        train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'])
+        test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])
+
+    elif args['dataset']['dataset'] == 'oiv6':
+        args['models']['num_classes'] = 601
+        args['models']['num_relations'] = 30
+        args['models']['num_geometric'] = 4
+        args['models']['num_possessive'] = 2
+        args['models']['num_semantic'] = 24
+        args['models']['detr101_pretrained'] = 'checkpoints/detr101_oiv6_ckpt.pth'
+
+        print("Loading the datasets...")
+        train_dataset = OpenImageV6Dataset(args, device, '../datasets/open_image_v6/annotations/oiv6-adjust/vrd-train-anno.json')
+        test_dataset = OpenImageV6Dataset(args, device, '../datasets/open_image_v6/annotations/oiv6-adjust/vrd-test-anno.json')
+    else:
+        print('Unknown dataset.')
 
     torch.manual_seed(0)
     train_subset_idx = torch.randperm(len(train_dataset))[:int(args['dataset']['percent_train'] * len(train_dataset))]
@@ -51,18 +68,25 @@ if __name__ == "__main__":
         # local prediction module or the model with optional transformer encoder
         if args['training']['train_mode'] == 'local':
             mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
-        elif args['training']['train_mode'] == 'global':
+        elif args['training']['train_mode'] == 'global' and args['dataset']['dataset'] == 'vg':
             mp.spawn(train_global, nprocs=world_size, args=(args, train_subset, test_subset))
         else:
-            print('Invalid arguments.')
+            print('Invalid arguments or not implemented.')
 
     elif args['training']['run_mode'] == 'eval':
-        # select evaluation mode
-        if args['training']['eval_mode'] == 'pc':          # predicate classification
-            mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
-        elif args['training']['eval_mode'] == 'sgd':       # scene graph detection
-            mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset))
+        if args['training']['train_mode'] == 'global':
+            print('Not implemented.')
         else:
-            print('Invalid arguments.')
+            # select evaluation mode
+            if args['training']['eval_mode'] == 'pc':          # predicate classification
+                mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
+            elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
+                args['models']['topk_cat'] = 1
+                mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset))
+            elif args['training']['eval_mode'] == 'sgd' and args['dataset']['dataset'] == 'vg':       # scene graph detection
+                args['models']['topk_cat'] = 2
+                mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset))
+            else:
+                print('Invalid arguments or not implemented.')
     else:
         print('Invalid arguments.')

@@ -19,7 +19,7 @@ from utils import *
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12356'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -57,11 +57,13 @@ def train_local(gpu, args, train_subset, test_subset):
             test_record = json.load(f)
 
     if args['models']['hierarchical_pred']:
-        edge_head = DDP(EdgeHeadHier(input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
-                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'])).to(rank)
+        edge_head = DDP(EdgeHeadHier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                     num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
     else:
-        edge_head = DDP(EdgeHead(input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
-                                 num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'])).to(rank)
+        edge_head = DDP(EdgeHead(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
+                                 num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                 num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
 
     detr = DDP(build_detr101(args)).to(rank)
     backbone = DDP(detr.module.backbone).to(rank)
@@ -85,20 +87,22 @@ def train_local(gpu, args, train_subset, test_subset):
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
     original_lr = optimizer.param_groups[0]["lr"]
 
-    relation_count = get_num_each_class_reordered()
+    relation_count = get_num_each_class_reordered(args)
     class_weight = 1 - relation_count / torch.sum(relation_count)
-    criterion_relationship_1 = torch.nn.NLLLoss(weight=class_weight[:15].to(rank))      # log softmax already applied
-    criterion_relationship_2 = torch.nn.NLLLoss(weight=class_weight[15:26].to(rank))
-    criterion_relationship_3 = torch.nn.NLLLoss(weight=class_weight[26:].to(rank))
+    criterion_relationship_1 = torch.nn.NLLLoss(weight=class_weight[:args['models']['num_geometric']].to(rank))  # log softmax already applied
+    criterion_relationship_2 = torch.nn.NLLLoss(weight=class_weight[args['models']['num_geometric']:args['models']['num_geometric']+args['models']['num_possessive']].to(rank))
+    criterion_relationship_3 = torch.nn.NLLLoss(weight=class_weight[args['models']['num_geometric']+args['models']['num_possessive']:].to(rank))
     criterion_super_relationship = torch.nn.NLLLoss()
     criterion_relationship = torch.nn.CrossEntropyLoss(weight=class_weight.to(rank))
     criterion_connectivity = torch.nn.BCEWithLogitsLoss()  # pos_weight=torch.tensor([20]).to(rank)
 
     running_losses, running_loss_connectivity, running_loss_relationship, connectivity_recall, connectivity_precision, \
-        num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
-    Recall = Evaluator_PC(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
-    Recall_top3 = Evaluator_PC_Top3(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    if args['dataset']['dataset'] == 'vg':
+        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -112,25 +116,27 @@ def train_local(gpu, args, train_subset, test_subset):
             """
             _, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
 
-            images = [image.to(rank) for image in images]
+            images = torch.stack(images).to(rank)
             with torch.no_grad():
                 image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images))
                 src, mask = image_feature[-1].decompose()
                 src = input_proj(src).flatten(2).permute(2, 0, 1)
                 pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
                 image_feature = feature_encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+
             image_feature = image_feature.permute(1, 2, 0)
             image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
 
             image_depth = torch.stack([depth.to(rank) for depth in image_depth])
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
-            super_categories = [[sc.to(rank) for sc in super_category] for super_category in super_categories]  # [batch_size][curr_num_obj, [1 or more]]
+            if super_categories[0] is not None:
+                super_categories = [[sc.to(rank) for sc in super_category] for super_category in super_categories]  # [batch_size][curr_num_obj, [1 or more]]
             bbox = [box.to(rank) for box in bbox]  # [batch_size][curr_num_obj, 4]
             optimizer.param_groups[0]["lr"] = original_lr
 
             masks = []
             for i in range(len(bbox)):
-                mask = torch.zeros(bbox[i].shape[0], 32, 32, dtype=torch.uint8).to(rank)
+                mask = torch.zeros(bbox[i].shape[0], args['models']['feature_size'], args['models']['feature_size'], dtype=torch.uint8).to(rank)
                 for j, box in enumerate(bbox[i]):
                     mask[j, int(bbox[i][j][2]):int(bbox[i][j][3]), int(bbox[i][j][0]):int(bbox[i][j][1])] = 1
                 masks.append(mask)
@@ -157,14 +163,14 @@ def train_local(gpu, args, train_subset, test_subset):
                 curr_graph_masks = torch.stack([torch.unsqueeze(masks[i][graph_iter], dim=0) for i in which_in_batch])
                 h_graph = torch.cat((image_feature[which_in_batch] * curr_graph_masks, image_depth[which_in_batch] * curr_graph_masks), dim=1)  # (bs, 256, 64, 64), (bs, 1, 64, 64)
                 cat_graph = torch.tensor([torch.unsqueeze(categories[i][graph_iter], dim=0) for i in which_in_batch]).to(rank)
-                scat_graph = [super_categories[i][graph_iter] for i in which_in_batch]
+                scat_graph = [super_categories[i][graph_iter] for i in which_in_batch] if super_categories[0] is not None else None
                 bbox_graph = torch.stack([bbox[i][graph_iter] for i in which_in_batch]).to(rank)
 
                 for edge_iter in range(graph_iter):
                     curr_edge_masks = torch.stack([torch.unsqueeze(masks[i][edge_iter], dim=0) for i in which_in_batch])  # seg mask of every prev obj
                     h_edge = torch.cat((image_feature[which_in_batch] * curr_edge_masks, image_depth[which_in_batch] * curr_edge_masks), dim=1)
                     cat_edge = torch.tensor([torch.unsqueeze(categories[i][edge_iter], dim=0) for i in which_in_batch]).to(rank)
-                    scat_edge = [super_categories[i][edge_iter] for i in which_in_batch]
+                    scat_edge = [super_categories[i][edge_iter] for i in which_in_batch] if super_categories[0] is not None else None
                     bbox_edge = torch.stack([bbox[i][edge_iter] for i in which_in_batch]).to(rank)
 
                     """
@@ -172,7 +178,7 @@ def train_local(gpu, args, train_subset, test_subset):
                     """
                     loss_connectivity, loss_relationship = 0.0, 0.0
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)    # <graph subject, rel, edge object>
+                        relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
                         relation, connectivity = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
@@ -196,21 +202,21 @@ def train_local(gpu, args, train_subset, test_subset):
 
                         if args['models']['hierarchical_pred']:
                             super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
-                            super_relation_target[super_relation_target < 15] = 0
-                            super_relation_target[torch.logical_and(super_relation_target >= 15, super_relation_target < 26)] = 1
-                            super_relation_target[super_relation_target >= 26] = 2
+                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
+                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
                             loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
 
-                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < 15).flatten()                       # geometric
-                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= 15,
-                                                                          relations_target[graph_iter - 1][edge_iter][connected] < 26)).flatten()    # possessive
-                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= 26).flatten()                      # semantic
+                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
+                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
+                                                                          relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
+                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
                             if len(connected_1) > 0:
                                 loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
                             if len(connected_2) > 0:
-                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - 15)
+                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
                             if len(connected_3) > 0:
-                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - 26)
+                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
                         else:
                             loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
 
@@ -221,12 +227,14 @@ def train_local(gpu, args, train_subset, test_subset):
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['models']['hierarchical_pred']:
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
                             Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                                    cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
-                    losses = loss_relationship + args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                    running_loss_connectivity += args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    losses = loss_relationship + args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    running_loss_connectivity += args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
                     running_loss_relationship += loss_relationship
                     running_losses += losses.item()
 
@@ -239,7 +247,8 @@ def train_local(gpu, args, train_subset, test_subset):
                     """
                     loss_connectivity, loss_relationship = 0.0, 0.0
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)    # <edge subject, rel, graph object>
+                        relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph,
+                                                                                                     rank)  # <edge subject, rel, graph object>
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
                         relation, connectivity = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
@@ -263,21 +272,21 @@ def train_local(gpu, args, train_subset, test_subset):
 
                         if args['models']['hierarchical_pred']:
                             super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
-                            super_relation_target[super_relation_target < 15] = 0
-                            super_relation_target[torch.logical_and(super_relation_target >= 15, super_relation_target < 26)] = 1
-                            super_relation_target[super_relation_target >= 26] = 2
+                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
+                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
                             loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
 
-                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < 15).flatten()                     # geometric
-                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= 15,
-                                                                          relations_target[graph_iter - 1][edge_iter][connected] < 26)).flatten()  # possessive
-                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= 26).flatten()                    # semantic
+                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
+                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
+                                                                          relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
+                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
                             if len(connected_1) > 0:
                                 loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
                             if len(connected_2) > 0:
-                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - 15)
+                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
                             if len(connected_3) > 0:
-                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - 26)
+                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
                         else:
                             loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
 
@@ -288,12 +297,14 @@ def train_local(gpu, args, train_subset, test_subset):
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['models']['hierarchical_pred']:
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
                             Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                                    cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
-                    losses = loss_relationship + args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                    running_loss_connectivity += args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    losses = loss_relationship + args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    running_loss_connectivity += args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
                     running_loss_relationship += loss_relationship
                     running_losses += losses.item()
 
@@ -305,43 +316,20 @@ def train_local(gpu, args, train_subset, test_subset):
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
             """
             if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
-                if args['models']['hierarchical_pred']:
-                    recall_top3, _, mean_recall_top3 = Recall_top3.compute(args['models']['hierarchical_pred'], per_class=True)
+                if args['dataset']['dataset'] == 'vg':
+                    recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                    if args['models']['hierarchical_pred']:
+                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                        Recall_top3.clear_data()
+                else:
+                    recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
+                    wmap_rel, wmap_phrase = Recall.compute_precision()
                 Recall.clear_data()
-                Recall_top3.clear_data()
 
             if (batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                if args['models']['hierarchical_pred']:
-                    print('TRAINING, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), loss: %.4f, %.4f, conn: %.4f, %.4f.'
-                          % (rank, epoch, batch_count, original_lr * lr_decay,
-                             recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
-                             mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                             running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
-                             running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
-                             connectivity_recall / (num_connected+1e-5), connectivity_precision / (num_connected_pred+1e-5)))
-                else:
-                    print('TRAINING, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, loss: %.4f, %.4f, conn: %.4f, %.4f.'
-                          % (rank, epoch, batch_count, original_lr * lr_decay,
-                             recall[0], recall[1], recall[2],
-                             mean_recall[0], mean_recall[1], mean_recall[2],
-                             running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
-                             running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
-                             connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
-
-                record.append({'rank': rank, 'epoch': epoch, 'batch': batch_count, 'lr': original_lr * lr_decay,
-                               'recall_relationship': [recall[0], recall[1], recall[2]],
-                               'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
-                               'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
-                               'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
-                               'connectivity_recall': connectivity_recall.item() / (num_connected+1e-5), 'connectivity_precision': connectivity_precision.item() / (num_connected_pred+1e-5),
-                               'total_losses': running_losses / (args['training']['print_freq'] * args['training']['batch_size']),
-                               'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size']),
-                               'connectivity_loss': running_loss_connectivity.item() / (args['training']['print_freq'] * args['training']['batch_size']),
-                               'num_objs_average': torch.mean(num_graph_iter.float()).item(), 'num_objs_max': max(num_graph_iter).item(),
-                               'num_connected': num_connected, 'num_not_connected': num_not_connected})
-                with open(args['training']['result_path'] + 'train_results_' + str(rank) + '.json', 'w') as f:  # append current logs, must use "w" not "a"
-                    json.dump(record, f)
+                record_train_results(args, record, rank, epoch, batch_count, original_lr, lr_decay, recall_top3, recall, mean_recall_top3, mean_recall,
+                                     recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_connectivity, connectivity_recall,
+                                     num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
 
             running_losses, running_loss_connectivity, running_loss_relationship, connectivity_recall, connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -363,8 +351,10 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
     feature_encoder.eval()
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
-    Recall = Evaluator_PC(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
-    Recall_top3 = Evaluator_PC_Top3(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
+    recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
+    Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    if args['dataset']['dataset'] == 'vg':
+        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Testing PC...')
     with torch.no_grad():
@@ -372,10 +362,10 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
             """
             PREPARE INPUT DATA
             """
-            _, images_s, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
+            _, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
 
-            images_s = [image.to(rank) for image in images_s]
-            image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images_s))
+            images = torch.stack(images).to(rank)
+            image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images))
             src, mask = image_feature[-1].decompose()
             src = input_proj(src).flatten(2).permute(2, 0, 1)
             pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
@@ -384,13 +374,14 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
             image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
-            super_categories = [[sc.to(rank) for sc in super_category] for super_category in super_categories]  # [batch_size][curr_num_obj, [1 or more]]
+            if super_categories[0] is not None:
+                super_categories = [[sc.to(rank) for sc in super_category] for super_category in super_categories]  # [batch_size][curr_num_obj, [1 or more]]
             image_depth = torch.stack([depth.to(rank) for depth in image_depth])
             bbox = [box.to(rank) for box in bbox]  # [batch_size][curr_num_obj, 4]
 
             masks = []
             for i in range(len(bbox)):
-                mask = torch.zeros(bbox[i].shape[0], 32, 32, dtype=torch.uint8).to(rank)
+                mask = torch.zeros(bbox[i].shape[0], args['models']['feature_size'], args['models']['feature_size'], dtype=torch.uint8).to(rank)
                 for j, box in enumerate(bbox[i]):
                     mask[j, int(bbox[i][j][2]):int(bbox[i][j][3]), int(bbox[i][j][0]):int(bbox[i][j][1])] = 1
                 masks.append(mask)
@@ -416,14 +407,14 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
                 curr_graph_masks = torch.stack([torch.unsqueeze(masks[i][graph_iter], dim=0) for i in which_in_batch])
                 h_graph = torch.cat((image_feature[which_in_batch] * curr_graph_masks, image_depth[which_in_batch] * curr_graph_masks), dim=1)  # (bs, 256, 64, 64), (bs, 1, 64, 64)
                 cat_graph = torch.tensor([torch.unsqueeze(categories[i][graph_iter], dim=0) for i in which_in_batch]).to(rank)
-                scat_graph = [super_categories[i][graph_iter] for i in which_in_batch]
+                scat_graph = [super_categories[i][graph_iter] for i in which_in_batch] if super_categories[0] is not None else None
                 bbox_graph = torch.stack([bbox[i][graph_iter] for i in which_in_batch]).to(rank)
 
                 for edge_iter in range(graph_iter):
                     curr_edge_masks = torch.stack([torch.unsqueeze(masks[i][edge_iter], dim=0) for i in which_in_batch])  # seg mask of every prev obj
                     h_edge = torch.cat((image_feature[which_in_batch] * curr_edge_masks, image_depth[which_in_batch] * curr_edge_masks), dim=1)
                     cat_edge = torch.tensor([torch.unsqueeze(categories[i][edge_iter], dim=0) for i in which_in_batch]).to(rank)
-                    scat_edge = [super_categories[i][edge_iter] for i in which_in_batch]
+                    scat_edge = [super_categories[i][edge_iter] for i in which_in_batch] if super_categories[0] is not None else None
                     bbox_edge = torch.stack([bbox[i][edge_iter] for i in which_in_batch]).to(rank)
 
                     """
@@ -453,7 +444,7 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['models']['hierarchical_pred']:
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
                             Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                                    cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
@@ -483,7 +474,7 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['models']['hierarchical_pred']:
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
                             Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                                    cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
@@ -491,33 +482,18 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
             EVALUATE AND PRINT CURRENT RESULTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
-                if args['models']['hierarchical_pred']:
-                    recall_top3, _, mean_recall_top3 = Recall_top3.compute(args['models']['hierarchical_pred'], per_class=True)
+                if args['dataset']['dataset'] == 'vg':
+                    recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                    if args['models']['hierarchical_pred']:
+                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                        Recall_top3.clear_data()
+                else:
+                    recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
+                    wmap_rel, wmap_phrase = Recall.compute_precision()
                 Recall.clear_data()
-                Recall_top3.clear_data()
 
             if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                if args['models']['hierarchical_pred']:
-                    print('VALIDATING, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), conn: %.4f, %.4f.'
-                          % (rank, epoch, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
-                             mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                             connectivity_recall/(num_connected + 1e-5), connectivity_precision / (num_connected_pred+1e-5)))
-                else:
-                    print('VALIDATING, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
-                          % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                             connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
-
-                test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
-                                   'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
-                                   'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5),
-                                   'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
-                                   'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
-                                   'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
-                                   'num_objs_average': torch.mean(num_graph_iter.float()).item(), 'num_objs_max': max(num_graph_iter).item(),
-                                   'num_connected': num_connected, 'num_not_connected': num_not_connected})
-                with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'w') as f:  # append current logs
-                    json.dump(test_record, f)
-
-    dist.monitored_barrier()
+                record_test_results(args, test_record, rank, epoch, recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                    connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+                dist.monitored_barrier()
     print('FINISHED EVALUATING\n')

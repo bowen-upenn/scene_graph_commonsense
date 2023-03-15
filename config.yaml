@@ -1,33 +1,42 @@
 dataset:
-    image_dir: 'datasets/vg/images'
-    annot_dir: 'datasets/vg_scene_graph_annot'
-    raw_annot_dir: 'datasets/vg/annotations/'
-    annotation_train: 'datasets/vg/annotations/instances_vg_train.json'
-    annotation_test: 'datasets/vg/annotations/instances_vg_test.json'
-    object_alias: 'datasets/vg_scene_graph_annot/object_alias.txt'
-    predicate_alias: 'datasets/vg_scene_graph_annot/predicate_alias.txt'
-    object_types: 'datasets/vg_scene_graph_annot/object_types.txt'
-    object_list: 'datasets/vg_scene_graph_annot/object_list.txt'
-    sub2super_cat_dict: 'datasets/vg_scene_graph_annot/sub2super_cat_dict.pt'
+    image_dir: '../datasets/vg/images'
+    annot_dir: '../datasets/vg_scene_graph_annot'
+    raw_annot_dir: '../datasets/vg/annotations/'
+    annotation_train: '../datasets/vg/annotations/instances_vg_train.json'
+    annotation_test: '../datasets/vg/annotations/instances_vg_test.json'
+    object_alias: '../datasets/vg_scene_graph_annot/object_alias.txt'
+    predicate_alias: '../datasets/vg_scene_graph_annot/predicate_alias.txt'
+    object_types: '../datasets/vg_scene_graph_annot/object_types.txt'
+    object_list: '../datasets/vg_scene_graph_annot/object_list.txt'
+    sub2super_cat_dict: '../datasets/vg_scene_graph_annot/sub2super_cat_dict.pt'
+    train_triplets: '../datasets/vg_scene_graph_annot/train_triplets.pt'
+    test_triplets: '../datasets/vg_scene_graph_annot/test_triplets.pt'
+    zero_shot_triplets: '../datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     train_test_split: 0.7
     percent_train: 1
     percent_test: 1
+    dataset: 'oiv6' #vg, oiv6
 models:
-    detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
-    detr101_key_after: 'datasets/vg_scene_graph_annot/detr101_key_after.txt'
-    detr101_pretrained: 'checkpoints/detr101_vg_ckpt.pth'
+    detr101_key_before: '../datasets/vg_scene_graph_annot/detr101_key_before.txt'
+    detr101_key_after: '../datasets/vg_scene_graph_annot/detr101_key_after.txt'
+    detr101_pretrained_vg: 'checkpoints/detr101_vg_ckpt.pth'
+    detr101_pretrained_oiv6: 'checkpoints/detr101_oiv6_ckpt.pth'
     image_size: 1024
     feature_size: 32
     num_img_feature: 256
     embed_hidden_dim: 256
-    num_classes: 150
-    num_relations: 50
+    num_classes: 150 # 150, 601
+    num_relations: 50 # 50, 30
     num_super_classes: 17
     hidden_dim: 128
+    use_depth: True
     depth_model_type: 'DPT_Large'
     hierarchical_pred: True
     topk_cat: 2
-    nms: 0.5
+    nms: 0.7
+    num_geometric: 15 #4 15
+    num_possessive: 11 #2 11
+    num_semantic: 24 #24 24
 transformers:
     in_model: 566
     d_model: 512
@@ -37,25 +46,25 @@ transformers:
     pre_norm: False
     sparsity: 0.5
 training:
-    run_mode: 'train'      # train or eval
+    run_mode: 'eval'      # train or eval
     train_mode: 'local'    # local or global
-    eval_mode: 'pc'        # pc or sgd
-    learning_rate: 0.005
+    eval_mode: 'pc'        # pc sgc or sgd
+    learning_rate: 0.001
     weight_decay: 0.0001
     batch_size: 32
-    num_epoch: 6
+    num_epoch: 5
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
     continue_train: False
     start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
-    test_epoch: 5
+    test_epoch: 0
     load_model: True
     lambda_sparsity: 0
     lambda_connectivity: 1
     lambda_not_connected: 1
-    print_freq: 50
-    eval_freq: 50
+    print_freq: 20
+    eval_freq: 20
     print_freq_test: 20
     eval_freq_test: 1

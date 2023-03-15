@@ -62,7 +62,6 @@ def train_global(gpu, args, train_subset, test_subset):
     if args['models']['hierarchical_pred']:
         motif_embedding = DDP(MotifEmbedHier(input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
                                              num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'])).to(rank)
-                                             # T1=args['training']['temperature_1'], T2=args['training']['temperature_2'], T3=args['training']['temperature_3'])).to(rank)
         motif_head = DDP(MotifHeadHier(input_dim=args['models']['embed_hidden_dim'])).to(rank)
     else:
         motif_embedding = DDP(MotifEmbed(input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
@@ -92,11 +91,18 @@ def train_global(gpu, args, train_subset, test_subset):
         motif_embedding.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(2) + '_0' + '.pth', map_location=map_location), strict=False)
         motif_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(2) + '_0' + '.pth', map_location=map_location), strict=False)
 
+    if args['training']['continue_train']:
+        if args['models']['hierarchical_pred']:
+            motif_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'MotifHeadHier' + str(args['training']['start_epoch']) + '_0' + '.pth', map_location=map_location), strict=True)
+        else:
+            motif_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'MotifHead' + str(args['training']['start_epoch']) + '_0' + '.pth', map_location=map_location), strict=True)
+        transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransformerEncoder' + str(args['training']['start_epoch']) + '_0' + '.pth', map_location=map_location), strict=True)
+
     params = list(transformer_encoder.parameters()) + list(motif_head.parameters())
     optimizer = optim.AdamW([{'params': params, 'initial_lr': args['training']['learning_rate']}], lr=args['training']['learning_rate'])
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.5*len(train_loader), num_training_steps=(args['training']['num_epoch']-args['training']['start_epoch'])*len(train_loader))
 
-    relation_count = get_num_each_class()
+    relation_count = get_num_each_class_reordered(args)
     class_weight = 1 - relation_count / torch.sum(relation_count)
     criterion_relationship_1 = torch.nn.NLLLoss(weight=class_weight[:15].to(rank))
     criterion_relationship_2 = torch.nn.NLLLoss(weight=class_weight[15:26].to(rank))
@@ -105,8 +111,8 @@ def train_global(gpu, args, train_subset, test_subset):
     criterion_relationship = torch.nn.CrossEntropyLoss(weight=class_weight.to(rank))  # reduction='sum'
     criterion_connectivity = torch.nn.BCEWithLogitsLoss()
 
-    Recall = Evaluator_PC(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
-    Recall_top3 = Evaluator_PC_Top3(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall = Evaluator_PC(args=args, num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -125,7 +131,7 @@ def train_global(gpu, args, train_subset, test_subset):
             except:
                 continue
 
-            images = [image.to(rank) for image in images]
+            images = torch.stack(images).to(rank)
             with torch.no_grad():
                 image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images))
                 src, mask = image_feature[-1].decompose()
@@ -355,16 +361,18 @@ def train_global(gpu, args, train_subset, test_subset):
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
             """
             if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
-                recall_top3, _, mean_recall_top3 = Recall_top3.compute(args['models']['hierarchical_pred'], per_class=True)
+                recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                 Recall.clear_data()
                 Recall_top3.clear_data()
 
             if (batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                print('TRAINING, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), loss: %.4f, conn: %.4f, %.4f, sparsity: %.4f.'
+                print('TRAIN, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
+                      'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, loss: %.4f, conn: %.4f, %.4f, sparsity: %.4f.'
                       % (rank, epoch, batch_count, optimizer.param_groups[0]["lr"],
                          recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
                          mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                         recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
                          running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
                          connectivity_recall / num_connected, connectivity_precision / num_connected_pred, torch.sum(topk_mask) / len(topk_mask)))
 
@@ -402,8 +410,8 @@ def test_global(args, transformer_encoder, motif_embedding, motif_head, backbone
     feature_encoder.eval()
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
-    Recall = Evaluator_PC(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
-    Recall_top3 = Evaluator_PC_Top3(num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall = Evaluator_PC(args=args, num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=50, iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Evaluating...')
     with torch.no_grad():
@@ -416,7 +424,7 @@ def test_global(args, transformer_encoder, motif_embedding, motif_head, backbone
             except:
                 continue
 
-            images = [image.to(rank) for image in images]
+            images = torch.stack(images).to(rank)
             images = nested_tensor_from_tensor_list(images)
             image_feature, pos_embed = backbone(images)
 
@@ -613,15 +621,17 @@ def test_global(args, transformer_encoder, motif_embedding, motif_head, backbone
             EVALUATE AND PRINT CURRENT RESULTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                recall, _, mean_recall = Recall.compute(args['models']['hierarchical_pred'], per_class=True)
-                recall_top3, _, mean_recall_top3 = Recall_top3.compute(args['models']['hierarchical_pred'], per_class=True)
+                recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                 Recall.clear_data()
                 Recall_top3.clear_data()
 
             if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                print('VALIDATING, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), conn: %.4f, %.4f, sparsity: %.4f.'
+                print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
+                      'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f, sparsity: %.4f.'
                       % (rank, epoch, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
                          mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                         recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
                          connectivity_recall/num_connected, connectivity_precision / num_connected_pred, torch.sum(topk_mask) / len(topk_mask)))
 
                 test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],

@@ -75,7 +75,10 @@ def build_detr101(args):
         name_after = f.readlines()
         name_after = [line[:-1] for line in name_after]
 
-    model_path = args['models']['detr101_pretrained']
+    if args['dataset']['dataset'] == 'vg':
+        model_path = args['models']['detr101_pretrained_vg']
+    else:
+        model_path = args['models']['detr101_pretrained_oiv6']
     model_param = torch.load(model_path)
 
     keys = [key for key in model_param['model'] if key in name_before]
@@ -84,7 +87,10 @@ def build_detr101(args):
         # print(idx, key, ' -> ', name_after[idx])
 
     model = torch.hub.load('facebookresearch/detr:main', 'detr_resnet101', pretrained=False)
-    model.class_embed = nn.Linear(256, 151)
+    if args['dataset']['dataset'] == 'vg':
+        model.class_embed = nn.Linear(256, 151)
+    else:
+        model.class_embed = nn.Linear(256, 602)
     model.load_state_dict(model_param['model'], strict=False) # every param except "criterion.empty_weight"
     return model
 
@@ -152,14 +158,23 @@ def get_num_each_class():  # number of training data in total for each relations
                          1869, 1853, 1740])
 
 
-def get_num_each_class_reordered():  # number of training data in total for each relationship class
-    return torch.tensor([47342, 1996, 3092, 3624, 3477, 9903, 41363, 3411, 251756,
-                         13715, 96589, 712432, 1914, 9317, 22596, 3288, 9145, 2945,
-                         277943, 2312, 146339, 2065, 2517, 136099, 15457, 66425, 10191,
-                         5213, 2312, 3806, 4688, 1973, 1853, 9894, 42722, 3739,
-                         3083, 1869, 2253, 3095, 2721, 3810, 8856, 2241, 18643,
-                         14185, 1925, 1740, 4613, 3490])
+def get_num_each_class_reordered(args):  # number of training data in total for each relationship class
+    if args['dataset']['dataset'] == 'vg':
+        return torch.tensor([47342, 1996, 3092, 3624, 3477, 9903, 41363, 3411, 251756,
+                             13715, 96589, 712432, 1914, 9317, 22596, 3288, 9145, 2945,
+                             277943, 2312, 146339, 2065, 2517, 136099, 15457, 66425, 10191,
+                             5213, 2312, 3806, 4688, 1973, 1853, 9894, 42722, 3739,
+                             3083, 1869, 2253, 3095, 2721, 3810, 8856, 2241, 18643,
+                             14185, 1925, 1740, 4613, 3490])
+    else:
+        return torch.tensor([150983, 7665, 841, 455, 9402, 52561, 145480, 157, 175, 77, 27, 4827, 1146, 198, 77, 1,
+                             12, 4, 43, 702, 8, 1111, 51, 43, 367, 10, 462, 11, 2094, 114])
 
+def get_weight_oiv6():
+    num = torch.tensor([1974, 120, 27, 2, 284, 571, 2059, 8, 26, 2, 0, 163, 25, 30, 2, 0, 0, 1, 0, 17, 0, 29, 14, 4, 3, 0, 6, 0, 67, 5]) + 1
+    # freq = num / torch.sum(num)
+    # print(1 / freq)
+    return num
 
 def get_distri_over_classes():  # distribution of training data over all relationship class
     return torch.tensor([0.3482, 0.1358, 0.1230, 0.0715, 0.0665, 0.0472, 0.0325, 0.0231, 0.0209,
@@ -238,3 +253,166 @@ def match_target_sgd(rank, relationships, subj_or_obj, categories_target, bbox_t
         relation_target.append(curr_relation_target)
 
     return cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target, relation_target
+
+
+def match_object_categories(categories_pred, cat_pred_confidence, bbox_pred, bbox_target):
+    """
+    This function matches the predicted object category for each ground-truth bounding box.
+    For each ground-truth bounding box, the function finds the predicted bounding box with the largest IOU
+    and regards its predicted object category as the predicted object category of the ground-truth bounding box
+    :param categories_pred: a tensor of size N, where N is the number of predicted objects
+    :param cat_pred_confidence: a tensor of size N, where N is the number of predicted objects
+    :param bbox_pred: a tensor of size Nx4, where N is the number of predicted objects
+    :param bbox_target: a tensor of size Mx4, where M is the number of ground-truth objects
+    """
+    categories_pred_matched = []
+    categories_pred_conf_matched = []
+    bbox_target_matched = bbox_target.copy()
+    if len(bbox_target) != len(bbox_pred):   # batch size
+        return None, None, None
+
+    for i in range(len(bbox_target)):
+        repeat_count = 0
+        assert len(categories_pred[i]) == len(bbox_pred[i])
+        curr_categories_pred_matched = []
+        curr_categories_pred_conf_matched = []
+
+        for k, curr_bbox_target in enumerate(bbox_target[i]):
+            all_ious = []
+            for j, curr_bbox_pred in enumerate(bbox_pred[i]):
+                all_ious.append(iou(curr_bbox_target, curr_bbox_pred))
+            if len(all_ious) < 2:
+                return None, None, None
+            top_ious = torch.topk(torch.tensor(all_ious), 2)
+
+            # if top two come from the same repeated bounding box
+            if top_ious[0][0] == top_ious[0][1]:
+                curr_categories_pred_matched.append(categories_pred[i][top_ious[1][0]])
+                curr_categories_pred_matched.append(categories_pred[i][top_ious[1][1]])
+                curr_categories_pred_conf_matched.append(cat_pred_confidence[i][top_ious[1][0]] * top_ious[0][0])
+                curr_categories_pred_conf_matched.append(cat_pred_confidence[i][top_ious[1][1]] * top_ious[0][1])
+                # repeat the curr_bbox_target
+                bbox_target_matched[i] = torch.cat([bbox_target_matched[i][:k+repeat_count], bbox_target_matched[i][k+repeat_count].view(1, 4),
+                                                    bbox_target_matched[i][k+repeat_count:]])
+                repeat_count += 1
+            else:
+                curr_categories_pred_matched.append(categories_pred[i][top_ious[1][0]])
+                curr_categories_pred_conf_matched.append(cat_pred_confidence[i][top_ious[1][0]] * top_ious[0][0])
+
+        categories_pred_matched.append(curr_categories_pred_matched)
+        categories_pred_conf_matched.append(curr_categories_pred_conf_matched)
+    return categories_pred_matched, categories_pred_conf_matched, bbox_target_matched
+
+
+def record_train_results(args, record, rank, epoch, batch_count, original_lr, lr_decay, recall_top3, recall, mean_recall_top3, mean_recall,
+                         recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_connectivity, connectivity_recall,
+                         num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase):
+    if args['dataset']['dataset'] == 'vg':
+        if args['models']['hierarchical_pred']:
+            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
+                  'zsR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), loss: %.4f, %.4f, conn: %.4f, %.4f.'
+                  % (rank, epoch, batch_count, original_lr * lr_decay,
+                     recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
+                     mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                     recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[1],
+                     running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
+                     running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
+                     connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
+
+            record.append({'rank': rank, 'epoch': epoch, 'batch': batch_count, 'lr': original_lr * lr_decay,
+                           'recall_relationship': [recall[0], recall[1], recall[2]],
+                           'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
+                           'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                           'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
+                           'zero_shot_recall': [recall_zs[0], recall_zs[1], recall_zs[2]],
+                           'mean_zero_shot_recall': [mean_recall_zs[0].item(), mean_recall_zs[1].item(), mean_recall_zs[2].item()],
+                           'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5), 'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
+                           'total_losses': running_losses / (args['training']['print_freq'] * args['training']['batch_size']),
+                           'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+                           'connectivity_loss': running_loss_connectivity.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+                           'num_connected': num_connected, 'num_not_connected': num_not_connected})
+
+        else:
+            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
+                  'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f,loss: %.4f, %.4f, conn: %.4f, %.4f.'
+                  % (rank, epoch, batch_count, original_lr * lr_decay,
+                     recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                     recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
+                     running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
+                     running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
+                     connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
+
+            record.append({'rank': rank, 'epoch': epoch, 'batch': batch_count, 'lr': original_lr * lr_decay,
+                           'recall_relationship': [recall[0], recall[1], recall[2]],
+                           'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                           'zero_shot_recall': [recall_zs[0], recall_zs[1], recall_zs[2]],
+                           'mean_zero_shot_recall': [mean_recall_zs[0].item(), mean_recall_zs[1].item(), mean_recall_zs[2].item()],
+                           'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5), 'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
+                           'total_losses': running_losses / (args['training']['print_freq'] * args['training']['batch_size']),
+                           'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+                           'connectivity_loss': running_loss_connectivity.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+                           'num_connected': num_connected, 'num_not_connected': num_not_connected})
+    else:
+        print('TRAIN, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
+              'wmap_rel: %.4f, wmap_phrase: %.4f, loss: %.4f, %.4f, conn: %.4f, %.4f.'
+              % (rank, epoch, batch_count, original_lr * lr_decay,
+                 recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2], wmap_rel, wmap_phrase,
+                 running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
+                 running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
+                 connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
+
+        record.append({'rank': rank, 'epoch': epoch, 'batch': batch_count, 'lr': original_lr * lr_decay,
+                       'recall_relationship': [recall[0], recall[1], recall[2]],
+                       'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                       'wmap_rel': wmap_rel.item(), 'wmap_phrase': wmap_phrase.item(),
+                       'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5), 'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
+                       'total_losses': running_losses / (args['training']['print_freq'] * args['training']['batch_size']),
+                       'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+                       'connectivity_loss': running_loss_connectivity.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+                       'num_connected': num_connected, 'num_not_connected': num_not_connected})
+    with open(args['training']['result_path'] + 'train_results_' + str(rank) + '.json', 'w') as f:
+        json.dump(record, f)
+
+def record_test_results(args, test_record, rank, epoch, recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                        connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase):
+    if args['dataset']['dataset'] == 'vg':
+        if args['models']['hierarchical_pred']:
+            print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
+                  'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
+                  % (rank, epoch, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
+                     mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                     recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
+                     connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
+
+            test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
+                                'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
+                                'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                                'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
+                                'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5),
+                                'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
+                                'num_connected': num_connected, 'num_not_connected': num_not_connected})
+        else:
+            print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
+                  % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                     recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
+                     connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
+
+            test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
+                                'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                                'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5),
+                                'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
+                                'num_connected': num_connected, 'num_not_connected': num_not_connected})
+    else:
+        print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, wmap_rel: %.4f, wmap_phrase: %.4f, conn: %.4f, %.4f.'
+              % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2], wmap_rel, wmap_phrase,
+                 connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
+
+        test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
+                            'wmap_rel': wmap_rel.item(), 'wmap_phrase': wmap_phrase.item(),
+                            'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5),
+                            'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
+                            'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                            'num_connected': num_connected, 'num_not_connected': num_not_connected})
+
+        with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'w') as f:  # append current logs
+            json.dump(test_record, f)

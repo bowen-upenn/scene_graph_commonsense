@@ -25,11 +25,11 @@ class MotifHeadHier(nn.Module):
     """
     The prediction head with a hierarchical classification when the optional transformer encoder is used.
     """
-    def __init__(self, input_dim=256, T1=1, T2=1, T3=1):
+    def __init__(self, input_dim=256, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
         super(MotifHeadHier, self).__init__()
-        self.fc3_1 = nn.Linear(2 * input_dim, 15)
-        self.fc3_2 = nn.Linear(2 * input_dim, 11)
-        self.fc3_3 = nn.Linear(2 * input_dim, 24)
+        self.fc3_1 = nn.Linear(2 * input_dim, num_geometric)
+        self.fc3_2 = nn.Linear(2 * input_dim, num_possessive)
+        self.fc3_3 = nn.Linear(2 * input_dim, num_semantic)
         self.fc4 = nn.Linear(2 * input_dim, 1)
         self.fc5 = nn.Linear(2 * input_dim, 3)
         self.T1 = T1
@@ -68,7 +68,7 @@ class MotifEmbed(nn.Module):
         self.fc1 = nn.Linear(8 * input_dim * (feature_size // 4) ** 2, 4096)
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.fc2 = nn.Linear(4096 + 334, 512)
+        self.fc2 = nn.Linear(4096 + 2 * (num_classes+num_super_classes), 512)
         self.fc3 = nn.Linear(512, output_dim)
         self.fc4 = nn.Linear(512, 1)
         self.dropout2 = nn.Dropout(p=0.5)
@@ -115,7 +115,7 @@ class MotifEmbedHier(nn.Module):
     Its model parameter is always pretrained and frozen.
     It provides hidden states to the transformer encoder.
     """
-    def __init__(self, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, T1=1, T2=1, T3=1):
+    def __init__(self, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
         super(MotifEmbedHier, self).__init__()
         self.num_classes = num_classes
         self.num_super_classes = num_super_classes
@@ -128,10 +128,10 @@ class MotifEmbedHier(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.fc1 = nn.Linear(8 * input_dim * (feature_size // 4) ** 2, 4096)
-        self.fc2 = nn.Linear(4096 + 2 * num_classes + 2 * num_super_classes, 512)
-        self.fc3_1 = nn.Linear(512, 15)
-        self.fc3_2 = nn.Linear(512, 11)
-        self.fc3_3 = nn.Linear(512, 24)
+        self.fc2 = nn.Linear(4096 + 2 * (num_classes+num_super_classes), 512)
+        self.fc3_1 = nn.Linear(512, num_geometric)
+        self.fc3_2 = nn.Linear(512, num_possessive)
+        self.fc3_3 = nn.Linear(512, num_semantic)
         self.fc4 = nn.Linear(512, 1)
         self.fc5 = nn.Linear(512, 3)
         self.T1 = T1
@@ -185,7 +185,7 @@ class EdgeHead(nn.Module):
     """
     The local prediction module with a flat classification.
     """
-    def __init__(self, input_dim=128, output_dim=50, feature_size=32, num_classes=150, num_super_classes=17):
+    def __init__(self, args, input_dim=128, output_dim=50, feature_size=32, num_classes=150, num_super_classes=17):
         super(EdgeHead, self).__init__()
         self.num_classes = num_classes
         self.num_super_classes = num_super_classes
@@ -198,7 +198,10 @@ class EdgeHead(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.fc1 = nn.Linear(8 * input_dim * (feature_size // 4) ** 2, 4096)
-        self.fc2 = nn.Linear(4096 + 2 * num_classes + 2 * num_super_classes, 512)
+        if args['dataset']['dataset'] == 'vg':
+            self.fc2 = nn.Linear(4096 + 2 * (num_classes+num_super_classes), 512)
+        else:
+            self.fc2 = nn.Linear(4096 + 2 * num_classes, 512)
         self.fc3 = nn.Linear(512, output_dim)
         self.fc4 = nn.Linear(512, 1)
 
@@ -211,25 +214,31 @@ class EdgeHead(nn.Module):
         h = F.relu(self.conv3_1(h))         # (batch_size, 1024,16, 16)
         h = self.maxpool(h)                 # (batch_size, 1024, 8,  8)
 
-        h = h.view(h.shape[0], -1)
+        h = torch.reshape(h, (h.shape[0], -1))
         h = self.dropout1(F.relu(self.fc1(h)))
 
         if one_hot:
             c1 = F.one_hot(c1, num_classes=self.num_classes)
             c2 = F.one_hot(c2, num_classes=self.num_classes)
-            sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=self.num_super_classes)
-            for i in range(1, 4):  # at most 4 diff super class for each sub class instance
-                idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
-                if len(idx) > 0:
-                    sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=self.num_super_classes)
-            sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=self.num_super_classes)
-            for i in range(1, 4):
-                idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
-                if len(idx) > 0:
-                    sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=self.num_super_classes)
-            hc = torch.cat((h, c1, c2, sc1.to(rank), sc2.to(rank)), dim=1)
+            if s1 is not None:
+                sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=self.num_super_classes)
+                for i in range(1, 4):  # at most 4 diff super class for each sub class instance
+                    idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
+                    if len(idx) > 0:
+                        sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=self.num_super_classes)
+                sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=self.num_super_classes)
+                for i in range(1, 4):
+                    idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
+                    if len(idx) > 0:
+                        sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=self.num_super_classes)
+                hc = torch.cat((h, c1, c2, sc1.to(rank), sc2.to(rank)), dim=1)
+            else:
+                hc = torch.cat((h, c1, c2), dim=1)
         else:
-            hc = torch.cat((h, c1, c2, s1, s2), dim=1)
+            if s1 is not None:
+                hc = torch.cat((h, c1, c2, s1, s2), dim=1)
+            else:
+                hc = torch.cat((h, c1, c2), dim=1)
 
         pred = self.dropout2(F.relu(self.fc2(hc)))
         relation = self.fc3(pred)       # (batch_size, 50)
@@ -241,7 +250,7 @@ class EdgeHeadHier(nn.Module):
     """
     The local prediction module with a hierarchical classification.
     """
-    def __init__(self, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, T1=1, T2=1, T3=1):
+    def __init__(self, args, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
         super(EdgeHeadHier, self).__init__()
         self.num_classes = num_classes
         self.num_super_classes = num_super_classes
@@ -254,10 +263,13 @@ class EdgeHeadHier(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.fc1 = nn.Linear(8 * input_dim * (feature_size // 4) ** 2, 4096)
-        self.fc2 = nn.Linear(4096 + 2 * num_classes + 2 * num_super_classes, 512)
-        self.fc3_1 = nn.Linear(512, 15)
-        self.fc3_2 = nn.Linear(512, 11)
-        self.fc3_3 = nn.Linear(512, 24)
+        if args['dataset']['dataset'] == 'vg':
+            self.fc2 = nn.Linear(4096 + 2 * (num_classes+num_super_classes), 512)
+        else:
+            self.fc2 = nn.Linear(4096 + 2 * num_classes, 512)
+        self.fc3_1 = nn.Linear(512, num_geometric)
+        self.fc3_2 = nn.Linear(512, num_possessive)
+        self.fc3_3 = nn.Linear(512, num_semantic)
         self.fc4 = nn.Linear(512, 1)
         self.fc5 = nn.Linear(512, 3)
         self.T1 = T1
@@ -269,31 +281,35 @@ class EdgeHeadHier(nn.Module):
         h_edge = torch.tanh(self.conv1_2(h_edge))
         h = torch.cat((h_graph, h_edge), dim=1)   # (batch_size, 256, 32, 32)
         h = F.relu(self.conv2_1(h))         # (batch_size, 512, 32, 32)
-        # h = F.relu(self.conv2_2(h))       # (batch_size, 512, 32, 32)
         h = self.maxpool(h)                 # (batch_size, 512, 16, 16)
         h = F.relu(self.conv3_1(h))         # (batch_size, 1024,16, 16)
-        # h = F.relu(self.conv3_2(h))       # (batch_size, 1024,16, 16)
         h = self.maxpool(h)                 # (batch_size, 1024, 8,  8)
 
-        h = h.view(h.shape[0], -1)
+        h = torch.reshape(h, (h.shape[0], -1))
         h = self.dropout1(F.relu(self.fc1(h)))
 
         if one_hot:
             c1 = F.one_hot(c1, num_classes=self.num_classes)
             c2 = F.one_hot(c2, num_classes=self.num_classes)
-            sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=self.num_super_classes)
-            for i in range(1, 4):  # at most 4 diff super class for each sub class instance
-                idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
-                if len(idx) > 0:
-                    sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=self.num_super_classes)
-            sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=self.num_super_classes)
-            for i in range(1, 4):
-                idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
-                if len(idx) > 0:
-                    sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=self.num_super_classes)
-            hc = torch.cat((h, c1, c2, sc1.to(rank), sc2.to(rank)), dim=1)
+            if s1 is not None:
+                sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=self.num_super_classes)
+                for i in range(1, 4):  # at most 4 diff super class for each sub class instance
+                    idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
+                    if len(idx) > 0:
+                        sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=self.num_super_classes)
+                sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=self.num_super_classes)
+                for i in range(1, 4):
+                    idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
+                    if len(idx) > 0:
+                        sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=self.num_super_classes)
+                hc = torch.cat((h, c1, c2, sc1.to(rank), sc2.to(rank)), dim=1)
+            else:
+                hc = torch.cat((h, c1, c2), dim=1)
         else:
-            hc = torch.cat((h, c1, c2, s1, s2), dim=1)
+            if s1 is not None:
+                hc = torch.cat((h, c1, c2, s1, s2), dim=1)
+            else:
+                hc = torch.cat((h, c1, c2), dim=1)
 
         pred = self.dropout2(F.relu(self.fc2(hc)))
         connectivity = self.fc4(pred)   # (batch_size, 1)

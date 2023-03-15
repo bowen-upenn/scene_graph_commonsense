@@ -66,14 +66,17 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         image_s = 255 * self.image_transform_s(image_s)[[2, 1, 0]]  # BGR
         image_s = self.image_norm(image_s)  # squared size that unifies the size of feature maps
 
-        image_depth = curr_annot['image_depth']
+        if self.args['models']['use_depth']:
+            image_depth = curr_annot['image_depth']
+        else:
+            image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
         categories = curr_annot['categories']
         super_categories = curr_annot['super_categories']
         masks = curr_annot['masks']
         # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
         if masks.shape[0] <= 1 or masks.shape[0] > 30: # 25
             return None
-        bbox = curr_annot['bbox'] #/ 32
+        bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
 
         subj_or_obj = curr_annot['subj_or_obj']
         relationships = curr_annot['relationships']
@@ -88,6 +91,96 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.annotations['images'])
+
+
+class PrepareOpenImageV6Dataset(torch.utils.data.Dataset):
+    def __init__(self, args, annotations):
+        self.image_dir = "../datasets/open_image_v6/images/"
+        self.image_transform = transforms.Compose([transforms.ToTensor(),
+                                                   transforms.Resize((args['models']['image_size'], args['models']['image_size']))])
+        with open(annotations) as f:
+            self.annotations = json.load(f)
+
+    def __getitem__(self, idx):
+        rel = self.annotations[idx]['rel']
+        image_id = self.annotations[idx]['img_fn'] + '.jpg'
+        image_path = os.path.join(self.image_dir, image_id)
+        image = Image.open(image_path).convert('RGB')
+        image = self.image_transform(image)
+        return rel, image, self.annotations[idx]['img_fn']
+
+    def __len__(self):
+        return len(self.annotations)
+
+
+class OpenImageV6Dataset(torch.utils.data.Dataset):
+    def __init__(self, args, device, annotations):
+        self.args = args
+        self.device = device
+        self.image_dir = "../datasets/open_image_v6/images/"
+        self.depth_dir = "../datasets/open_image_v6/image_depths/"
+        with open(annotations) as f:
+            self.annotations = json.load(f)
+        self.image_transform = transforms.Compose([transforms.ToTensor(),
+                                                   transforms.Resize(size=600, max_size=1000)])
+        self.image_transform_s = transforms.Compose([transforms.ToTensor(),
+                                                     transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+        self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
+        self.rel_super_dict = oiv6_reorder_by_super()
+
+    def __getitem__(self, idx):
+        # print('idx', idx, self.annotations[idx])
+        image_id = self.annotations[idx]['img_fn']
+        image_path = os.path.join(self.image_dir, image_id + '.jpg')
+
+        image = Image.open(image_path).convert('RGB')
+        h_img, w_img = self.annotations[idx]['img_size'][1], self.annotations[idx]['img_size'][0]
+
+        image = 255 * self.image_transform(image)[[2, 1, 0]]  # BGR
+        image = self.image_norm(image)  # original size that produce better bounding boxes
+        image_s = Image.open(image_path).convert('RGB')
+        image_s = 255 * self.image_transform_s(image_s)[[2, 1, 0]]  # BGR
+        image_s = self.image_norm(image_s)  # squared size that unifies the size of feature maps
+
+        if self.args['models']['use_depth']:
+            image_depth = torch.load(self.depth_dir + image_id + '_depth.pt')
+        else:
+            image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])
+
+        categories = torch.tensor(self.annotations[idx]['det_labels'])
+        if len(categories) <= 1 or len(categories) > 20: # 25
+            return None
+
+        bbox = []
+        raw_bbox = self.annotations[idx]['bbox']    # x_min, y_min, x_max, y_max
+        masks = torch.zeros(len(raw_bbox), self.args['models']['feature_size'], self.args['models']['feature_size'], dtype=torch.uint8)
+        for i, b in enumerate(raw_bbox):
+            box = resize_boxes(b, (h_img, w_img), (self.args['models']['feature_size'], self.args['models']['feature_size']))
+            masks[i, box[0]:box[2], box[1]:box[3]] = 1
+            bbox.append([box[0], box[2], box[1], box[3]])  # x_min, x_max, y_min, y_max
+        bbox = torch.as_tensor(bbox)
+
+        raw_relations = self.annotations[idx]['rel']
+        relationships = []
+        subj_or_obj = []
+        for i in range(1, len(categories)):
+            relationships.append(-1 * torch.ones(i, dtype=torch.int64))
+            subj_or_obj.append(-1 * torch.ones(i, dtype=torch.float32))
+
+        for triplet in raw_relations:
+            # if curr is the subject
+            if triplet[0] > triplet[1]:
+                relationships[triplet[0]-1][triplet[1]] = self.rel_super_dict[triplet[2]]
+                subj_or_obj[triplet[0]-1][triplet[1]] = 1
+            # if curr is the object
+            elif triplet[0] < triplet[1]:
+                relationships[triplet[1]-1][triplet[0]] = self.rel_super_dict[triplet[2]]
+                subj_or_obj[triplet[1]-1][triplet[0]] = 0
+
+        return image, image_s, image_depth, categories, None, masks, bbox, relationships, subj_or_obj
+
+    def __len__(self):
+        return len(self.annotations)
 
 
 def prepare_data_offline(args, data_loader, device, annot, image_transform, depth_estimator, start=0):
@@ -192,7 +285,7 @@ def prepare_data_offline(args, data_loader, device, annot, image_transform, dept
             box = annotations['instances'][inst]['bbox']
             bbox_origin.append([box[0], box[2], box[1], box[3]])
             box = resize_boxes(box, (h_img, w_img), (h_fea, w_fea))
-            bbox.append([box[0], box[2], box[1], box[3]])
+            bbox.append([box[0], box[2], box[1], box[3]]) # x_min, x_max, y_min, y_max
 
             mask = torch.zeros(h_fea, w_fea, dtype=torch.uint8)
             mask[box[0]:box[2], box[1]:box[3]] = 1
@@ -263,6 +356,96 @@ def prepare_data_offline(args, data_loader, device, annot, image_transform, dept
         file_name_temp = annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
         file_name = os.path.join(args['dataset']['annot_dir'], file_name_temp)
         torch.save(data_annot, file_name)
+
+
+def prepare_depth_oiv6_offline(args, data_loader, device, depth_estimator):
+    saved_dir = "../datasets/open_image_v6/image_depths/"
+    all_labels = {i: 0 for i in range(30)}
+    rel_super_dict = oiv6_reorder_by_super()
+    for idx, data in enumerate(tqdm(data_loader)):
+        rel = data[0]
+        for r in rel:
+            all_labels[rel_super_dict[r.item()]] += 1
+
+        images, image_names = data[1], data[2]
+
+        depth_estimator = depth_estimator.to(device)
+        depth_estimator.eval()
+
+        with torch.no_grad():
+            image_depth = depth_estimator(images.to(device))  # size (1, 256, 256)
+        image_depth = image_depth.cpu()
+
+        for i in range(len(image_names)):
+            resized = torchvision.transforms.functional.resize(torch.unsqueeze(image_depth[i], 0), size=args['models']['feature_size'])  # size (1, 64, 64)
+            resized = resized / (torch.max(resized) - torch.min(resized))
+
+            saved_path = saved_dir + image_names[i] + '_depth.pt'
+            torch.save(resized, saved_path)
+
+    print([all_labels[key] for key in all_labels])
+
+
+def find_zero_shot_triplet(train_annot, test_annot):
+    with open(train_annot) as f:
+        train_annotations = json.load(f)
+    with open(test_annot) as f:
+        test_annotations = json.load(f)
+
+    rel_reorder_dict = relation_class_freq2scat()
+
+    train_triplets = {}
+    test_triplets = {}
+    zero_shot_triplets = []
+
+    print(len(train_annotations['annotations']), len(test_annotations['annotations']))
+    # for idx, _ in enumerate(tqdm(train_loader)):
+    for idx in tqdm(range(len(train_annotations['annotations']))):
+        curr_annot = train_annotations['annotations'][idx]
+        curr_rel = curr_annot['relation_id']
+        if curr_rel == 12:
+            curr_rel = 4
+        curr_rel = rel_reorder_dict[curr_rel].item()
+        curr_triplet = str(curr_annot['category1']) + '_' + str(curr_rel) + '_' + str(curr_annot['category2'])
+        # if curr_triplet == '121_44_22':
+        #     print("train found")
+        # if curr_triplet == '22_44_121':
+        #     print("train found2")
+        if curr_triplet in train_triplets:
+            train_triplets[curr_triplet] += 1
+        else:
+            train_triplets[curr_triplet] = 1
+
+    # for idx, _ in enumerate(tqdm(test_loader)):
+    for idx in tqdm(range(len(test_annotations['annotations']))):
+        curr_annot = test_annotations['annotations'][idx]
+        curr_rel = curr_annot['relation_id']
+        if curr_rel == 12:
+            curr_rel = 4
+        curr_rel = rel_reorder_dict[curr_rel].item()
+        curr_triplet = str(curr_annot['category1']) + '_' + str(curr_rel) + '_' + str(curr_annot['category2'])
+        # if curr_triplet == '121_44_22':
+        #     print("test found")
+        # if curr_triplet == '22_44_121':
+        #     print("test found2")
+        if curr_triplet in test_triplets:
+            test_triplets[curr_triplet] += 1
+        else:
+            test_triplets[curr_triplet] = 1
+        # check if the test triplet has appeared in the training data or not
+        if (curr_triplet not in train_triplets) and (curr_triplet not in zero_shot_triplets):
+            zero_shot_triplets.append(curr_triplet)
+
+    # sanity check
+    for triplet in zero_shot_triplets:
+        assert triplet not in train_triplets
+        assert triplet in test_triplets
+    print('121_44_22' in train_triplets, '121_44_22' in test_triplets, '121_44_22' in zero_shot_triplets)
+
+    print(len(train_triplets), len(test_triplets), len(zero_shot_triplets))
+    torch.save(train_triplets, 'train_triplets.pt')
+    torch.save(test_triplets, 'test_triplets.pt')
+    torch.save(zero_shot_triplets, 'zero_shot_triplets.pt')
 
 
 # all functions below are built from the open-source code:
@@ -596,3 +779,121 @@ def preprocess_super_class(synset2cid, super_class_dict):
             super_class.append(super_class_list[item])
         sub2super_dict[sub_class] = super_class
     return sub2super_dict
+
+
+def find_top_caregories_relations_gqa():
+    all_categories = []
+    # all_relations = []
+
+    with open('../datasets/gqa/val_sceneGraphs.json') as f:
+        test_data = json.load(f)
+        for curr_image_idx in tqdm(test_data):
+            curr_image = test_data[curr_image_idx]['objects']
+            categories = [curr_image[curr_object]['name'] for curr_object in curr_image]
+            all_categories = all_categories + categories
+
+            # for curr_object in curr_image:
+            #     for curr_relation in curr_image[curr_object]['relations']:
+            #         all_relations.append(curr_relation['name'])
+
+    # with open('../datasets/gqa/train_sceneGraphs.json') as f:
+    #     train_data = json.load(f)
+    #     for curr_image_idx in tqdm(train_data):
+    #         curr_image = train_data[curr_image_idx]['objects']
+    #         categories = [curr_image[curr_object]['name'] for curr_object in curr_image]
+    #         all_categories = all_categories + categories
+    #
+    #         # for curr_object in curr_image:
+    #         #     for curr_relation in curr_image[curr_object]['relations']:
+    #         #         all_relations.append(curr_relation['name'])
+
+    print(len(all_categories), len(set(all_categories)))
+    all_categories_count = Counter(all_categories)
+    top_categories = all_categories_count.most_common(1704)
+    print('top_categories', len(top_categories))
+    # top_categories = [top_categories[i][0] for i in range(len(top_categories))]
+
+    # objects_idx2name_gqa = {i: top_categories[i] for i in range(len(top_categories))}
+    # torch.save(objects_idx2name_gqa, 'objects_idx2name_gqa.pt')
+    # objects_name2idx_gqa = {top_categories[i]: i for i in range(len(top_categories))}
+    # torch.save(objects_name2idx_gqa, 'objects_name2idx_gqa.pt')
+
+    # print(len(all_relations), len(set(all_relations)))
+    # all_relations_count = Counter(all_relations)
+    # top_relations = all_relations_count.most_common(52)
+    # top_relations = [top_relations[i][0] for i in range(len(top_relations))]
+
+
+def object_name2label_gqa():
+    return {'window': 0, 'man': 1, 'shirt': 2, 'tree': 3, 'wall': 4, 'person': 5, 'sky': 6, 'building': 7, 'ground': 8, 'sign': 9,
+            'head': 10, 'pole': 11, 'hand': 12, 'grass': 13, 'hair': 14, 'leg': 15, 'car': 16, 'woman': 17, 'trees': 18, 'table': 19,
+            'leaves': 20, 'ear': 21, 'eye': 22, 'people': 23, 'pants': 24, 'water': 25, 'door': 26, 'fence': 27, 'nose': 28, 'wheel': 29,
+            'arm': 30, 'shoe': 31, 'clouds': 32, 'hat': 33, 'floor': 34, 'jacket': 35, 'chair': 36, 'leaf': 37, 'tail': 38, 'plate': 39,
+            'letter': 40, 'flower': 41, 'face': 42, 'road': 43, 'number': 44, 'windows': 45, 'cloud': 46, 'shorts': 47, 'sidewalk': 48, 'snow': 49,
+            'bag': 50, 'rock': 51, 'glass': 52, 'roof': 53, 'umbrella': 54, 'tire': 55, 'helmet': 56, 'boy': 57, 'logo': 58, 'jeans': 59,
+            'foot': 60, 'street': 61, 'cap': 62, 'boat': 63, 'bush': 64, 'mouth': 65, 'post': 66, 'girl': 67, 'flowers': 68, 'picture': 69,
+            'legs': 70, 'shoes': 71, 'bottle': 72, 'bus': 73, 'bench': 74, 'field': 75, 'pillow': 76, 'glasses': 77, 'mirror': 78, 'clock': 79,
+            'neck': 80, 'bowl': 81, 'dirt': 82, 'kite': 83, 'box': 84, 'train': 85, 'letters': 86, 'airplane': 87, 'bird': 88, 'food': 89,
+            'house': 90, 'lamp': 91, 'trunk': 92, 'cup': 93, 'coat': 94, 'horse': 95, 'street light': 96, 'shelf': 97, 'wing': 98, 'sheep': 99,
+            'paper': 100, 'book': 101, 'plant': 102, 'elephant': 103, 'branch': 104, 'dog': 105, 'giraffe': 106, 'counter': 107, 'motorcycle': 108, 'seat': 109,
+            'glove': 110, 'zebra': 111, 'skateboard': 112, 'banana': 113, 'eyes': 114, 'racket': 115, 'frame': 116, 'ceiling': 117, 'rocks': 118, 'surfboard': 119,
+            'truck': 120, 'bike': 121, 'wheels': 122, 'cabinet': 123, 'sink': 124, 'sand': 125, 'cow': 126, 'flag': 127, 'traffic light': 128, 'ball': 129,
+            'hands': 130, 'bushes': 131, 'feet': 132, 'child': 133, 'cat': 134, 'windshield': 135, 'bed': 136, 'finger': 137, 'stone': 138, 'hill': 139,
+            'word': 140, 'backpack': 141, 'basket': 142, 'player': 143, 'tie': 144, 'container': 145, 'paw': 146, 'vase': 147,  'buildings': 148, 'sock': 149}
+
+def object_label2super_gqa():
+    return {0: [5], 1: [0], 2: [14], 3: [2], 4: [5], 5: [0], 6: [6], 7: [5], 8: [5, 15], 9: [13],
+            10: [0, 3, 11], 11: [13], 12: [0, 3, 11], 13: [6], 14: [0, 11], 15: [0, 3, 11], 16: [4], 17: [0], 18: [2], 19: [12],
+            20: [2, 11], 21: [0, 3, 11],  22: [0, 3, 11], 23: [0], 24: [14], 25: [6], 26: [5, 11], 27: [13], 28: [0, 3, 11], 29: [4, 11],
+            30: [0, 3, 11], 31: [14], 32: [6], 33: [14], 34: [5], 35: [14], 36: [12], 37: [2, 11, 15], 38: [3, 11], 39: [9, 13],
+            40: [13], 41: [15], 42: [0, 3, 11], 43: [6], 44: [13], 45: [5, 11], 46: [6], 47: [14], 48: [6], 49: [6],
+            50: [13], 51: [7], 52: [5, 13], 53: [5, 11], 54: [13], 55: [4, 11], 56: [14], 57: [0], 58: [13], 59: [14],
+            60: [0, 3, 11], 61: [6], 62: [14], 63: [4], 64: [14], 65: [0, 3, 11], 66: [13], 67: [0], 68: [15], 69: [13],
+            70: [0, 3, 11], 71: [14], 72: [13], 73: [4], 74: [12], 75: [6], 76: [12], 77: [14], 78: [12], 79: [12, 13],
+            80: [0, 3, 11], 81: [10, 13], 82: [7], 83: [13], 84: [13], 85: [4], 86: [13], 87: [4], 88: [3], 89: [1],
+            90: [5], 91: [12, 13], 92: [4], 93: [9, 10, 13], 94: [14], 95: [3, 4], 96: [13], 97: [12], 98: [3, 11], 99: [3],
+            100: [13], 101: [13], 102: [2], 103: [1, 7], 104: [2, 11], 105: [3], 106: [3], 107: [12], 108: [4], 109: [12],
+            110: [13], 111: [3], 112: [13], 113: [1, 8], 114: [0, 3, 11], 115: [13], 116: [12, 13], 117: [5], 118: [7], 119: [4, 13],
+            120: [4], 121: [4], 122: [4, 11], 123: [12], 124: [13], 125: [7], 126: [3], 127: [13], 128: [13], 129: [13],
+            130: [0, 3, 11], 131: [14], 132: [0, 3, 11], 133: [0], 134: [3], 135: [4, 11], 136: [12], 137: [0, 3, 11], 138: [7], 139: [6],
+            140: [13], 141: [9, 13], 142: [9, 13], 143: [0], 144: [14], 145: [9], 146: [3, 11], 147: [9, 13], 148: [5], 149: [14]}
+
+def relation_name2label_gqa():
+    return {'to the left of': 0, 'to the right of': 1, 'on': 2, 'near': 3, 'in': 4, 'behind': 5, 'in front of': 6, 'holding': 7, 'on top of': 8, 'above': 9, 'next to': 10, 'below': 11,
+            'under': 12, 'on the side of': 13, 'beside': 14, 'inside': 15, 'at': 16, 'around': 17, 'on the front of': 18, 'on the back of': 19, 'wearing': 20, 'of': 21,
+            'with': 22, 'by': 23, 'contain': 24, 'filled with': 25, 'full of': 26, 'sitting on': 27, 'standing on': 28, 'carrying': 29, 'walking on': 30, 'riding': 31,
+            'standing in': 32, 'hanging on': 33, 'looking at': 34, 'covered by': 35, 'lying on': 36, 'watching': 37, 'eating': 38, 'covering': 39, 'hanging from': 40, 'riding on': 41,
+            'sitting in': 42, 'using': 43, 'parked on': 44, 'covered in': 45, 'walking in': 46, 'flying in': 47, 'crossing': 48, 'swinging': 49}
+
+    # return {'to the left of': 0, 'to the right of': 1, 'on': 2, 'near': 1, 'in': 2, 'behind': 3, 'in front of': 4, 'holding': 5, 'on top of': 6, 'above': 7, 'next to': 8, 'below': 9,
+    #         'under': 10, 'on the side of': 11, 'beside': 12, 'inside': 13, 'at': 14, 'around': 15, 'on the front of': 16, 'on the back of': 17, 'wearing': 18, 'of': 19,
+    #         'with': 20, 'by': 21, 'contain': 22, 'filled with': 23, 'full of': 24, 'sitting on': 25, 'standing on': 26, 'carrying': 27, 'walking on': 28, 'riding': 29,
+    #         'standing in': 30, 'hanging on': 31, 'looking at': 32, 'covered by': 33, 'lying on': 34, 'watching': 35, 'eating': 36, 'covering': 37, 'hanging from': 38, 'riding on': 39,
+    #         'sitting in': 40, 'using': 41, 'parked on': 42, 'covered in': 43, 'walking in': 44, 'flying in': 45, 'crossing': 46, 'swinging': 47, 'sitting at': 48, 'covered with': 49}
+
+def oiv6_name2idx():
+    return {"at": 0, "holds": 1, "wears": 2, "surf": 3, "hang": 4, "drink": 5, "holding_hands": 6, "on": 7, "ride": 8, "dance": 9,
+            "skateboard": 10, "catch": 11, "highfive": 12, "inside_of": 13, "eat": 14, "cut": 15, "contain": 16, "handshake": 17, "kiss": 18, "talk_on_phone": 19,
+            "interacts_with": 20, "under": 21, "hug": 22, "throw": 23, "hits": 24, "snowboard": 25, "kick": 26, "ski": 27, "plays": 28, "read": 29}
+
+# at 0, on 1, inside_of 2, under 3
+# contain 4, wears 5
+# holds 6, surf 7, hang 8, drink 9, holding_hands 10, ride 11, dance 12, skateboard 13, catch 14, highfive 15, eat 16, cut 17, \
+# handshake 18, kiss 19, talk_on_phone 20, interacts_with 21, hug 22, throw 23, hits 24, snowboard 25, kick 26, ski 27, plays 28, read 29
+
+def oiv6_reorder_by_super():
+    return {0:0, 1:6, 2:5, 3:7, 4:8, 5:9, 6:10, 7:1, 8: 11, 9:12,
+            10:13, 11:14, 12:15, 13:2, 14:16, 15:17, 16:4, 17:18, 18:19, 19:20,
+            20:21, 21:3, 22:22, 23:23, 24:24, 25:25, 26:26, 27:27, 28:28, 29:29}
+
+# {0: 'above', 1: 'across', 2: 'against', 3: 'along', 4: 'and', 5: 'at', 6: 'behind', 7: 'between', 8: 'in', 9: 'in front of',
+# 10: 'near', 11: 'on', 12: 'on back of', 13: 'over', 14: 'under',
+#
+# 15: 'belonging to', 16: 'for', 17: 'from', 18: 'has', 19: 'made of',
+# 20: 'of', 21: 'part of', 22: 'to', 23: 'wearing', 24: 'wears', 25: 'with',
+#
+# 26: 'attached to', 27: 'carrying', 28: 'covered in', 29: 'covering',
+# 30: 'eating', 31: 'flying in', 32: 'growing on', 33: 'hanging from', 34: 'holding', 35: 'laying on', 36: 'looking at', 37: 'lying on', 38: 'mounted on', 39: 'painted on',
+# 40: 'parked on', 41: 'playing', 42: 'riding', 43: 'says', 44: 'sitting on', 45: 'standing on', 46: 'using', 47: 'walking in', 48: 'walking on', 49: 'watching'}
+
+
