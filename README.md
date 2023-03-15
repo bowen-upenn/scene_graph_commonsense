@@ -46,7 +46,7 @@ This paper describes a novel approach to deducing relationships between objects 
   ### To train the model on Visual Genome:
     In config.yaml, set
       dataset:
-        dataset: 'vg' or 'oiv6'
+        dataset: 'vg'
       training:
         num_epoch: 3
         run_mode: 'train'
@@ -59,7 +59,7 @@ Execute ```python main.py```.
   ### To train the model on OpenImage V6:
     In config.yaml, set
       dataset:
-        dataset: 'vg' or 'oiv6'
+        dataset: 'oiv6'
       training:
         num_epoch: 1
         run_mode: 'train'
