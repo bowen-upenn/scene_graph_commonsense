@@ -39,7 +39,7 @@ This paper describes a novel approach to deducing relationships between objects 
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
   Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
   
-  Please modify ```num_epoch```, ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
+  Please modify ```num_epoch```, ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process.
   
   We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome, including zero-shot evaluation and the PredCLS with the optional transformer encoder. We also support the PredCLS for OpenImage V6.
 
@@ -101,7 +101,7 @@ Execute ```python main.py```.
         num_epoch: 5
         run_mode: 'train'
         train_mode: 'global'
-        continue_train: True
+        continue_train: False
         start_epoch: 3
 
 Execute ```python main.py```.
