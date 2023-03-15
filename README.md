@@ -1,10 +1,5 @@
 ## This repository contains the implementation of the algorithm proposed in the paper "Scene Graph Generation from Hierarchical Relationship Reasoning".
-This paper describes a novel approach to deducing relationships between objects in a scene. It explicitly exploits an informative hierarchical structure that can be imposed to divide the object and relationship categories into disjoint super-categories. Our proposed scheme implements a Bayesian approach to jointly predicts the super-category or type of relationship between the two objects, along with the specific relationship within that super-category. We present results on the Visual Genome dataset showing that this factorized approach offers significant performance benefits.
-
-
-![Figure1](figures/flow.png)
-Illustration of our scene graph construction scheme. The DETR detection backbone generates image features, instance bounding boxes and labels. The local predictor predicts pairwise relationships. It uses bounding boxes to extract subject and object feature tensors separately, concatenates them in both directions, and feeds them to our Bayesian prediction head. The figure shows two paths representing the two ways in which the objects can be ordered. Each of these tensors is passed to the Bayesian prediction head in turn. The head predicts the super-category distribution and the conditional probabilities under each super-category. It produces three hypotheses for the relationship, one for each super-category. Each of these hypotheses is scored by computing the product of the edge connectivity score and the maximum entry in each of the three final vectors.
-
+This paper describes a novel approach to deducing relationships between objects in a visual scene. It explicitly exploits an informative hierarchical structure that can be imposed to divide the object and relationship categories into disjoint super-categories. Specifically, our proposed scheme implements a Bayes prediction head to jointly predict the super-category or type of relationship between the two objects, along with the detailed relationship within that super-category. This design reduces the impact of class imbalance problems. We present experimental results on the Visual Genome and OpenImage V6 datasets showing that this factorized approach allows a relatively simple model to achieve competitive performance, especially on predicate classification and zero-shot tasks.
 
 ## Dependencies
   - python >= 3.6.9
@@ -123,6 +118,10 @@ Scene graph detection (SGDET)
 | ----- | ----- | ------ | ------ | ------ | ------- |
 | 24.8  | 30.2  |  31.8  |  7.1   |  9.4   |  10.1   |
 
+
+![Figure1](figures/flow.png)
+Illustration of our scene graph construction scheme. The DETR detection backbone generates image features, instance bounding boxes and labels. The local predictor simply predicts pairwise relationships. Given two object proposals $i$ and $j$, we do two separate passes through our relationship network, one with $i$ as the subject and $j$ as the object, and the other with $j$ as the subject and $i$ as the object. Their feature maps are concatenated as $X_{ij}$ and $X_{ji}$ as two possibilities evaluated individually by the Bayes prediction head. The head predicts the super-category distribution and the conditional probabilities under each super-category. It produces three hypotheses for the relationship, one for each super-category. Each of these hypotheses is scored by computing the product of the edge connectivity score and the maximum entry in each of the three final vectors.
+In the results, pink predicates are true positive, blue predicates are reasonably true predictions but not annotated in the dataset, and gray predicates are false positive
 
 ## Examples of the generated scene graphs
 ![Figure2](figures/plot.png)
