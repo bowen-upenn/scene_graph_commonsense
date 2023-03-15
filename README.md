@@ -26,10 +26,12 @@ This paper describes a novel approach to deducing relationships between objects 
 ## Pretrained Models
   We provide the pretrained models in our paper. Please download and put them under the [checkpoints/](checkpoints/) directory.
 
-  - DETR-101 object detection module: https://drive.google.com/file/d/1fnTP1VXhFzwPFLYqQAEtjuENg2nQUFJ_/view?usp=sharing
-  - Local prediction modules on the third epoch: https://drive.google.com/file/d/1z9XNCPCZgCIkPFy54oEWsG-saYnLny-J/view?usp=sharing
-  - Optional transformer encoder on the fifth epoch: https://drive.google.com/file/d/1GK1zV9TODI44rSqk1MRLYODlfGp4rnSA/view?usp=sharing
-  - Prediction head on the fifth epoch if the optional transformer encoder is used: https://drive.google.com/file/d/1MNcaD7UlRpzQ3ad4gL9qpO43yBGurHqP/view?usp=sharing
+  - DETR-101 object detection module pretrained on Visual Genome: https://drive.google.com/file/d/1fnTP1VXhFzwPFLYqQAEtjuENg2nQUFJ_/view?usp=sharing
+  - DETR-101 object detection module pretrained on OpenImage V6: https://drive.google.com/file/d/1WgssZUXkSU1SKXHRNuBG35iGd5I-00QB/view?usp=sharing
+  - Local prediction module trained on Visual Genome for three epoches: https://drive.google.com/file/d/1z9XNCPCZgCIkPFy54oEWsG-saYnLny-J/view?usp=sharing
+  - Local prediction module trained on OpenImage V6 for one epoch: https://drive.google.com/file/d/1OxM97iE9hm4OWOIZPc8suW5hxkQSqWfg/view?usp=sharing
+  - Optional transformer encoder trained on Visual Genome for two more epoches: https://drive.google.com/file/d/1GK1zV9TODI44rSqk1MRLYODlfGp4rnSA/view?usp=sharing
+  - Prediction head trained on Visual Genome for two more epoches if the optional transformer encoder is used: https://drive.google.com/file/d/1MNcaD7UlRpzQ3ad4gL9qpO43yBGurHqP/view?usp=sharing
 
 
 ## Quick Start
@@ -37,6 +39,7 @@ This paper describes a novel approach to deducing relationships between objects 
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
   Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
   Please modify ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
+  We currently support Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) on Visual Genome, with and without the optional transformer encoder, and PredCLS on OpenImage V6 without the optional transformer encoder.
 
   ### To train the local prediction module:
     In config.yaml, set
