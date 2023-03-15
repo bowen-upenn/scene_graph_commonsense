@@ -23,7 +23,7 @@ Download the following annotations and images from the Visual Genome website htt
 Execute ```./preprocess.py``` to pre-process the dataset annotations, and the following two files will be saved to the datasets/vg/annottions directory.
 We implement in our own code the same dataset pre-processing techniques in https://github.com/danfeiX/scene-graph-TF-release/tree/master/data_tools.
 No GPU is required at this step.
-#### You can SKIP this step by directly using the processed annotations provided in step 3.
+#### You can SKIP this step by directly downloading and using the processed annotations provided in step 3.
 
 	- datasets
 	  - vg
