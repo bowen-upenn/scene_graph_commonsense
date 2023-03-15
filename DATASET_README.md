@@ -1,5 +1,7 @@
+## Visual Genome Dataset
+
 ### Step 1
-Download the following annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html and put them under the datasets/vg directory.
+Download the annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html and put them under the datasets/vg directory.
 
 	- datasets
 	  - vg
@@ -21,7 +23,7 @@ Download the following annotations and images from the Visual Genome website htt
 Execute ```./preprocess.py``` to pre-process the dataset annotations, and the following two files will be saved to the datasets/vg/annottions directory.
 We implement in our own code the same dataset pre-processing techniques in https://github.com/danfeiX/scene-graph-TF-release/tree/master/data_tools.
 No GPU is required at this step.
-#### You can SKIP this step by directly using the processed annotations provided in step 3.
+#### You can SKIP this step by directly downloading and using the processed annotations provided in step 3.
 
 	- datasets
 	  - vg
@@ -61,7 +63,13 @@ Each annotation for each image will be saved under the datasets/vg_scene_graph_a
 https://drive.google.com/file/d/1hPLP-6Ub7s7zCthrfO-C2b_f_agXCiGv/view?usp=sharing
 
 
-### The final dataset directory should have the following structure
+## OpenImage V6 Dataset
+
+Download the processed annotations, images, and depth maps here
+
+The processed dataset annotations and images are provided by https://github.com/Scarecrow0/SGTR
+
+## The final dataset directory should have the following structure
 	- datasets
 	  - vg
 	    - annottions
@@ -88,4 +96,19 @@ https://drive.google.com/file/d/1hPLP-6Ub7s7zCthrfO-C2b_f_agXCiGv/view?usp=shari
 	      - 2417985_annotations.pkl
 	      - 2417973_annotations.pkl
 	      - ...
-	    ...
+	    
+	  - open_image_v6
+	    - annottions
+	      - oiv6-adjust
+	        - vrd-train-anno.json
+		- vrd-test-anno.json
+		- vrd-train-anno.json
+		- vrd-val-anno.json
+	    - image_depths
+	      - 0a0b34cd17d2a797_depth.pt
+	      - 00a0d634ad200ced_depth.pt
+	      - ...
+	    - images
+	      - 0a0b34cd17d2a797.jpg
+	      - 00a0d634ad200ced.jpg
+	      - ...
