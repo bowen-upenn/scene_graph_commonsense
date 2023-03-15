@@ -38,6 +38,7 @@ This paper describes a novel approach to deducing relationships between objects 
   All hyper-parameters are listed in the [config.yaml](config.yaml) file.
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
   Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
+  
   Please modify ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
   
   We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome, including the zero-shot learning and the optional transformer encoder. We also support the PredCLS for OpenImage V6.
@@ -54,15 +55,27 @@ This paper describes a novel approach to deducing relationships between objects 
 
 Execute ```python main.py```.
 
-  ### To evaluate the model on Visual Genome or OpenImage V6 for PredCLS, SGCLS, or SGDET:
+  ### To evaluate the model on Visual Genome for PredCLS, SGCLS, or SGDET:
     In config.yaml, set
       dataset:
-        dataset: 'vg' or 'oiv6'
+        dataset: 'vg'
       training:
         run_mode: 'eval'
         train_mode: 'local'
         eval_mode: 'pc' or 'sgc' or 'sgd'
         test_epoch: 2
+
+Execute ```python main.py```.
+
+### To evaluate the model on OpenImage V6 for PredCLS:
+    In config.yaml, set
+      dataset:
+        dataset: 'oiv6'
+      training:
+        run_mode: 'eval'
+        train_mode: 'local'
+        eval_mode: 'pc'
+        test_epoch: 0
 
 Execute ```python main.py```.
 
@@ -92,23 +105,7 @@ Execute ```python main.py```.
 
 
 ## Training results
-Predicate classification (PredCLS)
-| R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
-| ---- | ---- | ----- | ----- | ----- | ------ |
-| 60.5 | 73.2 | 77.9  | 14.8  | 21.5  |  24.9  |
-
-| R@20* | R@50* | R@100* | mR@20* | mR@50* | mR@100* |
-| ----- | ----- | ------ | ------ | ------ | ------- |
-| 66.9  | 77.5  | 80.3   | 20.5   | 25.8   |  27.1   |
-
-Scene graph detection (SGDET)
-| R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
-| ---- | ---- | ----- | ----- | ----- | ------ |
-| 21.8 | 28.0 | 30.7  |  4.6  |  7.4  |  9.7   |
-
-| R@20* | R@50* | R@100* | mR@20* | mR@50* | mR@100* |
-| ----- | ----- | ------ | ------ | ------ | ------- |
-| 24.8  | 30.2  |  31.8  |  7.1   |  9.4   |  10.1   |
+Please refer our paper for the full experimental results.
 
 
 ![Figure1](figures/flow.png)
