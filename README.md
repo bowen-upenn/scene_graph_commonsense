@@ -43,11 +43,25 @@ This paper describes a novel approach to deducing relationships between objects 
   
   We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome, including zero-shot evaluation and the PredCLS with the optional transformer encoder. We also support the PredCLS for OpenImage V6.
 
-  ### To train the model on Visual Genome or OpenImage V6:
+  ### To train the model on Visual Genome:
     In config.yaml, set
       dataset:
         dataset: 'vg' or 'oiv6'
       training:
+        num_epoch: 3
+        run_mode: 'train'
+        train_mode: 'local'
+        continue_train: False
+        start_epoch: 0
+
+Execute ```python main.py```.
+
+  ### To train the model on OpenImage V6:
+    In config.yaml, set
+      dataset:
+        dataset: 'vg' or 'oiv6'
+      training:
+        num_epoch: 1
         run_mode: 'train'
         train_mode: 'local'
         continue_train: False
