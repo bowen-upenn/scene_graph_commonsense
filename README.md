@@ -41,7 +41,7 @@ This paper describes a novel approach to deducing relationships between objects 
   
   Please modify ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
   
-  We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome, including the zero-shot learning and the optional transformer encoder. We also support the PredCLS for OpenImage V6.
+  We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome, including zero-shot evaluation and the PredCLS with the optional transformer encoder. We also support the PredCLS for OpenImage V6.
 
   ### To train the model on Visual Genome or OpenImage V6:
     In config.yaml, set
