@@ -91,7 +91,7 @@ Execute ```python main.py```.
 
 Execute ```python main.py```.
 
-  ### To evaluate the model with the optional transformer encoder on PredCLS:
+  ### To evaluate the model with the optional transformer encoder for PredCLS:
     In config.yaml, set
       dataset:
         dataset: 'vg'
