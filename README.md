@@ -39,6 +39,7 @@ This paper describes a novel approach to deducing relationships between objects 
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
   Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
   Please modify ```start_epoch```, ```test_epoch```, and ```continue_train``` based on your own experiment, where ```continue_train``` allows you to stop and resume the training process of the local prediction module.
+  
   We currently support Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) on Visual Genome, with and without the optional transformer encoder, and PredCLS on OpenImage V6 without the optional transformer encoder.
 
   ### To train the local prediction module:
