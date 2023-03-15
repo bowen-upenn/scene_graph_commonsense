@@ -98,6 +98,7 @@ Execute ```python main.py```.
       dataset:
         dataset: 'vg'
       training:
+        num_epoch: 5
         run_mode: 'train'
         train_mode: 'global'
         continue_train: True
