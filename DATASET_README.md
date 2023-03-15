@@ -66,7 +66,7 @@ https://drive.google.com/file/d/1hPLP-6Ub7s7zCthrfO-C2b_f_agXCiGv/view?usp=shari
 ## OpenImage V6 Dataset
 
 ### Step 1
-Download the processed dataset annotations and images provided by https://github.com/Scarecrow0/SGTR and put them under the datasets/ directory as datasets/open_image_v6. (it takes about 38GB)
+Download the processed OpenImage V6 dataset provided by [https://github.com/Scarecrow0/SGTR](https://github.com/Scarecrow0/SGTR/blob/main/DATASET.md) and put them under the datasets/ directory as datasets/open_image_v6. (it takes about 38GB)
 
 ### Step 2
 We provide the depth maps for all images here. Download and put them under the datasets/open_image_v6 directory. (it takes about 640MB)
