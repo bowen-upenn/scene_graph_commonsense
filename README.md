@@ -25,8 +25,9 @@ to use the Faster-RCNN model with a X-101-32x8d backbone. Put the [detectron2/](
 ## Dataset
   Please refer to [datasets/README.md](datasets/README.md) or [DATASET_README.md](DATASET_README.md) to download and prepare the dataset.
   
-  You can also add a soft link to your own datasets/ folder by going to OS tmp folder ```cd ~/tmp``` and then
-  ```ln -s /path/to/your/datasets/ .```
+  Like what we did in our [config.yaml](config.yaml), you can also add a soft link to your own datasets/ folder which stores large-size images and annotations
+  by going to OS tmp folder ```cd ~/tmp``` and then
+  ```ln -s /path/to/your/datasets/ .``` Otherwise, please remove the /tmp/ header from all paths in the provided [config.yaml](config.yaml).
 
 ## Pretrained Models
   We provide the pretrained models in our paper. Please download and put them under the [checkpoints/](checkpoints/) directory.
