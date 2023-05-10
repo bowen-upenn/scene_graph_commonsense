@@ -1,4 +1,4 @@
-## This is the official implementation of the paper "Scene Graph Generation from Hierarchical Relationship Reasoning" in PyTorch.
+## This is the official implementation of the paper ["Scene Graph Generation from Hierarchical Relationship Reasoning"](https://arxiv.org/abs/2303.06842) in PyTorch.
 This paper describes a novel approach to deducing relationships between objects in a visual scene. It explicitly exploits an informative hierarchical structure that can be imposed to divide the object and relationship categories into disjoint super-categories. Specifically, our proposed scheme implements a Bayes prediction head to jointly predict the super-category or type of relationship between the two objects, along with the detailed relationship within that super-category. This design reduces the impact of class imbalance problems. We present experimental results on the Visual Genome and OpenImage V6 datasets showing that this factorized approach allows a relatively simple model to achieve competitive performance, especially on predicate classification and zero-shot tasks.
 
 ## Dependencies
