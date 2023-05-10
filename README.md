@@ -1,4 +1,4 @@
-## This repository contains the PyTorch implementation of the algorithm proposed in the paper "Scene Graph Generation from Hierarchical Relationship Reasoning".
+## This repository is the official PyTorch implementation of the paper "Scene Graph Generation from Hierarchical Relationship Reasoning".
 This paper describes a novel approach to deducing relationships between objects in a visual scene. It explicitly exploits an informative hierarchical structure that can be imposed to divide the object and relationship categories into disjoint super-categories. Specifically, our proposed scheme implements a Bayes prediction head to jointly predict the super-category or type of relationship between the two objects, along with the detailed relationship within that super-category. This design reduces the impact of class imbalance problems. We present experimental results on the Visual Genome and OpenImage V6 datasets showing that this factorized approach allows a relatively simple model to achieve competitive performance, especially on predicate classification and zero-shot tasks.
 
 ## Dependencies
@@ -18,10 +18,15 @@ This paper describes a novel approach to deducing relationships between objects 
   - typing
   - transformers
 
+Install [Detectron2](https://github.com/facebookresearch/detectron2) following this [guide](https://detectron2.readthedocs.io/en/latest/tutorials/install.html)
+to use the Faster-RCNN model with a X-101-32x8d backbone. Put the [detectron2/](detectron2/) folder under the root directory.
+
 
 ## Dataset
   Please refer to [datasets/README.md](datasets/README.md) or [DATASET_README.md](DATASET_README.md) to download and prepare the dataset.
-
+  
+  You can also add a soft link to your own datasets/ folder by ```cd ~/tmp``` and then
+  ```ln -s /path/to/your/datasets/ .```
 
 ## Pretrained Models
   We provide the pretrained models in our paper. Please download and put them under the [checkpoints/](checkpoints/) directory.
