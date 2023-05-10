@@ -13,14 +13,18 @@ dataset:
     test_triplets: '../datasets/vg_scene_graph_annot/test_triplets.pt'
     zero_shot_triplets: '../datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     train_test_split: 0.7
-    percent_train: 1
-    percent_test: 1
-    dataset: 'oiv6' #vg, oiv6
+    percent_train: 1 # 0.001
+    percent_test: 1 #0.005
+    dataset: 'vg' # vg, oiv6
 models:
     detr101_key_before: '../datasets/vg_scene_graph_annot/detr101_key_before.txt'
     detr101_key_after: '../datasets/vg_scene_graph_annot/detr101_key_after.txt'
     detr101_pretrained_vg: 'checkpoints/detr101_vg_ckpt.pth'
     detr101_pretrained_oiv6: 'checkpoints/detr101_oiv6_ckpt.pth'
+    faster_key_before: '../datasets/vg_scene_graph_annot/faster_key_before.txt'
+    faster_key_after: '../datasets/vg_scene_graph_annot/faster_key_after.txt'
+    faster_pretrained_vg: 'checkpoints/faster_rcnn_vg_ckpt.pth'
+    detr_or_faster_rcnn: 'detr' # detr, faster
     image_size: 1024
     feature_size: 32
     num_img_feature: 256
@@ -52,14 +56,14 @@ training:
     learning_rate: 0.001
     weight_decay: 0.0001
     batch_size: 32
-    num_epoch: 5
+    num_epoch: 1
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
     continue_train: False
     start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
-    test_epoch: 0
+    test_epoch: 2
     load_model: True
     lambda_sparsity: 0
     lambda_connectivity: 1

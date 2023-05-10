@@ -8,6 +8,8 @@ import os
 import json
 import torch.multiprocessing as mp
 
+import detectron2
+
 from dataset import VisualGenomeDataset, OpenImageV6Dataset
 from train_test_local import train_local
 from train_test_global import train_global
@@ -27,6 +29,8 @@ if __name__ == "__main__":
     print('device', device)
     print('torch.distributed.is_available', torch.distributed.is_available())
     print('Using %d GPUs' % (torch.cuda.device_count()))
+    print("detectron2:", detectron2.__version__)
+    print("Running model", args['models']['detr_or_faster_rcnn'])
 
     # Prepare datasets
     if args['dataset']['dataset'] == 'vg':

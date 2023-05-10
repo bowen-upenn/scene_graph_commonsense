@@ -5,6 +5,7 @@ import torch.optim as optim
 import numpy as np
 from tqdm import tqdm
 import json
+import yaml
 import os
 import math
 import torchvision
@@ -15,6 +16,10 @@ from evaluator import Evaluator_PC, Evaluator_SGD, Evaluator_PC_Top3, Evaluator_
 from model import EdgeHead, EdgeHeadHier
 from utils import *
 from dataset import object_class_alp2fre
+
+from detectron2.config import get_cfg
+from detectron2.modeling import build_model
+from detectron2.structures.image_list import ImageList
 
 
 def setup(rank, world_size):
@@ -53,15 +58,17 @@ def eval_pc(gpu, args, test_subset):
                                  num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
                                  num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
 
-    detr = DDP(build_detr101(args)).to(rank)
-    backbone = DDP(detr.module.backbone).to(rank)
-    input_proj = DDP(detr.module.input_proj).to(rank)
-    feature_encoder = DDP(detr.module.transformer.encoder).to(rank)
-
-    edge_head.eval()
-    backbone.eval()
-    input_proj.eval()
-    feature_encoder.eval()
+    if args['models']['detr_or_faster_rcnn'] == 'detr':
+        detr = DDP(build_detr101(args)).to(rank)
+        edge_head.eval()
+    elif args['models']['detr_or_faster_rcnn'] == 'faster':   # faster-rcnn
+        faster_rcnn_cfg = get_cfg()
+        faster_rcnn_cfg.merge_from_file("detectron2/configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml")
+        # faster_rcnn_cfg.merge_from_list(["MODEL.WEIGHTS", "checkpoints/faster_rcnn_vg_ckpt.pth"])
+        faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
+        faster_rcnn.eval()
+    else:
+        print('Unknown model.')
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
@@ -84,14 +91,18 @@ def eval_pc(gpu, args, test_subset):
             """
             _, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
 
-            images = torch.stack(images).to(rank)
-            image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images))
-            src, mask = image_feature[-1].decompose()
-            src = input_proj(src).flatten(2).permute(2, 0, 1)
-            pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-            image_feature = feature_encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
-            image_feature = image_feature.permute(1, 2, 0)
-            image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+            if args['models']['detr_or_faster_rcnn'] == 'detr':
+                images = torch.stack(images).to(rank)
+                image_feature, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images))
+                src, mask = image_feature[-1].decompose()
+                src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
+                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+                image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                image_feature = image_feature.permute(1, 2, 0)
+                image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+            else:   # faster-rcnn
+                images = ImageList.from_tensors(images).to(rank)
+                image_feature = faster_rcnn.module.backbone(images.tensor)['p5']    # feature of size 32x32
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:
@@ -249,15 +260,15 @@ def eval_sgd(gpu, args, test_subset):
                                  num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
                                  num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
 
-    detr = DDP(build_detr101(args)).to(rank)
-    backbone = DDP(detr.module.backbone).to(rank)
-    input_proj = DDP(detr.module.input_proj).to(rank)
-    feature_encoder = DDP(detr.module.transformer.encoder).to(rank)
-
-    edge_head.eval()
-    backbone.eval()
-    input_proj.eval()
-    feature_encoder.eval()
+    if args['models']['detr_or_faster_rcnn'] == 'detr':
+        detr = DDP(build_detr101(args)).to(rank)
+        edge_head.eval()
+    else:   # faster-rcnn
+        faster_rcnn_cfg = get_cfg()
+        faster_rcnn_cfg.merge_from_file("detectron2/configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml")
+        # faster_rcnn_cfg.merge_from_list(["MODEL.WEIGHTS", "checkpoints/faster_rcnn_vg_ckpt.pth"])
+        faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
+        faster_rcnn.eval()
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
     if args['models']['hierarchical_pred']:
