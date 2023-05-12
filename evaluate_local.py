@@ -15,11 +15,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from evaluator import Evaluator_PC, Evaluator_SGD, Evaluator_PC_Top3, Evaluator_SGD_Top3
 from model import EdgeHead, EdgeHeadHier
 from utils import *
-from dataset import object_class_alp2fre
+from dataset import object_class_alp2fre, object_class_faster2fre
 
-from detectron2.config import get_cfg
-from detectron2.modeling import build_model
+# from detectron2.config import get_cfg
+# from detectron2.modeling import build_model
+# from detectron2.config import LazyConfig
 from detectron2.structures.image_list import ImageList
+from detectron2.engine import DefaultPredictor
 
 
 def setup(rank, world_size):
@@ -28,7 +30,7 @@ def setup(rank, world_size):
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
-def eval_pc(gpu, args, test_subset):
+def eval_pc(gpu, args, test_subset, faster_rcnn_cfg=None):
     """
     This function evaluates the local prediction module on predicate classification tasks.
     :param gpu: current gpu index
@@ -61,12 +63,17 @@ def eval_pc(gpu, args, test_subset):
     if args['models']['detr_or_faster_rcnn'] == 'detr':
         detr = DDP(build_detr101(args)).to(rank)
         edge_head.eval()
-    elif args['models']['detr_or_faster_rcnn'] == 'faster':   # faster-rcnn
-        faster_rcnn_cfg = get_cfg()
-        faster_rcnn_cfg.merge_from_file("detectron2/configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml")
-        # faster_rcnn_cfg.merge_from_list(["MODEL.WEIGHTS", "checkpoints/faster_rcnn_vg_ckpt.pth"])
-        faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
-        faster_rcnn.eval()
+    elif args['models']['detr_or_faster_rcnn'] == 'faster':
+        # Inference should use the config with parameters that are used in training
+        # cfg now already contains everything we've set previously. We changed it a little bit for inference:
+        faster_rcnn_cfg.MODEL.WEIGHTS = os.path.join(faster_rcnn_cfg.OUTPUT_DIR, "model_final.pth")  # path to the model we just trained
+        faster_rcnn = DefaultPredictor(cfg)
+
+        # faster_rcnn_cfg = LazyConfig.load("checkpoints/faster_rcnn_config.yaml")
+        # faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/faster_rcnn_vg_ckpt.pth"
+        # faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
+        # faster_rcnn.eval()
+
     else:
         print('Unknown model.')
 
@@ -102,7 +109,8 @@ def eval_pc(gpu, args, test_subset):
                 image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
             else:   # faster-rcnn
                 images = ImageList.from_tensors(images).to(rank)
-                image_feature = faster_rcnn.module.backbone(images.tensor)['p5']    # feature of size 32x32
+                image_feature = faster_rcnn.module.backbone(images.tensor)['res5']    # feature of size 256x256x256
+            del images
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:
@@ -230,7 +238,7 @@ def eval_pc(gpu, args, test_subset):
     print('FINISHED TESTING PC\n')
 
 
-def eval_sgd(gpu, args, test_subset):
+def eval_sgd(gpu, args, test_subset, faster_rcnn_cfg=None):
     """
     This function evaluates the local prediction module on scene graph detection tasks.
     :param gpu: current gpu index
@@ -263,12 +271,21 @@ def eval_sgd(gpu, args, test_subset):
     if args['models']['detr_or_faster_rcnn'] == 'detr':
         detr = DDP(build_detr101(args)).to(rank)
         edge_head.eval()
-    else:   # faster-rcnn
-        faster_rcnn_cfg = get_cfg()
-        faster_rcnn_cfg.merge_from_file("detectron2/configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml")
-        # faster_rcnn_cfg.merge_from_list(["MODEL.WEIGHTS", "checkpoints/faster_rcnn_vg_ckpt.pth"])
+    elif args['models']['detr_or_faster_rcnn'] == 'faster':
+        # faster_rcnn_cfg = get_cfg()
+        # faster_rcnn_cfg.merge_from_file("configs/X-101-grid.yaml")
+        # faster_rcnn_cfg.merge_from_file("detectron2/configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml")
+        faster_rcnn_cfg = LazyConfig.load("configs/faster_rcnn_config.yaml")
+        faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/faster_rcnn_vg_ckpt.pth"
+        # faster_rcnn_cfg = LazyConfig.load("configs/X-101-grid.yaml")
+        # faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/X-101.pth"
+        # faster_rcnn_cfg.freeze()
         faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
         faster_rcnn.eval()
+        # faster_rcnn.load_state_dict(torch.load("checkpoints/X-101.pth")['model'], strict=True)
+        # faster_rcnn.load_state_dict(torch.load("checkpoints/faster_rcnn_vg_ckpt.pth")['model'], strict=True)
+    else:
+        print('Unknown model.')
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
     if args['models']['hierarchical_pred']:
@@ -293,21 +310,35 @@ def eval_sgd(gpu, args, test_subset):
             except:
                 continue
 
-            images_s = torch.stack(images_s).to(rank)
-            image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images_s))
-            src, mask = image_feature[-1].decompose()
-            src = input_proj(src).flatten(2).permute(2, 0, 1)
-            pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-            image_feature = feature_encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+            if args['models']['detr_or_faster_rcnn'] == 'detr':
+                images_s = torch.stack(images_s).to(rank)
+                image_feature, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images_s))
+                src, mask = image_feature[-1].decompose()
+                src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
+                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+                image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                image_feature = image_feature.permute(1, 2, 0)
+                image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+                del images_s
 
-            image_feature = image_feature.permute(1, 2, 0)
-            image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+                images = [image.to(rank) for image in images]
+                out_dict = detr(nested_tensor_from_tensor_list(images))
+                del images
+
+            else:   # faster-rcnn
+                # images_s = ImageList.from_tensors(images_s).to(rank)
+                # image_feature = faster_rcnn.module.backbone(images_s.tensor)['res5']    # feature of size 256x256x256
+                # del images_s
+
+                images = [{'image': image.to(rank)} for image in images]    # input is a list[dict], where each dict corresponds to one image
+                out_dict_list = faster_rcnn(images)
+                print("out_dict", out_dict_list)
+                del images
+                # out_dict['pred_logits'] = torch.[out['pred_classes'] for out in out_dict_list]
+
             image_depth = torch.stack([depth.to(rank) for depth in image_depth])
             categories_target = [category.to(rank) for category in categories_target]  # [batch_size][curr_num_obj, 1]
             bbox_target = [box.to(rank) for box in bbox_target]  # [batch_size][curr_num_obj, 4]
-
-            images = [image.to(rank) for image in images]
-            out_dict = detr(nested_tensor_from_tensor_list(images))
 
             logits_pred = torch.argmax(F.softmax(out_dict['pred_logits'], dim=2), dim=2)
             has_object_pred = logits_pred < 150
@@ -320,7 +351,11 @@ def eval_sgd(gpu, args, test_subset):
             # object category indices in pretrained DETR are different from our indices
             for i in range(len(categories_pred)):
                 for j in range(len(categories_pred[i])):
-                    categories_pred[i][j] = object_class_alp2fre_dict[categories_pred[i][j].item()]     # at this moment, keep cat whose top2 == 150 for convenience
+                    # at this moment, keep cat whose top2 == 150 for convenience
+                    if args['models']['detr_or_faster_rcnn'] == 'detr':
+                        categories_pred[i][j] = object_class_alp2fre_dict[categories_pred[i][j].item()]
+                    else:
+                        categories_pred[i][j] = object_class_faster2fre[categories_pred[i][j].item()]
             cat_mask = [categories_pred[i] != 150 for i in range(len(categories_pred))]
 
             bbox_pred = [out_dict['pred_boxes'][i, has_object_pred[i]] for i in range(logits_pred.shape[0]) if torch.sum(has_object_pred[i]) > 0]  # convert from 0-1 to 0-32
@@ -482,7 +517,7 @@ def eval_sgd(gpu, args, test_subset):
     print('FINISHED TESTING SGD\n')
 
 
-def eval_sgc(gpu, args, test_subset):
+def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
     """
     This function evaluates the local prediction module on scene graph classification tasks.
     :param gpu: current gpu index
@@ -512,15 +547,16 @@ def eval_sgc(gpu, args, test_subset):
                                  num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
                                  num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
 
-    detr = DDP(build_detr101(args)).to(rank)
-    backbone = DDP(detr.module.backbone).to(rank)
-    input_proj = DDP(detr.module.input_proj).to(rank)
-    feature_encoder = DDP(detr.module.transformer.encoder).to(rank)
-
-    edge_head.eval()
-    backbone.eval()
-    input_proj.eval()
-    feature_encoder.eval()
+    if args['models']['detr_or_faster_rcnn'] == 'detr':
+        detr = DDP(build_detr101(args)).to(rank)
+        edge_head.eval()
+    elif args['models']['detr_or_faster_rcnn'] == 'faster':
+        faster_rcnn_cfg = LazyConfig.load("checkpoints/faster_rcnn_config.yaml")
+        faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/faster_rcnn_vg_ckpt.pth"
+        faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
+        faster_rcnn.eval()
+    else:
+        print('Unknown model.')
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:

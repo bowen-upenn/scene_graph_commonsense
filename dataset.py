@@ -33,9 +33,11 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             self.annotations = json.load(f)
         self.image_transform = transforms.Compose([transforms.ToTensor(),
                                                    transforms.Resize(size=600, max_size=1000)])
+        # self.image_transform = transforms.ToTensor()
         self.image_transform_s = transforms.Compose([transforms.ToTensor(),
                                                      transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
-        self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
+        # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
+        self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
 
     def __getitem__(self, idx):
         """
@@ -59,11 +61,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
         image = Image.open(image_path).convert('RGB')
-        image = 255 * self.image_transform(image)[[2, 1, 0]]    # BGR
+        image = 255 * self.image_transform(image)
+        # image = 255 * self.image_transform(image)#[[2, 1, 0]]    # BGR
         image = self.image_norm(image)  # original size that produce better bounding boxes
 
         image_s = Image.open(image_path).convert('RGB')
-        image_s = 255 * self.image_transform_s(image_s)[[2, 1, 0]]  # BGR
+        # image_s = 255 * self.image_transform_s(image_s)
+        image_s = 255 * self.image_transform_s(image_s)#[[2, 1, 0]]  # BGR
         image_s = self.image_norm(image_s)  # squared size that unifies the size of feature maps
 
         if self.args['models']['use_depth']:
@@ -183,6 +187,7 @@ class OpenImageV6Dataset(torch.utils.data.Dataset):
         return len(self.annotations)
 
 
+# Dataset utils functions
 def prepare_data_offline(args, data_loader, device, annot, image_transform, depth_estimator, start=0):
     """
     This function organizes all information that VisualGenomeDataset __getitem__ function needs
@@ -746,6 +751,21 @@ def object_class_alp2fre():
             136: 87, 137: 66, 138: 45, 139: 130, 140: 145, 141: 123, 142: 58, 143: 33, 144: 2, 145: 116, 146: 82, 147: 98, 148: 11, 149: 89, 150: 150}
 
 
+# In our dataset, we arrange object labels by their frequency.
+# However, in the dataset used by the pretrained Faster-RCNN backbone, object labels are arranges by their alphabets
+# Everything is the same in DETR-101, except for the background label
+def object_class_faster2fre():
+    return {1: 137, 2: 108, 3: 25, 4: 41, 5: 77, 6: 127, 7: 100, 8: 111, 9: 107, 10: 56, 11: 84, 12: 90, 13: 74, 14: 54, 15: 83, 16: 125, 17: 47, 18: 64, 19: 59, 20: 38,
+            21: 48, 22: 4, 23: 63, 24: 76, 25: 93, 26: 14, 27: 105, 28: 22, 29: 124, 30: 68, 31: 85, 32: 69, 33: 96, 34: 91, 35: 110, 36: 118, 37: 81, 38: 15, 39: 132, 40: 20,
+            41: 71, 42: 129, 43: 65, 44: 32, 45: 19, 46: 115, 47: 114, 48: 35, 49: 60, 50: 138, 51: 144, 52: 72, 53: 44, 54: 26, 55: 88, 56: 141, 57: 12, 58: 13, 59: 34, 60: 36,
+            61: 8, 62: 46, 63: 79, 64: 67, 65: 75, 66: 27, 67: 62, 68: 148, 69: 103, 70: 121, 71: 94, 72: 128, 73: 16, 74: 7, 75: 43, 76: 17, 77: 80, 78: 1, 79: 149, 80: 95,
+            81: 73, 82: 101, 83: 70, 84: 53, 85: 119, 86: 142, 87: 18, 88: 78, 89: 136, 90: 23, 91: 5, 92: 143, 93: 61, 94: 106, 95: 92, 96: 50, 97: 24, 98: 113, 99: 9, 100: 55,
+            101: 135, 102: 133, 103: 120, 104: 37, 105: 42, 106: 140, 107: 139, 108: 86, 109: 102, 110: 57, 111: 3, 112: 21, 113: 40, 114: 29, 115: 6, 116: 104, 117: 97, 118: 109,
+            119: 147, 120: 146, 121: 30, 122: 112, 123: 122, 124: 28, 125: 99, 126: 10, 127: 31, 128: 134, 129: 39, 130: 49, 131: 131, 132: 117, 133: 126, 134: 52, 135: 51, 136: 0,
+            137: 87, 138: 66, 139: 45, 140: 130, 141: 145, 142: 123, 143: 58, 144: 33, 145: 2, 146: 116, 147: 82, 148: 98, 149: 11, 150: 89, 0: 150}
+
+
+
 def relation_class_by_freq():
     return {0: 'on', 1: 'has', 2: 'in', 3: 'of', 4: 'wearing', 5: 'near', 6: 'with', 7: 'above', 8: 'holding', 9: 'behind',
             10: 'under', 11: 'sitting on', 12: 'wears', 13: 'standing on', 14: 'in front of', 15: 'attached to', 16: 'at', 17: 'hanging from', 18: 'over', 19: 'for',
@@ -865,35 +885,12 @@ def relation_name2label_gqa():
             'standing in': 32, 'hanging on': 33, 'looking at': 34, 'covered by': 35, 'lying on': 36, 'watching': 37, 'eating': 38, 'covering': 39, 'hanging from': 40, 'riding on': 41,
             'sitting in': 42, 'using': 43, 'parked on': 44, 'covered in': 45, 'walking in': 46, 'flying in': 47, 'crossing': 48, 'swinging': 49}
 
-    # return {'to the left of': 0, 'to the right of': 1, 'on': 2, 'near': 1, 'in': 2, 'behind': 3, 'in front of': 4, 'holding': 5, 'on top of': 6, 'above': 7, 'next to': 8, 'below': 9,
-    #         'under': 10, 'on the side of': 11, 'beside': 12, 'inside': 13, 'at': 14, 'around': 15, 'on the front of': 16, 'on the back of': 17, 'wearing': 18, 'of': 19,
-    #         'with': 20, 'by': 21, 'contain': 22, 'filled with': 23, 'full of': 24, 'sitting on': 25, 'standing on': 26, 'carrying': 27, 'walking on': 28, 'riding': 29,
-    #         'standing in': 30, 'hanging on': 31, 'looking at': 32, 'covered by': 33, 'lying on': 34, 'watching': 35, 'eating': 36, 'covering': 37, 'hanging from': 38, 'riding on': 39,
-    #         'sitting in': 40, 'using': 41, 'parked on': 42, 'covered in': 43, 'walking in': 44, 'flying in': 45, 'crossing': 46, 'swinging': 47, 'sitting at': 48, 'covered with': 49}
-
 def oiv6_name2idx():
     return {"at": 0, "holds": 1, "wears": 2, "surf": 3, "hang": 4, "drink": 5, "holding_hands": 6, "on": 7, "ride": 8, "dance": 9,
             "skateboard": 10, "catch": 11, "highfive": 12, "inside_of": 13, "eat": 14, "cut": 15, "contain": 16, "handshake": 17, "kiss": 18, "talk_on_phone": 19,
             "interacts_with": 20, "under": 21, "hug": 22, "throw": 23, "hits": 24, "snowboard": 25, "kick": 26, "ski": 27, "plays": 28, "read": 29}
 
-# at 0, on 1, inside_of 2, under 3
-# contain 4, wears 5
-# holds 6, surf 7, hang 8, drink 9, holding_hands 10, ride 11, dance 12, skateboard 13, catch 14, highfive 15, eat 16, cut 17, \
-# handshake 18, kiss 19, talk_on_phone 20, interacts_with 21, hug 22, throw 23, hits 24, snowboard 25, kick 26, ski 27, plays 28, read 29
-
 def oiv6_reorder_by_super():
     return {0:0, 1:6, 2:5, 3:7, 4:8, 5:9, 6:10, 7:1, 8: 11, 9:12,
             10:13, 11:14, 12:15, 13:2, 14:16, 15:17, 16:4, 17:18, 18:19, 19:20,
             20:21, 21:3, 22:22, 23:23, 24:24, 25:25, 26:26, 27:27, 28:28, 29:29}
-
-# {0: 'above', 1: 'across', 2: 'against', 3: 'along', 4: 'and', 5: 'at', 6: 'behind', 7: 'between', 8: 'in', 9: 'in front of',
-# 10: 'near', 11: 'on', 12: 'on back of', 13: 'over', 14: 'under',
-#
-# 15: 'belonging to', 16: 'for', 17: 'from', 18: 'has', 19: 'made of',
-# 20: 'of', 21: 'part of', 22: 'to', 23: 'wearing', 24: 'wears', 25: 'with',
-#
-# 26: 'attached to', 27: 'carrying', 28: 'covered in', 29: 'covering',
-# 30: 'eating', 31: 'flying in', 32: 'growing on', 33: 'hanging from', 34: 'holding', 35: 'laying on', 36: 'looking at', 37: 'lying on', 38: 'mounted on', 39: 'painted on',
-# 40: 'parked on', 41: 'playing', 42: 'riding', 43: 'says', 44: 'sitting on', 45: 'standing on', 46: 'using', 47: 'walking in', 48: 'walking on', 49: 'watching'}
-
-

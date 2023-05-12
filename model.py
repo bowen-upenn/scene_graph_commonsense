@@ -252,10 +252,13 @@ class EdgeHeadHier(nn.Module):
     """
     def __init__(self, args, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
         super(EdgeHeadHier, self).__init__()
+        self.input_dim = input_dim
         self.num_classes = num_classes
         self.num_super_classes = num_super_classes
         self.conv1_1 = nn.Conv2d(2 * input_dim + 1, input_dim, kernel_size=1, stride=1, padding=0)
         self.conv1_2 = nn.Conv2d(2 * input_dim + 1, input_dim, kernel_size=1, stride=1, padding=0)
+        # self.conv1_3 = nn.Conv2d(args['models']['faster_rcnn_hidden_dim'] + 1, input_dim, kernel_size=1, stride=1, padding=0)
+        # self.conv1_4 = nn.Conv2d(args['models']['faster_rcnn_hidden_dim'] + 1, input_dim, kernel_size=1, stride=1, padding=0)
         self.conv2_1 = nn.Conv2d(2 * input_dim, 4 * input_dim, kernel_size=3, stride=1, padding=1)
         self.conv3_1 = nn.Conv2d(4 * input_dim, 8 * input_dim, kernel_size=3, stride=1, padding=1)
         self.dropout1 = nn.Dropout(p=0.5)
@@ -277,8 +280,12 @@ class EdgeHeadHier(nn.Module):
         self.T3 = T3
 
     def forward(self, h_graph, h_edge, c1, c2, s1, s2, rank, one_hot=True):
-        h_graph = torch.tanh(self.conv1_1(h_graph))
-        h_edge = torch.tanh(self.conv1_2(h_edge))
+        if h_graph.shape[1] == 2 * self.input_dim + 1:
+            h_graph = torch.tanh(self.conv1_1(h_graph))
+            h_edge = torch.tanh(self.conv1_2(h_edge))
+        else:   # faster rcnn image feature has 2048 channels, DETR has 256 instead
+            h_graph = torch.tanh(self.conv1_3(h_graph))
+            h_edge = torch.tanh(self.conv1_4(h_edge))
         h = torch.cat((h_graph, h_edge), dim=1)   # (batch_size, 256, 32, 32)
         h = F.relu(self.conv2_1(h))         # (batch_size, 512, 32, 32)
         h = self.maxpool(h)                 # (batch_size, 512, 16, 16)

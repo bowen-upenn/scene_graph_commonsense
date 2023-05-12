@@ -14,6 +14,9 @@ from train_test_local import train_local
 from train_test_global import train_global
 from evaluate_local import eval_pc, eval_sgc, eval_sgd
 
+from train_faster_rcnn import setup
+from detectron2.engine import default_argument_parser
+
 if __name__ == "__main__":
     print('Torch', torch.__version__, 'Torchvision', torchvision.__version__)
     # load hyperparameters
@@ -31,7 +34,7 @@ if __name__ == "__main__":
     print("Running model", args['models']['detr_or_faster_rcnn'])
     print("detectron2:", detectron2.__version__)
 
-    # Prepare datasets
+    # prepare datasets
     if args['dataset']['dataset'] == 'vg':
         args['models']['num_classes'] = 150
         args['models']['num_relations'] = 50
@@ -59,6 +62,11 @@ if __name__ == "__main__":
     else:
         print('Unknown dataset.')
 
+    if args['models']['detr_or_faster_rcnn'] == 'detr':
+        args['training']['batch_size'] = 32
+    else:
+        args['training']['batch_size'] = 16
+
     torch.manual_seed(0)
     train_subset_idx = torch.randperm(len(train_dataset))[:int(args['dataset']['percent_train'] * len(train_dataset))]
     train_subset = Subset(train_dataset, train_subset_idx)
@@ -66,11 +74,17 @@ if __name__ == "__main__":
     test_subset = Subset(test_dataset, test_subset_idx)
     print('num of train, test:', len(train_subset), len(test_subset))
 
+    # prepare faster rcnn configs
+    faster_rcnn_cfg = None
+    if args['models']['detr_or_faster_rcnn'] == 'faster':
+        faster_rcnn_args = default_argument_parser().parse_args()
+        faster_rcnn_cfg = setup(faster_rcnn_args)
+
     # select training or evaluation
     if args['training']['run_mode'] == 'train':
         # local prediction module or the model with optional transformer encoder
         if args['training']['train_mode'] == 'local':
-            mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
+            mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset, faster_rcnn_cfg))
         elif args['training']['train_mode'] == 'global' and args['dataset']['dataset'] == 'vg':
             mp.spawn(train_global, nprocs=world_size, args=(args, train_subset, test_subset))
         else:
@@ -82,13 +96,13 @@ if __name__ == "__main__":
         else:
             # select evaluation mode
             if args['training']['eval_mode'] == 'pc':          # predicate classification
-                mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
+                mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset, faster_rcnn_cfg))
             elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
                 args['models']['topk_cat'] = 1
-                mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset))
+                mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset, faster_rcnn_cfg))
             elif args['training']['eval_mode'] == 'sgd' and args['dataset']['dataset'] == 'vg':       # scene graph detection
                 args['models']['topk_cat'] = 2
-                mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset))
+                mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset, faster_rcnn_cfg))
             else:
                 print('Invalid arguments or not implemented.')
     else:

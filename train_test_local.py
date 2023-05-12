@@ -16,6 +16,10 @@ from evaluator import Evaluator_PC, Evaluator_PC_Top3
 from model import EdgeHead, EdgeHeadHier
 from utils import *
 
+from detectron2.modeling import build_model
+from detectron2.structures.image_list import ImageList
+from detectron2.config import LazyConfig
+
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -23,7 +27,7 @@ def setup(rank, world_size):
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
-def train_local(gpu, args, train_subset, test_subset):
+def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
     """
     This function trains and evaluates the local prediction module on predicate classification tasks.
     :param gpu: current gpu index
@@ -65,16 +69,16 @@ def train_local(gpu, args, train_subset, test_subset):
                                  num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
                                  num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
 
-    detr = DDP(build_detr101(args)).to(rank)
-    backbone = DDP(detr.module.backbone).to(rank)
-    input_proj = DDP(detr.module.input_proj).to(rank)
-    feature_encoder = DDP(detr.module.transformer.encoder).to(rank)
-
-    detr.eval()
-    edge_head.train()
-    backbone.eval()
-    input_proj.eval()
-    feature_encoder.eval()
+    if args['models']['detr_or_faster_rcnn'] == 'detr':
+        detr = DDP(build_detr101(args)).to(rank)
+        edge_head.eval()
+    elif args['models']['detr_or_faster_rcnn'] == 'faster':
+        faster_rcnn_cfg = LazyConfig.load("checkpoints/faster_rcnn_config.yaml")
+        faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/faster_rcnn_vg_ckpt.pth"
+        faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
+        faster_rcnn.eval()
+    else:
+        print('Unknown model.')
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
@@ -116,21 +120,24 @@ def train_local(gpu, args, train_subset, test_subset):
             """
             _, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
 
-            images = torch.stack(images).to(rank)
             with torch.no_grad():
-                image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images))
-                src, mask = image_feature[-1].decompose()
-                src = input_proj(src).flatten(2).permute(2, 0, 1)
-                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-                image_feature = feature_encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                if args['models']['detr_or_faster_rcnn'] == 'detr':
+                    images = torch.stack(images).to(rank)
+                    image_feature, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images))
+                    src, mask = image_feature[-1].decompose()
+                    src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
+                    pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+                    image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                    image_feature = image_feature.permute(1, 2, 0)
+                    image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+                else:   # faster-rcnn
+                    images = ImageList.from_tensors(images).to(rank)
+                    image_feature = faster_rcnn.module.backbone(images.tensor)['res5']    # feature of size 256x256x256
 
-            image_feature = image_feature.permute(1, 2, 0)
-            image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
-
-            image_depth = torch.stack([depth.to(rank) for depth in image_depth])
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:
                 super_categories = [[sc.to(rank) for sc in super_category] for super_category in super_categories]  # [batch_size][curr_num_obj, [1 or more]]
+            image_depth = torch.stack([depth.to(rank) for depth in image_depth])
             bbox = [box.to(rank) for box in bbox]  # [batch_size][curr_num_obj, 4]
             optimizer.param_groups[0]["lr"] = original_lr
 
@@ -340,15 +347,17 @@ def train_local(gpu, args, train_subset, test_subset):
             torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
-        test_local(args, edge_head, backbone, input_proj, feature_encoder, test_loader, test_record, epoch, rank)
+        if args['models']['detr_or_faster_rcnn'] == 'detr':
+            test_local(args, detr, edge_head, test_loader, test_record, epoch, rank)
+        else:
+            test_local(args, faster_rcnn, edge_head, test_loader, test_record, epoch, rank)
 
     dist.destroy_process_group()  # clean up
     print('FINISHED TRAINING\n')
 
 
-def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_loader, test_record, epoch, rank):
-    edge_head.eval()
-    feature_encoder.eval()
+def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank):
+    backbone.eval()
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
@@ -364,14 +373,18 @@ def test_local(args, edge_head, backbone, input_proj, feature_encoder, test_load
             """
             _, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
 
-            images = torch.stack(images).to(rank)
-            image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images))
-            src, mask = image_feature[-1].decompose()
-            src = input_proj(src).flatten(2).permute(2, 0, 1)
-            pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-            image_feature = feature_encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
-            image_feature = image_feature.permute(1, 2, 0)
-            image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+            if args['models']['detr_or_faster_rcnn'] == 'detr':
+                images = torch.stack(images).to(rank)
+                image_feature, pos_embed = backbone.module.backbone(nested_tensor_from_tensor_list(images))
+                src, mask = image_feature[-1].decompose()
+                src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
+                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+                image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                image_feature = image_feature.permute(1, 2, 0)
+                image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+            else:  # faster-rcnn
+                images = ImageList.from_tensors(images).to(rank)
+                image_feature = backbone.module.backbone(images.tensor)['res5']  # feature of size 256x256x256
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:
