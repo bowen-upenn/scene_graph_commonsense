@@ -126,7 +126,7 @@ def setup(args):
     cfg.DATASETS.TEST = ("vg_test",)
     cfg.DATASETS.VAL = ("vg_val",)
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml")  # Let training initialize from model zoo
-    cfg.OUTPUT_DIR = "checkpoints/"
+    cfg.OUTPUT_DIR = "checkpoints/faster_rcnn/"
 
     cfg.MODEL.DEVICE = "cuda"
     cfg.DATALOADER.NUM_WORKERS = 4
@@ -196,7 +196,6 @@ def setup(args):
     cfg.TEST.AUG.FLIP = False
     cfg.TEST.DETECTIONS_PER_IMAGE = 100
 
-    cfg.freeze()
     default_setup(cfg, args)
     return cfg
 

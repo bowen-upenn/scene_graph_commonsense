@@ -9,6 +9,7 @@ import torchvision
 from torchvision import transforms
 from collections import Counter
 from utils import *
+import cv2
 
 class PrepareVisualGenomeDataset(torch.utils.data.Dataset):
     def __init__(self, annotations):
@@ -31,9 +32,9 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         self.subset_indices = None
         with open(annotations) as f:
             self.annotations = json.load(f)
-        self.image_transform = transforms.Compose([transforms.ToTensor(),
-                                                   transforms.Resize(size=600, max_size=1000)])
-        # self.image_transform = transforms.ToTensor()
+        # self.image_transform = transforms.Compose([transforms.ToTensor(),
+        #                                            transforms.Resize(size=600, max_size=1000)])
+        self.image_transform = transforms.ToTensor()
         self.image_transform_s = transforms.Compose([transforms.ToTensor(),
                                                      transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
         # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
@@ -60,15 +61,19 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-        image = Image.open(image_path).convert('RGB')
-        image = 255 * self.image_transform(image)
+        # image = Image.open(image_path)#.convert('RGB')
+        image = cv2.imread(image_path)
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = self.image_transform(image)
         # image = 255 * self.image_transform(image)#[[2, 1, 0]]    # BGR
-        image = self.image_norm(image)  # original size that produce better bounding boxes
+        # image = self.image_norm(image)  # original size that produce better bounding boxes
 
-        image_s = Image.open(image_path).convert('RGB')
-        # image_s = 255 * self.image_transform_s(image_s)
-        image_s = 255 * self.image_transform_s(image_s)#[[2, 1, 0]]  # BGR
-        image_s = self.image_norm(image_s)  # squared size that unifies the size of feature maps
+        # image_s = Image.open(image_path)#.convert('RGB')
+        image_s = cv2.imread(image_path)
+        # image_s = cv2.cvtColor(image_s, cv2.COLOR_BGR2RGB)
+        image_s = self.image_transform_s(image_s)
+        # image_s = 255 * self.image_transform_s(image_s)#[[2, 1, 0]]  # BGR
+        # image_s = self.image_norm(image_s)  # squared size that unifies the size of feature maps
 
         if self.args['models']['use_depth']:
             image_depth = curr_annot['image_depth']

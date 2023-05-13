@@ -66,6 +66,7 @@ if __name__ == "__main__":
         args['training']['batch_size'] = 32
     else:
         args['training']['batch_size'] = 16
+        args['models']['topk_cat'] = 1
 
     torch.manual_seed(0)
     train_subset_idx = torch.randperm(len(train_dataset))[:int(args['dataset']['percent_train'] * len(train_dataset))]
