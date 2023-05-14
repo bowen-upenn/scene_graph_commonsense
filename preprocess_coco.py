@@ -10,6 +10,7 @@ from __future__ import unicode_literals
 import json
 import yaml
 import numpy as np
+from tqdm import tqdm
 from collections import Counter, OrderedDict
 from dataset import *
 
@@ -66,11 +67,13 @@ print('top_synsets_obj', top_synsets_obj)
 
 corrupted_ims = [1592, 1722, 4616, 4617]
 images = OrderedDict()
-for img in raw_img_data:
+for img in tqdm(raw_img_data):
     if img['image_id'] not in corrupted_ims:
+        image = cv2.imread(img['url'].replace('https://cs.stanford.edu/people/rak248/', '/tmp/datasets/vg/images/'))
+
         images[img['image_id']] = {'id': img['image_id'],
-                                   'width': img['width'],
-                                   'height': img['height'],
+                                   'width': image.shape[1],     # actual image size may differ from the provided annotation
+                                   'height': image.shape[0],
                                    'file_name': img['url'].replace('https://cs.stanford.edu/people/rak248/', '/tmp/datasets/vg/images/'),
                                    'coco_id': img['coco_id']}
 
@@ -93,13 +96,7 @@ for idx, img in enumerate(raw_obj_data):
     if img['image_id'] in corrupted_ims:
         continue
 
-    instance = {'file_name': images[img['image_id']]['file_name'],
-                'height': images[img['image_id']]['height'],
-                'width': images[img['image_id']]['width'],
-                'image_id': img['image_id']}
-
     image_area = images_id2area[img['image_id']]
-
     num_objs = 0
     annotations = []
     for obj in img['objects']:
@@ -123,7 +120,12 @@ for idx, img in enumerate(raw_obj_data):
             annotations.append(ann)
             num_objs += 1
 
-    instance['annotations'] = annotations
+    instance = {'file_name': images[img['image_id']]['file_name'],
+                'height': images[img['image_id']]['height'],
+                'width': images[img['image_id']]['width'],
+                'image_id': img['image_id'],
+                'annotations': annotations}
+
     ave_num_obj.append(num_objs)
     instances.append(instance)
 
