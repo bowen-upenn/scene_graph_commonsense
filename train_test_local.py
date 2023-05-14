@@ -18,7 +18,6 @@ from utils import *
 
 from detectron2.modeling import build_model
 from detectron2.structures.image_list import ImageList
-from detectron2.config import LazyConfig
 
 
 def setup(rank, world_size):
@@ -73,9 +72,9 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
         detr = DDP(build_detr101(args)).to(rank)
         edge_head.eval()
     elif args['models']['detr_or_faster_rcnn'] == 'faster':
-        faster_rcnn_cfg = LazyConfig.load("checkpoints/faster_rcnn_config.yaml")
-        faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/faster_rcnn_vg_ckpt.pth"
-        faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
+        faster_rcnn = build_model(faster_rcnn_cfg).to(rank)
+        faster_rcnn.load_state_dict(torch.load(os.path.join(faster_rcnn_cfg.OUTPUT_DIR, "model_final.pth"))['model'], strict=True)
+        faster_rcnn = DDP(faster_rcnn)
         faster_rcnn.eval()
     else:
         print('Unknown model.')
@@ -132,7 +131,8 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
                 else:   # faster-rcnn
                     images = ImageList.from_tensors(images).to(rank)
-                    image_feature = faster_rcnn.module.backbone(images.tensor)['res5']    # feature of size 256x256x256
+                    image_feature = faster_rcnn.module.backbone(images.tensor)['p5']
+                del images
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:
@@ -384,7 +384,8 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
                 image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
             else:  # faster-rcnn
                 images = ImageList.from_tensors(images).to(rank)
-                image_feature = backbone.module.backbone(images.tensor)['res5']  # feature of size 256x256x256
+                image_feature = backbone.module.backbone(images.tensor)['p5']
+            del images
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:

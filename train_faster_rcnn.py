@@ -19,6 +19,7 @@ You may want to write your own script with your datasets and other customization
 import logging
 import os
 import torch
+import json
 from collections import OrderedDict
 
 import detectron2.utils.comm as comm
@@ -200,11 +201,25 @@ def setup(args):
     return cfg
 
 
+def my_train_dataset_function():
+    with open('/tmp/datasets/vg/annotations/instances_vg_train_coco.json') as f:
+        instances_vg_train_coco = json.load(f)
+    return instances_vg_train_coco
+
+
+def my_test_dataset_function():
+    with open('/tmp/datasets/vg/annotations/instances_vg_test_coco.json') as f:
+        instances_vg_test_coco = json.load(f)
+    return instances_vg_test_coco
+
+
 def main(args):
     # register visual genome dataset from coco
-    register_coco_instances("vg_train", {}, "/tmp/datasets/vg_coco_annot/train.json", "/tmp/datasets/vg/images")
-    register_coco_instances("vg_test", {}, "/tmp/datasets/vg_coco_annot/test.json", "/tmp/datasets/vg/images")
-    register_coco_instances("vg_val", {}, "/tmp/datasets/vg_coco_annot/val.json", "/tmp/datasets/vg/images")
+    DatasetCatalog.register("vg_train", my_train_dataset_function)
+    DatasetCatalog.register("vg_test", my_test_dataset_function)
+    # register_coco_instances("vg_train", {}, "/tmp/datasets/vg_coco_annot/train.json", "/tmp/datasets/vg/images")
+    # register_coco_instances("vg_test", {}, "/tmp/datasets/vg_coco_annot/test.json", "/tmp/datasets/vg/images")
+    # register_coco_instances("vg_val", {}, "/tmp/datasets/vg_coco_annot/val.json", "/tmp/datasets/vg/images")
     # data = DatasetCatalog.get("vg_val")
 
     cfg = setup(args)

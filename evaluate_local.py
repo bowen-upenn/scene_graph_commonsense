@@ -17,12 +17,8 @@ from model import EdgeHead, EdgeHeadHier
 from utils import *
 from dataset import object_class_alp2fre, object_class_faster2fre
 
-# from detectron2.config import get_cfg
 from detectron2.modeling import build_model
-# from detectron2.config import LazyConfig
 from detectron2.structures.image_list import ImageList
-from detectron2.engine import DefaultPredictor
-from detectron2.data.transforms import apply_transform_gens
 
 
 def setup(rank, world_size):
@@ -65,18 +61,10 @@ def eval_pc(gpu, args, test_subset, faster_rcnn_cfg=None):
         detr = DDP(build_detr101(args)).to(rank)
         edge_head.eval()
     elif args['models']['detr_or_faster_rcnn'] == 'faster':
-        # Inference should use the config with parameters that are used in training
-        # cfg now already contains everything we've set previously. We changed it a little bit for inference:
-        faster_rcnn_cfg.MODEL.WEIGHTS = os.path.join(faster_rcnn_cfg.OUTPUT_DIR, "model_final.pth")  # path to the model we just trained
-        faster_rcnn = build_model(faster_rcnn_cfg)
+        faster_rcnn = build_model(faster_rcnn_cfg).to(rank)
+        faster_rcnn.load_state_dict(torch.load(os.path.join(faster_rcnn_cfg.OUTPUT_DIR, "model_final.pth"))['model'], strict=True)
+        faster_rcnn = DDP(faster_rcnn)
         faster_rcnn.eval()
-        # faster_rcnn = DefaultPredictor(faster_rcnn_cfg)
-
-        # faster_rcnn_cfg = LazyConfig.load("checkpoints/faster_rcnn_config.yaml")
-        # faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/faster_rcnn_vg_ckpt.pth"
-        # faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
-        # faster_rcnn.eval()
-
     else:
         print('Unknown model.')
 
@@ -112,7 +100,7 @@ def eval_pc(gpu, args, test_subset, faster_rcnn_cfg=None):
                 image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
             else:   # faster-rcnn
                 images = ImageList.from_tensors(images).to(rank)
-                image_feature = faster_rcnn.module.backbone(images.tensor)['res5']    # feature of size 256x256x256
+                image_feature = faster_rcnn.module.backbone(images.tensor)['p5']
             del images
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
@@ -559,9 +547,9 @@ def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
         detr = DDP(build_detr101(args)).to(rank)
         edge_head.eval()
     elif args['models']['detr_or_faster_rcnn'] == 'faster':
-        faster_rcnn_cfg = LazyConfig.load("checkpoints/faster_rcnn_config.yaml")
-        faster_rcnn_cfg.MODEL.WEIGHTS = "checkpoints/faster_rcnn_vg_ckpt.pth"
-        faster_rcnn = DDP(build_model(faster_rcnn_cfg)).to(rank)
+        faster_rcnn = build_model(faster_rcnn_cfg).to(rank)
+        faster_rcnn.load_state_dict(torch.load(os.path.join(faster_rcnn_cfg.OUTPUT_DIR, "model_final.pth"))['model'], strict=True)
+        faster_rcnn = DDP(faster_rcnn)
         faster_rcnn.eval()
     else:
         print('Unknown model.')
@@ -577,6 +565,7 @@ def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
 
     sub2super_cat_dict = torch.load(args['dataset']['sub2super_cat_dict'])
     object_class_alp2fre_dict = object_class_alp2fre()
+    object_class_faster2fre_dict = object_class_faster2fre()
 
     print('Start Testing SGC...')
     with torch.no_grad():
@@ -589,50 +578,72 @@ def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
             except:
                 continue
 
-            images_s = torch.stack(images_s).to(rank)
-            image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images_s))
-            src, mask = image_feature[-1].decompose()
-            src = input_proj(src).flatten(2).permute(2, 0, 1)
-            pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-            image_feature = feature_encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+            if args['models']['detr_or_faster_rcnn'] == 'detr':
+                images_s = torch.stack(images_s).to(rank)
+                image_feature, pos_embed = backbone(nested_tensor_from_tensor_list(images_s))
+                src, mask = image_feature[-1].decompose()
+                src = input_proj(src).flatten(2).permute(2, 0, 1)
+                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+                image_feature = feature_encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                image_feature = image_feature.permute(1, 2, 0)
+                image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
 
-            image_feature = image_feature.permute(1, 2, 0)
-            image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+                images = [image.to(rank) for image in images]
+                out_dict = detr(nested_tensor_from_tensor_list(images))
+
+            else:  # faster-rcnn
+                images_s = ImageList.from_tensors(images_s).to(rank)
+                image_feature = faster_rcnn.module.backbone(images_s.tensor)['p5']
+                del images_s
+
+                images = [{'image': image.to(rank)} for image in images]  # input is a list[dict], where each dict corresponds to one image
+                out_dict_list = faster_rcnn(images)
+                del images
+
             image_depth = torch.stack([depth.to(rank) for depth in image_depth])
             categories_target = [category.to(rank) for category in categories_target]  # [batch_size][curr_num_obj, 1]
             bbox_target = [box.to(rank) for box in bbox_target]  # [batch_size][curr_num_obj, 4]
 
-            images = [image.to(rank) for image in images]
-            out_dict = detr(nested_tensor_from_tensor_list(images))
+            if args['models']['detr_or_faster_rcnn'] == 'detr':
+                logits_pred = torch.argmax(F.softmax(out_dict['pred_logits'], dim=2), dim=2)
+                has_object_pred = logits_pred < 150
+                logits_pred = torch.topk(F.softmax(out_dict['pred_logits'], dim=2), dim=2, k=args['models']['topk_cat'])[1].view(-1, 100, args['models']['topk_cat'])
 
-            logits_pred = torch.argmax(F.softmax(out_dict['pred_logits'], dim=2), dim=2)
-            has_object_pred = logits_pred < 150
-            logits_pred = torch.topk(F.softmax(out_dict['pred_logits'], dim=2), dim=2, k=2)[1].view(-1, 100, 2)
+                logits_pred_value = torch.topk(F.softmax(out_dict['pred_logits'], dim=2), dim=2, k=args['models']['topk_cat'])[0].view(-1, 100, args['models']['topk_cat'])
+                cat_pred_confidence = [logits_pred_value[i, has_object_pred[i], :].flatten() for i in range(logits_pred_value.shape[0]) if torch.sum(has_object_pred[i]) > 0]
 
-            logits_pred_value = torch.topk(F.softmax(out_dict['pred_logits'], dim=2), dim=2, k=2)[0].view(-1, 100, 2)
-            cat_pred_confidence = [logits_pred_value[i, has_object_pred[i], :].flatten() for i in range(logits_pred_value.shape[0]) if torch.sum(has_object_pred[i]) > 0]
+                categories_pred = [logits_pred[i, has_object_pred[i], :].flatten() for i in range(logits_pred.shape[0]) if torch.sum(has_object_pred[i]) > 0]  # (batch_size, num_obj, 150)
+            else:
+                categories_pred = torch.stack([out['instances'].pred_classes for out in out_dict_list])
+                has_object_pred = categories_pred < 150
+                cat_pred_confidence = torch.stack([out['instances'].scores for out in out_dict_list])
 
-            categories_pred = [logits_pred[i, has_object_pred[i], :].flatten() for i in range(logits_pred.shape[0]) if torch.sum(has_object_pred[i]) > 0]  # (batch_size, num_obj, 150)
             # object category indices in pretrained DETR are different from our indices
             for i in range(len(categories_pred)):
                 for j in range(len(categories_pred[i])):
-                    categories_pred[i][j] = object_class_alp2fre_dict[categories_pred[i][j].item()]     # at this moment, keep cat whose top2 == 150 for convenience
+                    if args['models']['detr_or_faster_rcnn'] == 'detr':
+                        categories_pred[i][j] = object_class_alp2fre_dict[categories_pred[i][j].item()]
+                    else:
+                        categories_pred[i][j] = object_class_faster2fre_dict[categories_pred[i][j].item()]
             cat_mask = [categories_pred[i] != 150 for i in range(len(categories_pred))]
 
-            bbox_pred = [out_dict['pred_boxes'][i, has_object_pred[i]] for i in range(logits_pred.shape[0]) if torch.sum(has_object_pred[i]) > 0]  # convert from 0-1 to 0-32
-            for i in range(len(bbox_pred)):
-                bbox_pred_c = bbox_pred[i].clone()
-                bbox_pred[i][:, 0] = bbox_pred_c[:, 0] - 1 * bbox_pred_c[:, 2] / 2
-                bbox_pred[i][:, 1] = bbox_pred_c[:, 0] + 1 * bbox_pred_c[:, 2] / 2
-                bbox_pred[i][:, 2] = bbox_pred_c[:, 1] - 1 * bbox_pred_c[:, 3] / 2
-                bbox_pred[i][:, 3] = bbox_pred_c[:, 1] + 1 * bbox_pred_c[:, 3] / 2
+            if args['models']['detr_or_faster_rcnn'] == 'detr':
+                bbox_pred = [out_dict['pred_boxes'][i, has_object_pred[i]] for i in range(categories_pred.shape[0]) if torch.sum(has_object_pred[i]) > 0]  # convert from 0-1 to 0-32
+                for i in range(len(bbox_pred)):
+                    bbox_pred_c = bbox_pred[i].clone()
+                    bbox_pred[i][:, 0] = bbox_pred_c[:, 0] - 1 * bbox_pred_c[:, 2] / 2
+                    bbox_pred[i][:, 1] = bbox_pred_c[:, 0] + 1 * bbox_pred_c[:, 2] / 2
+                    bbox_pred[i][:, 2] = bbox_pred_c[:, 1] - 1 * bbox_pred_c[:, 3] / 2
+                    bbox_pred[i][:, 3] = bbox_pred_c[:, 1] + 1 * bbox_pred_c[:, 3] / 2
 
-                bbox_pred[i][:, 0][bbox_pred[i][:, 0] < 0] = 0
-                bbox_pred[i][:, 1][bbox_pred[i][:, 1] > 1] = 1
-                bbox_pred[i][:, 2][bbox_pred[i][:, 2] < 0] = 0
-                bbox_pred[i][:, 3][bbox_pred[i][:, 3] > 1] = 1
-                bbox_pred[i] *= 32
-                bbox_pred[i] = bbox_pred[i].repeat_interleave(2, dim=0)
+                    bbox_pred[i][:, 0][bbox_pred[i][:, 0] < 0] = 0
+                    bbox_pred[i][:, 1][bbox_pred[i][:, 1] > 1] = 1
+                    bbox_pred[i][:, 2][bbox_pred[i][:, 2] < 0] = 0
+                    bbox_pred[i][:, 3][bbox_pred[i][:, 3] > 1] = 1
+                    bbox_pred[i] *= 32
+                    bbox_pred[i] = bbox_pred[i].repeat_interleave(args['models']['topk_cat'], dim=0)
+            else:
+                bbox_pred = [out['instances'].pred_boxes.tensor for out in out_dict_list]
 
             # masks_pred = []
             # for i in range(len(bbox_pred)):
@@ -649,7 +660,8 @@ def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
 
             # non-maximum suppression
             for i in range(len(bbox_pred)):
-                bbox_pred[i] = bbox_pred[i][:, [0, 2, 1, 3]]
+                if args['models']['detr_or_faster_rcnn'] == 'detr':
+                    bbox_pred[i] = bbox_pred[i][:, [0, 2, 1, 3]]
 
                 nms_keep_idx = None
                 for cls in torch.unique(categories_pred[i]):  # per class nms
@@ -661,7 +673,8 @@ def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
                     else:
                         nms_keep_idx = torch.hstack((nms_keep_idx, (torch.nonzero(curr_class_idx).flatten())[curr_nms_keep_idx]))
 
-                bbox_pred[i] = bbox_pred[i][:, [0, 2, 1, 3]]       # convert back to (x1, x2, y1, y2)
+                if args['models']['detr_or_faster_rcnn'] == 'detr':
+                    bbox_pred[i] = bbox_pred[i][:, [0, 2, 1, 3]]       # convert back to (x1, x2, y1, y2)
                 categories_pred[i] = categories_pred[i][nms_keep_idx]
                 cat_pred_confidence[i] = cat_pred_confidence[i][nms_keep_idx]
                 bbox_pred[i] = bbox_pred[i][nms_keep_idx]
