@@ -125,7 +125,6 @@ def setup(args):
 
     cfg.DATASETS.TRAIN = ("vg_train",)
     cfg.DATASETS.TEST = ("vg_test",)
-    cfg.DATASETS.VAL = ("vg_val",)
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml")  # Let training initialize from model zoo
     cfg.OUTPUT_DIR = "checkpoints/faster_rcnn/"
 
@@ -150,7 +149,8 @@ def setup(args):
     cfg.MODEL.MASK_ON = False
     cfg.MODEL.KEYPOINT_ON = False
     cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[32, 64, 128, 256, 512]]
-    cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.5, 1.0, 2.0]]
+    cfg.MODEL.ANCHOR_GENERATOR.STRIDE = [[4, 8, 16, 32, 64]]
+    cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.23232838, 0.63365731, 1.28478321, 3.15089189]]
     cfg.MODEL.RPN.IOU_THRESHOLDS = [0.3, 0.7]
     cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE = 256
     cfg.MODEL.RPN.PRE_NMS_TOPK_TRAIN = 12000
@@ -161,8 +161,9 @@ def setup(args):
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 151
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256
     cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION = 0.5
+    cfg.MODEL.ROI_HEADS.IOU_THRESHOLDS = [0.3]
     cfg.MODEL.ROI_BOX_HEAD.CONV_DIM = 256
-    cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_NUM_CLASSES = 150
+    cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_NUM_CLASSES = 151
     cfg.MODEL.ROI_BOX_HEAD.BBOX_REG_WEIGHTS = (10.0, 10.0, 5.0, 5.0)
     cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION = 7
     cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO = 2
@@ -176,10 +177,11 @@ def setup(args):
     cfg.SOLVER.BIAS_LR_FACTOR = 2
     cfg.SOLVER.CHECKPOINT_PERIOD = 5000
     cfg.SOLVER.GAMMA = 0.1
-    cfg.SOLVER.MAX_ITER = 45000
+    cfg.SOLVER.MAX_ITER = 50000
     cfg.SOLVER.MOMENTUM = 0.9
     cfg.SOLVER.NESTEROV = False
-    cfg.SOLVER.STEPS = [30000, 40000]
+    cfg.SOLVER.WEIGHT_DECAY = 0.0001
+    cfg.SOLVER.STEPS = [30000, 45000]
     cfg.SOLVER.CLIP_GRADIENTS.ENABLED = True
     cfg.SOLVER.CLIP_GRADIENTS.CLIP_TYPE = "value"
     cfg.SOLVER.CLIP_GRADIENTS.CLIP_VALUE = 5.0
