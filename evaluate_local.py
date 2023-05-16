@@ -15,7 +15,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from evaluator import Evaluator_PC, Evaluator_SGD, Evaluator_PC_Top3, Evaluator_SGD_Top3
 from model import EdgeHead, EdgeHeadHier
 from utils import *
-from dataset import object_class_alp2fre, object_class_faster2fre
+from dataset import object_class_alp2fre#, object_class_faster2fre
 
 from detectron2.modeling import build_model
 from detectron2.structures.image_list import ImageList
@@ -281,7 +281,7 @@ def eval_sgd(gpu, args, test_subset, faster_rcnn_cfg=None):
 
     sub2super_cat_dict = torch.load(args['dataset']['sub2super_cat_dict'])
     object_class_alp2fre_dict = object_class_alp2fre()
-    object_class_faster2fre_dict = object_class_faster2fre()
+    # object_class_faster2fre_dict = object_class_faster2fre()
 
     print('Start Testing SGD...')
     with torch.no_grad():
@@ -342,8 +342,8 @@ def eval_sgd(gpu, args, test_subset, faster_rcnn_cfg=None):
                     # at this moment, keep cat whose top2 == 150 for convenience
                     if args['models']['detr_or_faster_rcnn'] == 'detr':
                         categories_pred[i][j] = object_class_alp2fre_dict[categories_pred[i][j].item()]
-                    else:
-                        categories_pred[i][j] = object_class_faster2fre_dict[categories_pred[i][j].item()]
+                    # else:
+                    #     categories_pred[i][j] = object_class_faster2fre_dict[categories_pred[i][j].item()]
             cat_mask = [categories_pred[i] != 150 for i in range(len(categories_pred))]
 
             if args['models']['detr_or_faster_rcnn'] == 'detr':
@@ -565,7 +565,7 @@ def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
 
     sub2super_cat_dict = torch.load(args['dataset']['sub2super_cat_dict'])
     object_class_alp2fre_dict = object_class_alp2fre()
-    object_class_faster2fre_dict = object_class_faster2fre()
+    # object_class_faster2fre_dict = object_class_faster2fre()
 
     print('Start Testing SGC...')
     with torch.no_grad():
@@ -623,8 +623,8 @@ def eval_sgc(gpu, args, test_subset, faster_rcnn_cfg=None):
                 for j in range(len(categories_pred[i])):
                     if args['models']['detr_or_faster_rcnn'] == 'detr':
                         categories_pred[i][j] = object_class_alp2fre_dict[categories_pred[i][j].item()]
-                    else:
-                        categories_pred[i][j] = object_class_faster2fre_dict[categories_pred[i][j].item()]
+                    # else:
+                    #     categories_pred[i][j] = object_class_faster2fre_dict[categories_pred[i][j].item()]
             cat_mask = [categories_pred[i] != 150 for i in range(len(categories_pred))]
 
             if args['models']['detr_or_faster_rcnn'] == 'detr':

@@ -43,6 +43,9 @@ from detectron2.modeling import GeneralizedRCNNWithTTA
 from detectron2.data import DatasetCatalog
 from detectron2.data.datasets import register_coco_instances
 from detectron2 import model_zoo
+from detectron2.data import MetadataCatalog
+
+from dataset import object_class_int2str
 
 
 def build_evaluator(cfg, dataset_name, output_folder=None):
@@ -219,6 +222,11 @@ def main(args):
     # register visual genome dataset from coco
     DatasetCatalog.register("vg_train", my_train_dataset_function)
     DatasetCatalog.register("vg_test", my_test_dataset_function)
+
+    object_class_int2str_dict = object_class_int2str()
+    all_class_names = [object_class_int2str_dict[key] for key in object_class_int2str_dict]
+    MetadataCatalog.get("vg_test").set(thing_classes=all_class_names, ignore_label=150, evaluator_type='coco')
+
     # register_coco_instances("vg_train", {}, "/tmp/datasets/vg_coco_annot/train.json", "/tmp/datasets/vg/images")
     # register_coco_instances("vg_test", {}, "/tmp/datasets/vg_coco_annot/test.json", "/tmp/datasets/vg/images")
     # register_coco_instances("vg_val", {}, "/tmp/datasets/vg_coco_annot/val.json", "/tmp/datasets/vg/images")
