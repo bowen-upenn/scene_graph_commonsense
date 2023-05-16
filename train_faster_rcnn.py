@@ -21,6 +21,7 @@ import os
 import torch
 import json
 from collections import OrderedDict
+import random
 
 import detectron2.utils.comm as comm
 from detectron2.checkpoint import DetectionCheckpointer
@@ -46,6 +47,8 @@ from detectron2 import model_zoo
 from detectron2.data import MetadataCatalog
 
 from dataset import object_class_int2str
+
+SUBSET = 1     # global variable of value 0-1 to select a subset from the dataset for debugging
 
 
 def build_evaluator(cfg, dataset_name, output_folder=None):
@@ -180,7 +183,7 @@ def setup(args):
     cfg.SOLVER.BIAS_LR_FACTOR = 2
     cfg.SOLVER.CHECKPOINT_PERIOD = 5000
     cfg.SOLVER.GAMMA = 0.1
-    cfg.SOLVER.MAX_ITER = 50000
+    cfg.SOLVER.MAX_ITER = int(50000 * SUBSET)
     cfg.SOLVER.MOMENTUM = 0.9
     cfg.SOLVER.NESTEROV = False
     cfg.SOLVER.WEIGHT_DECAY = 0.0001
@@ -197,7 +200,7 @@ def setup(args):
     cfg.SOLVER.WEIGHT_DECAY_BIAS = None
 
     cfg.EVAL_PERIOD = 20000
-    cfg.TEST.AUG.ENABLED = False
+    cfg.TEST.AUG.ENABLED = True
     cfg.TEST.AUG.MAX_SIZE = 4000
     cfg.TEST.AUG.FLIP = False
     cfg.TEST.DETECTIONS_PER_IMAGE = 100
@@ -209,12 +212,22 @@ def setup(args):
 def my_train_dataset_function():
     with open('/tmp/datasets/vg/annotations/instances_vg_train_coco.json') as f:
         instances_vg_train_coco = json.load(f)
+
+    # use only 1% of the data for debugging
+    num_instances = len(instances_vg_train_coco)
+    instances_vg_train_coco = instances_vg_train_coco[:int(SUBSET * num_instances)]
+
     return instances_vg_train_coco
 
 
 def my_test_dataset_function():
     with open('/tmp/datasets/vg/annotations/instances_vg_test_coco.json') as f:
         instances_vg_test_coco = json.load(f)
+
+    # use only 1% of the data for debugging
+    num_instances = len(instances_vg_test_coco)
+    instances_vg_test_coco = instances_vg_test_coco[:int(SUBSET * num_instances)]
+
     return instances_vg_test_coco
 
 
@@ -225,7 +238,8 @@ def main(args):
 
     object_class_int2str_dict = object_class_int2str()
     all_class_names = [object_class_int2str_dict[key] for key in object_class_int2str_dict]
-    MetadataCatalog.get("vg_test").set(thing_classes=all_class_names, ignore_label=150, evaluator_type='coco')
+    MetadataCatalog.get("vg_train").set(thing_classes=all_class_names, evaluator_type="coco")
+    MetadataCatalog.get("vg_test").set(thing_classes=all_class_names, evaluator_type="coco")
 
     # register_coco_instances("vg_train", {}, "/tmp/datasets/vg_coco_annot/train.json", "/tmp/datasets/vg/images")
     # register_coco_instances("vg_test", {}, "/tmp/datasets/vg_coco_annot/test.json", "/tmp/datasets/vg/images")
