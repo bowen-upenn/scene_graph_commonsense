@@ -63,7 +63,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-        image_s = cv2.imread(image_path)
+        images = cv2.imread(image_path)
         # image = cv2.imread(image_path)
         # image_s = image.copy()
         if self.args['models']['detr_or_faster_rcnn'] == 'detr':
@@ -71,14 +71,14 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             # image = 255 * self.image_transform(image)
             # image = self.image_norm(image)  # original size that produce better bounding boxes
 
-            image_s = cv2.cvtColor(image_s, cv2.COLOR_BGR2RGB)
-            image_s = 255 * self.image_transform_s(image_s)
-            image_s = self.image_norm(image_s)  # squared size that unifies the size of feature maps
+            images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
+            images = 255 * self.image_transform_s(images)
+            images = self.image_norm(images)  # squared size that unifies the size of feature maps
         else:
             # detectron2 will automatically transform input images based on the config file
             # image = self.image_transform_to_tensor(image)
-            image_s = self.image_transform_to_tensor(image_s)
-            image_s = self.image_transform_s(image_s)
+            images = self.image_transform_to_tensor(images)
+            images = self.image_transform_s(images)
 
         if self.args['models']['use_depth']:
             image_depth = curr_annot['image_depth']
@@ -88,7 +88,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         super_categories = curr_annot['super_categories']
         # masks = curr_annot['masks']
         # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
-        if categories.shape[0] <= 1 or categories.shape[0] > 30: # 25
+        if categories.shape[0] <= 1 or categories.shape[0] > 25:
             return None
         bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
 
@@ -101,7 +101,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             relationships_reordered.append(rel_reorder_dict[rel])
         relationships = relationships_reordered
 
-        return image_s, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+        return images, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
         # return image, image_s, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj
 
     def __len__(self):
