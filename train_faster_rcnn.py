@@ -46,7 +46,7 @@ from detectron2.data.datasets import register_coco_instances
 from detectron2 import model_zoo
 from detectron2.data import MetadataCatalog
 
-from dataset import object_class_int2str
+from dataset_utils import object_class_int2str
 
 SUBSET = 1     # global variable of value 0-1 to select a subset from the dataset for debugging
 

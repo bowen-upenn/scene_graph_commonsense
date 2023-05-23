@@ -14,8 +14,8 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 0.001
-    percent_test: 0.005
+    percent_train: 1 #0.001
+    percent_test: 1 #0.005
     dataset: 'vg' # vg, oiv6
 models:
     detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
@@ -50,12 +50,12 @@ transformers:
     pre_norm: False
     sparsity: 0.5
 training:
-    run_mode: 'eval'      # train or eval
+    run_mode: 'train'      # train or eval
     train_mode: 'local'    # local or global
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.001
     weight_decay: 0.0001
-    batch_size: 16
+    batch_size: 32
     num_epoch: 1
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'

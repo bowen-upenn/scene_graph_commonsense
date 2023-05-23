@@ -13,6 +13,8 @@ import numpy as np
 from tqdm import tqdm
 from collections import Counter, OrderedDict
 from dataset import *
+from dataset_utils import *
+
 
 # load hyper-parameters
 try:

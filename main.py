@@ -9,13 +9,15 @@ import json
 import torch.multiprocessing as mp
 import detectron2
 
-from dataset import VisualGenomeDataset, OpenImageV6Dataset
+from dataset import VisualGenomeDataset, VisualGenomeDatasetNonDynamic, OpenImageV6Dataset
+# from train_test_local_nondynamic import train_local
 from train_test_local import train_local
 from train_test_global import train_global
 from evaluate_local import eval_pc, eval_sgc, eval_sgd
 
 from train_faster_rcnn import setup
 from detectron2.engine import default_argument_parser
+
 
 if __name__ == "__main__":
     print('Torch', torch.__version__, 'Torchvision', torchvision.__version__)
@@ -47,6 +49,8 @@ if __name__ == "__main__":
         print("Loading the datasets...")
         train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'])
         test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])
+        # train_dataset = VisualGenomeDatasetNonDynamic(args, device, args['dataset']['annotation_train'])
+        # test_dataset = VisualGenomeDatasetNonDynamic(args, device, args['dataset']['annotation_test'])
 
     elif args['dataset']['dataset'] == 'oiv6':
         args['models']['num_classes'] = 601
@@ -62,11 +66,11 @@ if __name__ == "__main__":
     else:
         print('Unknown dataset.')
 
-    if args['models']['detr_or_faster_rcnn'] == 'detr':
-        args['training']['batch_size'] = 32
-    else:
-        args['training']['batch_size'] = 16
-        args['models']['topk_cat'] = 1
+    # if args['models']['detr_or_faster_rcnn'] == 'detr':
+    #     args['training']['batch_size'] = 32
+    # else:
+    #     args['training']['batch_size'] = 16
+    #     args['models']['topk_cat'] = 1
 
     torch.manual_seed(0)
     train_subset_idx = torch.randperm(len(train_dataset))[:int(args['dataset']['percent_train'] * len(train_dataset))]

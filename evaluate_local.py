@@ -15,7 +15,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from evaluator import Evaluator_PC, Evaluator_SGD, Evaluator_PC_Top3, Evaluator_SGD_Top3
 from model import EdgeHead, EdgeHeadHier
 from utils import *
-from dataset import object_class_alp2fre#, object_class_faster2fre
+from dataset_utils import object_class_alp2fre#, object_class_faster2fre
 
 from detectron2.modeling import build_model
 from detectron2.structures.image_list import ImageList
