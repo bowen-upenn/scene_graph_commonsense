@@ -87,7 +87,7 @@ def eval_pc(gpu, args, test_subset, faster_rcnn_cfg=None):
             """
             PREPARE INPUT DATA
             """
-            _, images, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj = data
+            images, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
 
             if args['models']['detr_or_faster_rcnn'] == 'detr':
                 images = torch.stack(images).to(rank)

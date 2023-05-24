@@ -174,7 +174,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
 
                     if len(which_in_batch) == 0:
                         continue
-                    optimizer.param_groups[0]["lr"] = original_lr * lr_decay * math.sqrt(len(which_in_batch) / len(num_graph_iter))
+                    # optimizer.param_groups[0]["lr"] = original_lr * lr_decay * math.sqrt(len(which_in_batch) / len(num_graph_iter))
 
                     curr_direction_target = direction_target[graph_iter - 1][edge_iter][has_relations_mask]
 
@@ -250,6 +250,9 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             """
             if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                 if args['dataset']['dataset'] == 'vg':
+                    if batch_count + 1 == len(train_loader) and rank == 0:
+                        recall, recall_k_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                        print("recall_k_per_class", recall_k_per_class)
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     if args['models']['hierarchical_pred']:
                         recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
@@ -424,7 +427,11 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 if args['dataset']['dataset'] == 'vg':
-                    recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                    if batch_count + 1 == len(test_loader) and rank == 0:
+                        recall, recall_k_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                        print("recall_k_per_class", recall_k_per_class)
+                    else:
+                        recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     if args['models']['hierarchical_pred']:
                         recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                         Recall_top3.clear_data()

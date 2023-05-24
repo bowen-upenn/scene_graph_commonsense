@@ -10,8 +10,8 @@ import torch.multiprocessing as mp
 import detectron2
 
 from dataset import VisualGenomeDataset, VisualGenomeDatasetNonDynamic, OpenImageV6Dataset
-from train_test_local_concat import train_local
-# from train_test_local import train_local
+# from train_test_local_concat import train_local
+from train_test_local import train_local
 from train_test_global import train_global
 from evaluate_local import eval_pc, eval_sgc, eval_sgd
 

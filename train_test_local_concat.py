@@ -177,7 +177,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
 
                     if len(which_in_batch) == 0:
                         continue
-                    optimizer.param_groups[0]["lr"] = original_lr * lr_decay * math.sqrt(len(which_in_batch) / len(num_graph_iter))
+                    # optimizer.param_groups[0]["lr"] = original_lr * lr_decay * math.sqrt(len(which_in_batch) / len(num_graph_iter))
 
                     curr_direction_target = direction_target[graph_iter - 1][edge_iter][has_relations_mask]
 
