@@ -27,6 +27,178 @@ def setup(rank, world_size):
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
+def inference_single_image(gpu, args, test_subset):
+    """
+    This function evaluates the local prediction module on predicate classification tasks
+    on a single image without the dynamic batch sizing approach for batch-wise training
+    :param gpu: current gpu index
+    :param args: input arguments in config.yaml
+    :param test_subset: testing dataset
+    """
+    rank = gpu
+    world_size = torch.cuda.device_count()
+    setup(rank, world_size)
+    print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
+
+    test_sampler = torch.utils.data.distributed.DistributedSampler(test_subset, num_replicas=world_size, rank=rank)
+    test_loader = torch.utils.data.DataLoader(test_subset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=test_sampler)
+    print("Finished loading the datasets...")
+
+    start = []
+    test_record = []
+    with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'w') as f:  # clear history logs
+        json.dump(start, f)
+
+    if args['models']['hierarchical_pred']:
+        edge_head = DDP(EdgeHeadHier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                     num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+    else:
+        edge_head = DDP(EdgeHead(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
+                                 num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                 num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+
+    if args['models']['detr_or_faster_rcnn'] == 'detr':
+        detr = DDP(build_detr101(args)).to(rank)
+        edge_head.eval()
+    elif args['models']['detr_or_faster_rcnn'] == 'faster':
+        faster_rcnn = build_model(faster_rcnn_cfg).to(rank)
+        faster_rcnn.load_state_dict(torch.load(os.path.join(faster_rcnn_cfg.OUTPUT_DIR, "model_final.pth"))['model'], strict=True)
+        faster_rcnn = DDP(faster_rcnn)
+        faster_rcnn.eval()
+    else:
+        print('Unknown model.')
+
+    map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
+    if args['models']['hierarchical_pred']:
+        edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+    else:
+        edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+
+    connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
+    recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
+
+    Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    if args['dataset']['dataset'] == 'vg':
+        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+
+    print('Start Testing PC...')
+    with torch.no_grad():
+        for batch_count, data in enumerate(tqdm(test_loader), 0):
+            """
+            PREPARE INPUT DATA
+            """
+            try:
+                images, image_depth, triplets_list = data
+            except:
+                continue
+
+            images = torch.stack(images).to(rank)
+            image_feature, pos_embed = backbone.module.backbone(nested_tensor_from_tensor_list(images))
+            src, mask = image_feature[-1].decompose()
+            src = backbone.module.input_proj(src).flatten(2).permute(2, 0, 1)
+            pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+            image_feature = backbone.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+            image_feature = image_feature.permute(1, 2, 0)
+            image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+            del images
+
+            # append corresponding image index to each triplet
+            all_triplets = []
+            for i, triplets in enumerate(triplets_list):
+                for triplet in triplets:
+                    triplet.append(i)
+                    all_triplets.append(triplet)
+
+            all_image_idx = torch.tensor([triplet[-1] for triplet in all_triplets]).to(rank)
+
+            all_sub_categories = torch.tensor([triplet[0] for triplet in all_triplets]).to(rank)
+            all_obj_categories = torch.tensor([triplet[5] for triplet in all_triplets]).to(rank)
+            all_sub_super_categories = [[sc.to(rank) for sc in triplet[1]] for triplet in all_triplets]
+            all_obj_super_categories = [[sc.to(rank) for sc in triplet[6]] for triplet in all_triplets]
+            all_sub_bboxes = torch.stack([triplet[2] for triplet in all_triplets]).to(rank)
+            all_obj_bboxes = torch.stack([triplet[7] for triplet in all_triplets]).to(rank)
+
+            all_sub_masks = torch.zeros(len(all_triplets), args['models']['feature_size'], args['models']['feature_size'], dtype=torch.uint8).to(rank)
+            all_obj_masks = torch.zeros(len(all_triplets), args['models']['feature_size'], args['models']['feature_size'], dtype=torch.uint8).to(rank)
+            for i in range(len(all_triplets)):
+                all_sub_masks[i, int(all_sub_bboxes[i][2]):int(all_sub_bboxes[i][3]), int(all_sub_bboxes[i][0]):int(all_sub_bboxes[i][1])] = 1
+                all_obj_masks[i, int(all_obj_bboxes[i][2]):int(all_obj_bboxes[i][3]), int(all_obj_bboxes[i][0]):int(all_obj_bboxes[i][1])] = 1
+
+            all_img_features = torch.zeros(len(all_triplets), args['models']['num_img_feature'] + 1, args['models']['feature_size'], args['models']['feature_size']).to(rank)
+            all_sub_features = torch.zeros(len(all_triplets), args['models']['num_img_feature'] + 1, args['models']['feature_size'], args['models']['feature_size']).to(rank)
+            all_obj_features = torch.zeros(len(all_triplets), args['models']['num_img_feature'] + 1, args['models']['feature_size'], args['models']['feature_size']).to(rank)
+            for i in range(len(all_triplets)):
+                image_idx = all_triplets[i][-1]
+                all_img_features[i, :-1] = image_feature[image_idx].to(rank)
+                all_img_features[i, -1] = image_depth[image_idx].to(rank)
+                all_sub_features[i] = all_img_features[i] * all_sub_masks[i]
+                all_obj_features[i] = all_img_features[i] * all_obj_masks[i]
+
+            all_relations_target = torch.stack([triplet[4].to(rank) for triplet in all_triplets])
+
+            """
+            FIRST DIRECTION
+            """
+            if args['models']['hierarchical_pred']:
+                relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
+                                                                                             all_sub_super_categories, all_obj_super_categories, rank)
+                relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
+            else:
+                relation, connectivity = edge_head(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
+                                                   all_sub_super_categories, all_obj_super_categories, rank)
+                super_relation = None
+
+            if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                Recall.accumulate(all_image_idx, relation, all_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                  all_sub_categories, all_obj_categories, all_sub_categories, all_obj_categories,
+                                  all_sub_bboxes, all_obj_bboxes, all_sub_bboxes, all_obj_bboxes)
+                if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                    Recall_top3.accumulate(all_image_idx, relation, all_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                           all_sub_categories, all_obj_categories, all_sub_categories, all_obj_categories,
+                                           all_sub_bboxes, all_obj_bboxes, all_sub_bboxes, all_obj_bboxes)
+            """
+            SECOND DIRECTION
+            """
+            if args['models']['hierarchical_pred']:
+                relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(all_obj_features, all_sub_features, all_obj_categories, all_sub_categories,
+                                                                                             all_obj_super_categories, all_sub_super_categories, rank)
+                relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
+            else:
+                relation, connectivity = edge_head(all_obj_features, all_sub_features, all_obj_categories, all_sub_categories,
+                                                   all_obj_super_categories, all_sub_super_categories, rank)
+                super_relation = None
+
+            if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                Recall.accumulate(all_image_idx, relation, all_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                  all_obj_categories, all_sub_categories, all_obj_categories, all_sub_categories,
+                                  all_obj_bboxes, all_sub_bboxes, all_obj_bboxes, all_sub_bboxes)
+                if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                    Recall_top3.accumulate(all_image_idx, relation, all_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                           all_obj_categories, all_sub_categories, all_obj_categories, all_sub_categories,
+                                           all_obj_bboxes, all_sub_bboxes, all_obj_bboxes, all_sub_bboxes)
+
+            """
+            EVALUATE AND PRINT CURRENT RESULTS
+            """
+            if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                if args['dataset']['dataset'] == 'vg':
+                    recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                    if args['models']['hierarchical_pred']:
+                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                        Recall_top3.clear_data()
+                else:
+                    recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
+                    wmap_rel, wmap_phrase = Recall.compute_precision()
+                Recall.clear_data()
+
+            if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                record_test_results(args, test_record, rank, epoch, recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                    connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+                dist.monitored_barrier()
+    print('FINISHED INFERENCE\n')
+
+
 def eval_pc(gpu, args, test_subset, faster_rcnn_cfg=None):
     """
     This function evaluates the local prediction module on predicate classification tasks.

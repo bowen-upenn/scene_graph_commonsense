@@ -82,9 +82,9 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHierNonDynamic' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
-            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadNonDynamic' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
     optimizer = optim.SGD([{'params': edge_head.parameters(), 'initial_lr': args['training']['learning_rate']}],
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
@@ -260,9 +260,9 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                 Recall.accumulate(all_which_in_batch, relation, all_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                   all_cat_subject, all_cat_object, all_cat_subject, all_cat_object, all_bbox_subject, all_bbox_object, all_bbox_subject, all_bbox_object)
-            if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                Recall_top3.accumulate(all_which_in_batch, relation, all_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                       all_cat_subject, all_cat_object, all_cat_subject, all_cat_object, all_bbox_subject, all_bbox_object, all_bbox_subject, all_bbox_object)
+                if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                    Recall_top3.accumulate(all_which_in_batch, relation, all_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                           all_cat_subject, all_cat_object, all_cat_subject, all_cat_object, all_bbox_subject, all_bbox_object, all_bbox_subject, all_bbox_object)
 
             """
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
@@ -287,9 +287,9 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             running_losses, running_loss_connectivity, running_loss_relationship, connectivity_recall, connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if args['models']['hierarchical_pred']:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHierNonDynamic' + str(epoch) + '_' + str(rank) + '.pth')
         else:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadNonDynamic' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         if args['models']['detr_or_faster_rcnn'] == 'detr':

@@ -497,6 +497,141 @@ class Evaluator_PC_Top3:
         self.object_bbox_target = None
 
 
+class Evaluator_PC_NoGraphConstraint:
+    """
+    The class evaluate the model performance on Recall@k and mean Recall@k evaluation metrics on predicate classification tasks.
+    In the no graph constraint scheme, all the 50 predicates will be involved in the recall ranking not just the one with the highest score
+    for each edge, and also without the knowledge of relationship hierarchy
+    """
+    def __init__(self, args, num_classes, iou_thresh, top_k):
+        self.args = args
+        self.top_k = top_k
+        self.num_classes = num_classes
+        self.iou_thresh = iou_thresh
+        self.num_connected_target = 0.0
+        self.motif_total = 0.0
+        self.motif_correct = 0.0
+        self.result_dict = {20: 0.0, 50: 0.0, 100: 0.0}
+        self.result_per_class = {k: torch.tensor([0.0 for i in range(self.num_classes)]) for k in self.top_k}
+        self.num_conn_target_per_class = torch.tensor([0.0 for i in range(self.num_classes)])
+        self.num_relations = self.args['models']['num_relations']
+
+        self.which_in_batch = None
+        self.connected_pred = None
+        self.confidence = None
+        self.relation_pred = None
+        self.relation_target = None
+
+        self.subject_cat_pred = None
+        self.object_cat_pred = None
+        self.subject_cat_target = None
+        self.object_cat_target = None
+
+        self.subject_bbox_pred = None
+        self.object_bbox_pred = None
+        self.subject_bbox_target = None
+        self.object_bbox_target = None
+
+    def iou(self, bbox_target, bbox_pred):
+        mask_pred = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
+        mask_pred[int(bbox_pred[2]):int(bbox_pred[3]), int(bbox_pred[0]):int(bbox_pred[1])] = 1
+        mask_target = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
+        mask_target[int(bbox_target[2]):int(bbox_target[3]), int(bbox_target[0]):int(bbox_target[1])] = 1
+        intersect = torch.sum(torch.logical_and(mask_target, mask_pred))
+        union = torch.sum(torch.logical_or(mask_target, mask_pred))
+        if union == 0:
+            return 0
+        else:
+            return float(intersect) / float(union)
+
+    def accumulate(self, which_in_batch, relation_pred, relation_target, super_relation_pred, connectivity,
+                   subject_cat_pred, object_cat_pred, subject_cat_target, object_cat_target,
+                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target):
+
+        if self.relation_pred is None:
+            self.which_in_batch = which_in_batch.repeat(self.num_relations)
+            self.confidence = torch.hstack(relation_pred)
+
+            self.relation_pred = torch.arange(self.num_relations).repeat(len(relation_pred))
+            self.relation_target = relation_target.repeat(self.num_relations)
+
+            self.subject_cat_pred = subject_cat_pred.repeat(self.num_relations)
+            self.object_cat_pred = object_cat_pred.repeat(self.num_relations)
+            self.subject_cat_target = subject_cat_target.repeat(self.num_relations)
+            self.object_cat_target = object_cat_target.repeat(self.num_relations)
+
+            self.subject_bbox_pred = subject_bbox_pred.repeat(self.num_relations, 1)
+            self.object_bbox_pred = object_bbox_pred.repeat(self.num_relations, 1)
+            self.subject_bbox_target = subject_bbox_target.repeat(self.num_relations, 1)
+            self.object_bbox_target = object_bbox_target.repeat(self.num_relations, 1)
+        else:
+            self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(self.num_relations)))
+            self.confidence = torch.hstack((self.confidence, relation_pred))
+
+            self.relation_pred = torch.hstack((self.relation_pred, torch.arange(self.num_relations).repeat(len(relation_pred))))
+            self.relation_target = torch.hstack((self.relation_target, relation_target.repeat(self.num_relations)))
+
+            self.subject_cat_pred = torch.hstack((self.subject_cat_pred, subject_cat_pred.repeat(self.num_relations)))
+            self.object_cat_pred = torch.hstack((self.object_cat_pred, object_cat_pred.repeat(self.num_relations)))
+            self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target.repeat(self.num_relations)))
+            self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target.repeat(self.num_relations)))
+
+            self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred.repeat(self.num_relations, 1)))
+            self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat(self.num_relations, 1)))
+            self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat(self.num_relations, 1)))
+            self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(self.num_relations, 1)))
+
+    def compute(self, per_class=False):
+        """
+        A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,
+        the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
+        """
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            num_relation_pred = len(self.relation_pred[curr_image])
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            for i in range(len(self.relation_target[curr_image])):
+                if self.relation_target[curr_image][i] == -1:  # if target is not connected
+                    continue
+
+                # search in top k most confident predictions in each image
+                num_target = torch.sum(self.relation_target[curr_image] != -1)
+                this_k = min(self.top_k[-1], num_relation_pred)  # 100
+                keep_inds = sorted_inds[:this_k]
+
+                found = False   # found if any one of the three sub-models predict correctly
+                for j in range(len(keep_inds)):     # for each target <subject, relation, object> triple, find any match in the top k confident predictions
+                    if (self.subject_cat_target[curr_image][i] == self.subject_cat_pred[curr_image][keep_inds][j]
+                            and self.object_cat_target[curr_image][i] == self.object_cat_pred[curr_image][keep_inds][j]):
+
+                        sub_iou = self.iou(self.subject_bbox_target[curr_image][i], self.subject_bbox_pred[curr_image][keep_inds][j])
+                        obj_iou = self.iou(self.object_bbox_target[curr_image][i], self.object_bbox_pred[curr_image][keep_inds][j])
+
+                        if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
+                            if self.relation_target[curr_image][i] == self.relation_pred[curr_image][keep_inds][j]:
+                                for k in self.top_k:
+                                    if j >= k:
+                                        continue
+                                    self.result_dict[k] += 1.0
+                                    if per_class:
+                                        self.result_per_class[k][self.relation_target[curr_image][i]] += 1.0
+
+                                found = True
+                            if found:
+                                break
+
+                self.num_connected_target += 1.0
+                self.num_conn_target_per_class[self.relation_target[curr_image][i]] += 1.0
+
+        recall_k = [self.result_dict[k] / max(self.num_connected_target, 1e-3) for k in self.top_k]
+        recall_k_per_class = [self.result_per_class[k] / self.num_conn_target_per_class for k in self.top_k]
+        mean_recall_k = [torch.nanmean(r) for r in recall_k_per_class]
+
+        return recall_k, recall_k_per_class, mean_recall_k
+
+
 class Evaluator_SGD:
     """
     The class evaluate the model performance on Recall@k and mean Recall@k evaluation metrics on scene graph detection tasks.

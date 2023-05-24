@@ -225,10 +225,11 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
 
             running_losses, running_loss_connectivity, running_loss_relationship, connectivity_recall, connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-        if args['models']['hierarchical_pred']:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHierNonDynamic' + str(epoch) + '_' + str(rank) + '.pth')
-        else:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadNonDynamic' + str(epoch) + '_' + str(rank) + '.pth')
+        if rank == 0:
+            if args['models']['hierarchical_pred']:
+                torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHierNonDynamic' + str(epoch) + '_' + str(rank) + '.pth')
+            else:
+                torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadNonDynamic' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         if args['models']['detr_or_faster_rcnn'] == 'detr':

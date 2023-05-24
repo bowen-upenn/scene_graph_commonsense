@@ -239,11 +239,12 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     optimizer.step()
 
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
+                        relation = torch.softmax(relation, dim=1)
                         Recall.accumulate(which_in_batch, relation, curr_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                       cat_subject, cat_object, cat_subject, cat_object, bbox_subject, bbox_object, bbox_subject, bbox_object)
-                    if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        Recall_top3.accumulate(which_in_batch, relation, curr_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                               cat_subject, cat_object, cat_subject, cat_object, bbox_subject, bbox_object, bbox_subject, bbox_object)
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                            Recall_top3.accumulate(which_in_batch, relation, curr_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                                   cat_subject, cat_object, cat_subject, cat_object, bbox_subject, bbox_object, bbox_subject, bbox_object)
 
             """
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
@@ -270,10 +271,11 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
 
             running_losses, running_loss_connectivity, running_loss_relationship, connectivity_recall, connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-        if args['models']['hierarchical_pred']:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(epoch) + '_' + str(rank) + '.pth')
-        else:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
+        if rank == 0:
+            if args['models']['hierarchical_pred']:
+                torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(epoch) + '_' + str(rank) + '.pth')
+            else:
+                torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         if args['models']['detr_or_faster_rcnn'] == 'detr':
@@ -416,6 +418,7 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
                     relations_target_directed[not_connected] = -1
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                        relation = torch.softmax(relation, dim=1)
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
                         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:

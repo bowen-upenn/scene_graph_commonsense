@@ -53,9 +53,9 @@ training:
     run_mode: 'train'      # train or eval
     train_mode: 'local'    # local or global
     eval_mode: 'pc'        # pc sgc or sgd
-    learning_rate: 0.001
+    learning_rate: 0.01
     weight_decay: 0.0001
-    batch_size: 48   # 48
+    batch_size: 32   # 48
     num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
