@@ -15,8 +15,8 @@ from train_test_local import train_local
 from train_test_global import train_global
 from evaluate_local import eval_pc, eval_sgc, eval_sgd
 
-from train_faster_rcnn import setup
-from detectron2.engine import default_argument_parser
+# from train_faster_rcnn import setup
+# from detectron2.engine import default_argument_parser
 
 
 if __name__ == "__main__":
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     print('torch.distributed.is_available', torch.distributed.is_available())
     print('Using %d GPUs' % (torch.cuda.device_count()))
     print("Running model", args['models']['detr_or_faster_rcnn'])
-    print("detectron2:", detectron2.__version__)
+    # print("detectron2:", detectron2.__version__)
 
     # prepare datasets
     if args['dataset']['dataset'] == 'vg':
@@ -65,12 +65,6 @@ if __name__ == "__main__":
         test_dataset = OpenImageV6Dataset(args, device, '../datasets/open_image_v6/annotations/oiv6-adjust/vrd-test-anno.json')
     else:
         print('Unknown dataset.')
-
-    # if args['models']['detr_or_faster_rcnn'] == 'detr':
-    #     args['training']['batch_size'] = 32
-    # else:
-    #     args['training']['batch_size'] = 16
-    #     args['models']['topk_cat'] = 1
 
     torch.manual_seed(0)
     train_subset_idx = torch.randperm(len(train_dataset))[:int(args['dataset']['percent_train'] * len(train_dataset))]

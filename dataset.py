@@ -88,7 +88,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         super_categories = curr_annot['super_categories']
         # masks = curr_annot['masks']
         # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
-        if categories.shape[0] <= 1 or categories.shape[0] > 25:
+        if categories.shape[0] <= 1 or categories.shape[0] > 20:
             return None
         bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
 

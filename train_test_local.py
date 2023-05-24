@@ -16,8 +16,8 @@ from evaluator import Evaluator_PC, Evaluator_PC_Top3
 from model import EdgeHead, EdgeHeadHier
 from utils import *
 
-from detectron2.modeling import build_model
-from detectron2.structures.image_list import ImageList
+# from detectron2.modeling import build_model
+# from detectron2.structures.image_list import ImageList
 
 
 def setup(rank, world_size):
@@ -135,11 +135,11 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     image_feature = faster_rcnn.module.backbone(images.tensor)['p5']
                 del images
 
-            categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
+            categories = [category.to(rank) for category in categories]
             if super_categories[0] is not None:
                 super_categories = [[sc.to(rank) for sc in super_category] for super_category in super_categories]  # [batch_size][curr_num_obj, [1 or more]]
-            image_depth = torch.stack([depth.to(rank) for depth in image_depth])
-            bbox = [box.to(rank) for box in bbox]  # [batch_size][curr_num_obj, 4]
+            image_depth = torch.stack([depth for depth in image_depth]).to(rank)
+            bbox = [box.to(rank) for box in bbox]
             optimizer.param_groups[0]["lr"] = original_lr
 
             masks = []
@@ -165,7 +165,6 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             """
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks]).to(rank)
             for graph_iter in range(max(num_graph_iter)):
-                # first_graph_iter = True
 
                 for edge_iter in range(graph_iter):
                     has_relations_mask = relations_target[graph_iter - 1][edge_iter] != -1
@@ -173,172 +172,78 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     which_in_batch[which_in_batch == True] = torch.logical_and(which_in_batch[which_in_batch == True], has_relations_mask)
                     which_in_batch = torch.nonzero(which_in_batch).view(-1)
 
-                    # which_in_batch = torch.nonzero(torch.logical_and(has_relations_mask, num_graph_iter > graph_iter)).view(-1)
                     if len(which_in_batch) == 0:
                         continue
-                    optimizer.param_groups[0]["lr"] = original_lr * lr_decay * math.sqrt(len(which_in_batch) / len(num_graph_iter))  # dynamic batch size needs dynamic learning rate
+                    optimizer.param_groups[0]["lr"] = original_lr * lr_decay * math.sqrt(len(which_in_batch) / len(num_graph_iter))
 
-                    # if first_graph_iter:
-                    curr_graph_masks = torch.stack([torch.unsqueeze(masks[i][graph_iter], dim=0) for i in which_in_batch])
-                    h_graph = torch.cat((image_feature[which_in_batch] * curr_graph_masks, image_depth[which_in_batch] * curr_graph_masks), dim=1)  # (bs, 256, 64, 64), (bs, 1, 64, 64)
-                    cat_graph = torch.tensor([torch.unsqueeze(categories[i][graph_iter], dim=0) for i in which_in_batch]).to(rank)
-                    scat_graph = [super_categories[i][graph_iter] for i in which_in_batch] if super_categories[0] is not None else None
-                    bbox_graph = torch.stack([bbox[i][graph_iter] for i in which_in_batch]).to(rank)
-                        # first_graph_iter = False
-
-                    curr_edge_masks = torch.stack([torch.unsqueeze(masks[i][edge_iter], dim=0) for i in which_in_batch])  # seg mask of every prev obj
-                    h_edge = torch.cat((image_feature[which_in_batch] * curr_edge_masks, image_depth[which_in_batch] * curr_edge_masks), dim=1)
-                    cat_edge = torch.tensor([torch.unsqueeze(categories[i][edge_iter], dim=0) for i in which_in_batch]).to(rank)
-                    scat_edge = [super_categories[i][edge_iter] for i in which_in_batch] if super_categories[0] is not None else None
-                    bbox_edge = torch.stack([bbox[i][edge_iter] for i in which_in_batch]).to(rank)
-
-                    """
-                    FIRST DIRECTION
-                    """
-                    loss_connectivity, loss_relationship = 0.0, 0.0
-                    if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
-                        relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-                    else:
-                        relation, connectivity = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
-                        super_relation = None
-
-                    curr_relations_target = relations_target[graph_iter - 1][edge_iter][has_relations_mask]
                     curr_direction_target = direction_target[graph_iter - 1][edge_iter][has_relations_mask]
 
-                    not_connected = torch.where(curr_direction_target != 1)[0]  # which data samples in curr which_in_batch are not connected
-                    # num_not_connected += len(not_connected)
-                    # temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
-                    # loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
+                    # determine the indices for subject and object based on curr_direction_target
+                    subject_iters = [graph_iter if direction == 1 else edge_iter for direction in curr_direction_target]
+                    object_iters = [edge_iter if direction == 1 else graph_iter for direction in curr_direction_target]
 
-                    connected = torch.where(curr_direction_target == 1)[0]  # which data samples in curr which_in_batch are connected
-                    # num_connected += len(connected)
-                    # connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
-                    # connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
-                    # num_connected_pred += len(connected_pred)
+                    curr_subject_masks = torch.stack([torch.unsqueeze(masks[i][subject_iters[j]], dim=0) for j, i in enumerate(which_in_batch)])
+                    h_subject = torch.cat((image_feature[which_in_batch] * curr_subject_masks, image_depth[which_in_batch] * curr_subject_masks), dim=1)
+                    cat_subject = torch.tensor([torch.unsqueeze(categories[i][subject_iters[j]], dim=0) for j, i in enumerate(which_in_batch)]).to(rank)
+                    scat_subject = [super_categories[i][subject_iters[j]] for j, i in enumerate(which_in_batch)] if super_categories[0] is not None else None
+                    bbox_subject = torch.stack([bbox[i][subject_iters[j]] for j, i in enumerate(which_in_batch)]).to(rank)
 
-                    if len(connected) > 0:
-                        # temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
-                        # loss_connectivity += 0.0 if torch.isnan(temp) else temp
-                        # connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
+                    curr_object_masks = torch.stack([torch.unsqueeze(masks[i][object_iters[j]], dim=0) for j, i in enumerate(which_in_batch)])
+                    h_object = torch.cat((image_feature[which_in_batch] * curr_object_masks, image_depth[which_in_batch] * curr_object_masks), dim=1)
+                    cat_object = torch.tensor([torch.unsqueeze(categories[i][object_iters[j]], dim=0) for j, i in enumerate(which_in_batch)]).to(rank)
+                    scat_object = [super_categories[i][object_iters[j]] for j, i in enumerate(which_in_batch)] if super_categories[0] is not None else None
+                    bbox_object = torch.stack([bbox[i][object_iters[j]] for j, i in enumerate(which_in_batch)]).to(rank)
 
-                        if args['models']['hierarchical_pred']:
-                            super_relation_target = curr_relations_target[connected].clone()
-                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'],
-                                                                    super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
-                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
-                            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
+                    curr_relations_target = relations_target[graph_iter - 1][edge_iter][has_relations_mask]
 
-                            connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
-                            connected_2 = torch.nonzero(torch.logical_and(curr_relations_target[connected] >= args['models']['num_geometric'],
-                                                                          curr_relations_target[connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
-                            connected_3 = torch.nonzero(curr_relations_target[connected] >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
-
-                            if len(connected_1) > 0:
-                                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], curr_relations_target[connected][connected_1])
-                            if len(connected_2) > 0:
-                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], curr_relations_target[connected][connected_2] - args['models']['num_geometric'])
-                            if len(connected_3) > 0:
-                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3],
-                                                                              curr_relations_target[connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-                        else:
-                            loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
-
-                        losses = loss_relationship  # + args['training']['lambda_connectivity'] * (
-                        # loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        # running_loss_connectivity += args['training']['lambda_connectivity'] * (
-                        #             loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        running_loss_relationship += loss_relationship
-                        running_losses += losses.item()
-
-                        optimizer.zero_grad()
-                        losses.backward()
-                        optimizer.step()
-
-                    # evaluate recall@k scores
-                    relations_target_directed = curr_relations_target.clone()
-                    relations_target_directed[not_connected] = -1
-
-                    if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                        Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                          cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                            Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-
-                    """
-                    SECOND DIRECTION
-                    """
                     loss_connectivity, loss_relationship = 0.0, 0.0
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph,
-                                                                                                     rank)  # <edge subject, rel, graph object>
+                        relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(h_subject, h_object, cat_subject, cat_object, scat_subject, scat_object, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
+                        relation, connectivity = edge_head(h_subject, h_object, cat_subject, cat_object, scat_subject, scat_object, rank)
                         super_relation = None
 
-                    not_connected = torch.where(curr_direction_target != 0)[0]  # which data samples in curr which_in_batch are not connected
-                    # num_not_connected += len(not_connected)
-                    # temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
-                    # loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
+                    if args['models']['hierarchical_pred']:
+                        super_relation_target = curr_relations_target.clone()
+                        super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+                        super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'],
+                                                                super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
+                        super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
+                        loss_relationship += criterion_super_relationship(super_relation, super_relation_target)
 
-                    connected = torch.where(curr_direction_target == 0)[0]  # which data samples in curr which_in_batch are connected
-                    # num_connected += len(connected)
-                    # connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
-                    # connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][has_relations_mask][connected_pred] != -1)
-                    # num_connected_pred += len(connected_pred)
+                        connected_1 = torch.nonzero(curr_relations_target < args['models']['num_geometric']).flatten()  # geometric
+                        connected_2 = torch.nonzero(torch.logical_and(curr_relations_target >= args['models']['num_geometric'],
+                                                                      curr_relations_target < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
+                        connected_3 = torch.nonzero(curr_relations_target >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
 
-                    if len(connected) > 0:
-                        # temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
-                        # loss_connectivity += 0.0 if torch.isnan(temp) else temp
-                        # connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
+                        if len(connected_1) > 0:
+                            loss_relationship += criterion_relationship_1(relation_1[connected_1], curr_relations_target[connected_1])
+                        if len(connected_2) > 0:
+                            loss_relationship += criterion_relationship_2(relation_2[connected_2], curr_relations_target[connected_2] - args['models']['num_geometric'])
+                        if len(connected_3) > 0:
+                            loss_relationship += criterion_relationship_3(relation_3[connected_3], curr_relations_target[connected_3]
+                                                                          - args['models']['num_geometric'] - args['models']['num_possessive'])
+                    else:
+                        loss_relationship += criterion_relationship(relation, curr_relations_target)
 
-                        if args['models']['hierarchical_pred']:
-                            super_relation_target = curr_relations_target[connected].clone()
-                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'],
-                                                                    super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
-                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
-                            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
+                    losses = loss_relationship  # + args['training']['lambda_connectivity'] * (
+                    # loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    # running_loss_connectivity += args['training']['lambda_connectivity'] * (
+                    #             loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    running_loss_relationship += loss_relationship
+                    running_losses += losses.item()
 
-                            connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
-                            connected_2 = torch.nonzero(torch.logical_and(curr_relations_target[connected] >= args['models']['num_geometric'],
-                                                                          curr_relations_target[connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
-                            connected_3 = torch.nonzero(curr_relations_target[connected] >= args['models']['num_geometric']
-                                                                                                                                      + args['models']['num_possessive']).flatten()  # semantic
-                            if len(connected_1) > 0:
-                                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], curr_relations_target[connected][connected_1])
-                            if len(connected_2) > 0:
-                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], curr_relations_target[connected][connected_2] - args['models']['num_geometric'])
-                            if len(connected_3) > 0:
-                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3],
-                                                                              curr_relations_target[connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-                        else:
-                            loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
-
-                        losses = loss_relationship  # + args['training']['lambda_connectivity'] * (
-                        # loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        # running_loss_connectivity += args['training']['lambda_connectivity'] * (
-                        #             loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        running_loss_relationship += loss_relationship
-                        running_losses += losses.item()
-
-                        optimizer.zero_grad()
-                        losses.backward()
-                        optimizer.step()
-
-                    # evaluate recall@k scores
-                    relations_target_directed = curr_relations_target.clone()
-                    relations_target_directed[not_connected] = -1
+                    optimizer.zero_grad()
+                    losses.backward()
+                    optimizer.step()
 
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                        Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                          cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                            Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        Recall.accumulate(which_in_batch, relation, curr_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                      cat_subject, cat_object, cat_subject, cat_object, bbox_subject, bbox_object, bbox_subject, bbox_object)
+                    if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                        Recall_top3.accumulate(which_in_batch, relation, curr_relations_target, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                               cat_subject, cat_object, cat_subject, cat_object, bbox_subject, bbox_object, bbox_subject, bbox_object)
 
             """
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
