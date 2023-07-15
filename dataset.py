@@ -109,6 +109,91 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         return len(self.annotations['images'])
 
 
+class VisualGenomeDatasetEfficient(torch.utils.data.Dataset):
+    def __init__(self, args, device, annotations):
+        self.args = args
+        self.device = device
+        self.image_dir = self.args['dataset']['image_dir']
+        self.annot_dir = self.args['dataset']['annot_dir']
+        self.subset_indices = None
+        with open(annotations) as f:
+            self.annotations = json.load(f)
+        self.image_transform_to_tensor = transforms.ToTensor()
+        self.image_transform = transforms.Compose([transforms.ToTensor(),
+                                                     transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+        self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
+
+    def __getitem__(self, idx):
+        """
+        Dataloader Outputs:
+            image: an image in the Visual Genome dataset (to predict bounding boxes and labels in DETR-101)
+            image_s: an image in the Visual Genome dataset resized to a square shape (to generate a uniform-sized image features)
+            image_depth: the estimated image depth map
+            categories: categories of all objects in the image
+            super_categories: super-categories of all objects in the image
+            masks: squared masks of all objects in the image
+            bbox: bounding boxes of all objects in the image
+            relationships: all target relationships in the image
+            subj_or_obj: the edge directions of all target relationships in the image
+        """
+        annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
+        annot_path = os.path.join(self.annot_dir, annot_name)
+        try:
+            curr_annot = torch.load(annot_path)
+        except:
+            return None
+
+        image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
+
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = 255 * self.image_transform(image)
+        image = self.image_norm(image)  # original size that produce better bounding boxes
+
+        if self.args['models']['use_depth']:
+            image_depth = curr_annot['image_depth']
+        else:
+            image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
+
+        categories = curr_annot['categories']
+        super_categories = curr_annot['super_categories']
+        masks = curr_annot['masks']
+        # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
+        if masks.shape[0] <= 1 or masks.shape[0] > 30: # 25
+            return None
+        bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
+
+        subj_or_obj = curr_annot['subj_or_obj']
+        relationships = curr_annot['relationships']
+        relationships_reordered = []
+        rel_reorder_dict = relation_class_freq2scat()
+        for rel in relationships:
+            rel[rel == 12] = 4      # wearing <- wears
+            relationships_reordered.append(rel_reorder_dict[rel])
+        relationships = relationships_reordered
+
+        triplets = []
+        for i in range(len(categories)):
+            for j in range(i):
+                if subj_or_obj[i-1][j] == 1:
+                    triplets.append([categories[i], super_categories[i], bbox[i], masks[i], relationships[i-1][j],
+                                     categories[j], super_categories[j], bbox[j], masks[j]])
+                elif subj_or_obj[i-1][j] == 0:
+                    triplets.append([categories[j], super_categories[j], bbox[j], masks[j], relationships[i-1][j],
+                                     categories[i], super_categories[i], bbox[i], masks[i]])
+                else:
+                    continue    # no relationship in the annotation
+
+        if len(triplets) == 0:
+            return None
+        # print("triplets", triplets, "\n")
+
+        return image, image_depth, triplets
+
+    def __len__(self):
+        return len(self.annotations['images'])
+
+
 # # class VisualGenomeDataset(torch.utils.data.Dataset):
 # #     def __init__(self, args, device, annotations):
 # #         self.args = args
@@ -275,91 +360,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 #
 #     def __len__(self):
 #         return len(self.annotations['images'])
-
-
-class VisualGenomeDatasetNonDynamic(torch.utils.data.Dataset):
-    def __init__(self, args, device, annotations):
-        self.args = args
-        self.device = device
-        self.image_dir = self.args['dataset']['image_dir']
-        self.annot_dir = self.args['dataset']['annot_dir']
-        self.subset_indices = None
-        with open(annotations) as f:
-            self.annotations = json.load(f)
-        self.image_transform_to_tensor = transforms.ToTensor()
-        self.image_transform = transforms.Compose([transforms.ToTensor(),
-                                                     transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
-        self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
-
-    def __getitem__(self, idx):
-        """
-        Dataloader Outputs:
-            image: an image in the Visual Genome dataset (to predict bounding boxes and labels in DETR-101)
-            image_s: an image in the Visual Genome dataset resized to a square shape (to generate a uniform-sized image features)
-            image_depth: the estimated image depth map
-            categories: categories of all objects in the image
-            super_categories: super-categories of all objects in the image
-            masks: squared masks of all objects in the image
-            bbox: bounding boxes of all objects in the image
-            relationships: all target relationships in the image
-            subj_or_obj: the edge directions of all target relationships in the image
-        """
-        annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
-        annot_path = os.path.join(self.annot_dir, annot_name)
-        try:
-            curr_annot = torch.load(annot_path)
-        except:
-            return None
-
-        image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-
-        image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = 255 * self.image_transform(image)
-        image = self.image_norm(image)  # original size that produce better bounding boxes
-
-        if self.args['models']['use_depth']:
-            image_depth = curr_annot['image_depth']
-        else:
-            image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
-
-        categories = curr_annot['categories']
-        super_categories = curr_annot['super_categories']
-        masks = curr_annot['masks']
-        # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
-        if masks.shape[0] <= 1 or masks.shape[0] > 30: # 25
-            return None
-        bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
-
-        subj_or_obj = curr_annot['subj_or_obj']
-        relationships = curr_annot['relationships']
-        relationships_reordered = []
-        rel_reorder_dict = relation_class_freq2scat()
-        for rel in relationships:
-            rel[rel == 12] = 4      # wearing <- wears
-            relationships_reordered.append(rel_reorder_dict[rel])
-        relationships = relationships_reordered
-
-        triplets = []
-        for i in range(len(categories)):
-            for j in range(i):
-                if subj_or_obj[i-1][j] == 1:
-                    triplets.append([categories[i], super_categories[i], bbox[i], masks[i], relationships[i-1][j],
-                                     categories[j], super_categories[j], bbox[j], masks[j]])
-                elif subj_or_obj[i-1][j] == 0:
-                    triplets.append([categories[j], super_categories[j], bbox[j], masks[j], relationships[i-1][j],
-                                     categories[i], super_categories[i], bbox[i], masks[i]])
-                else:
-                    continue    # no relationship in the annotation
-
-        if len(triplets) == 0:
-            return None
-        # print("triplets", triplets, "\n")
-
-        return image, image_depth, triplets
-
-    def __len__(self):
-        return len(self.annotations['images'])
 
 
 class PrepareOpenImageV6Dataset(torch.utils.data.Dataset):

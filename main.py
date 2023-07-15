@@ -9,9 +9,9 @@ import json
 import torch.multiprocessing as mp
 import detectron2
 
-from dataset import VisualGenomeDataset, VisualGenomeDatasetNonDynamic, OpenImageV6Dataset
+from dataset import VisualGenomeDataset, VisualGenomeDatasetEfficient, OpenImageV6Dataset
 # from train_test_local_concat import train_local
-from train_test import train_local
+from train_test_efficient import train_local
 # from train_test_global import train_global
 from evaluate import eval_pc, eval_sgc, eval_sgd
 
@@ -47,8 +47,8 @@ if __name__ == "__main__":
         args['models']['detr101_pretrained'] = 'checkpoints/detr101_vg_ckpt.pth'
 
         print("Loading the datasets...")
-        train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'])
-        test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])
+        train_dataset = VisualGenomeDatasetEfficient(args, device, args['dataset']['annotation_train'])
+        test_dataset = VisualGenomeDatasetEfficient(args, device, args['dataset']['annotation_test'])
         # train_dataset = VisualGenomeDatasetNonDynamic(args, device, args['dataset']['annotation_train'])
         # test_dataset = VisualGenomeDatasetNonDynamic(args, device, args['dataset']['annotation_test'])
 
