@@ -11,6 +11,7 @@ from collections import Counter
 from utils import *
 from dataset_utils import *
 import cv2
+import random
 
 
 class PrepareVisualGenomeDataset(torch.utils.data.Dataset):
@@ -106,6 +107,174 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.annotations['images'])
+
+
+# # class VisualGenomeDataset(torch.utils.data.Dataset):
+# #     def __init__(self, args, device, annotations):
+# #         self.args = args
+# #         self.device = device
+# #         self.image_dir = self.args['dataset']['image_dir']
+# #         self.annot_dir = self.args['dataset']['annot_dir']
+# #         self.subset_indices = None
+# #         with open(annotations) as f:
+# #             self.annotations = json.load(f)
+# #         self.image_transform = transforms.Compose([transforms.ToTensor(),
+# #                                                    transforms.Resize(size=600, max_size=1000)])
+# #         self.image_transform_to_tensor = transforms.ToTensor()
+# #         self.image_transform_s = transforms.Compose([transforms.ToTensor(),
+# #                                                      transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+# #         self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])  # DETR
+# #         # self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))]) # Faster-RCNN
+# #
+# #     def __getitem__(self, idx):
+# #         """
+# #         Dataloader Outputs:
+# #             image: an image in the Visual Genome dataset (to predict bounding boxes and labels in DETR-101)
+# #             image_s: an image in the Visual Genome dataset resized to a square shape (to generate a uniform-sized image features)
+# #             image_depth: the estimated image depth map
+# #             categories: categories of all objects in the image
+# #             super_categories: super-categories of all objects in the image
+# #             masks: squared masks of all objects in the image
+# #             bbox: bounding boxes of all objects in the image
+# #             relationships: all target relationships in the image
+# #             subj_or_obj: the edge directions of all target relationships in the image
+# #         """
+# #         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
+# #         annot_path = os.path.join(self.annot_dir, annot_name)
+# #         try:
+# #             curr_annot = torch.load(annot_path)
+# #         except:
+# #             return None
+# #
+# #         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
+# #         images = cv2.imread(image_path)
+# #         if self.args['training']['eval_mode'] != 'pc':
+# #             image_raw_ratio = images.copy()
+# #
+# #         if self.args['models']['detr_or_faster_rcnn'] == 'detr':
+# #             images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
+# #             images = 255 * self.image_transform_s(images)
+# #             images = self.image_norm(images)  # original size that produce better bounding boxes
+# #
+# #             if self.args['training']['eval_mode'] != 'pc':
+# #                 image_raw_ratio = cv2.cvtColor(image_raw_ratio, cv2.COLOR_BGR2RGB)
+# #                 image_raw_ratio = 255 * self.image_transform(image_raw_ratio)
+# #                 image_raw_ratio = self.image_norm(image_raw_ratio)  # squared size that unifies the size of feature maps
+# #         else:
+# #             # detectron2 will automatically transform input images based on the config file
+# #             # image = self.image_transform_to_tensor(image)
+# #             images = self.image_transform_to_tensor(images)
+# #             images = self.image_transform_s(images)
+# #
+# #         if self.args['models']['use_depth']:
+# #             image_depth = curr_annot['image_depth']
+# #         else:
+# #             image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
+# #
+# #         categories = curr_annot['categories']
+# #         super_categories = curr_annot['super_categories']
+# #         # masks = curr_annot['masks']
+# #         # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
+# #         if categories.shape[0] <= 1 or categories.shape[0] > 20:
+# #             return None
+# #         bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
+# #
+# #         subj_or_obj = curr_annot['subj_or_obj']
+# #         relationships = curr_annot['relationships']
+# #         relationships_reordered = []
+# #         rel_reorder_dict = relation_class_freq2scat()
+# #         for rel in relationships:
+# #             rel[rel == 12] = 4      # wearing <- wears
+# #             relationships_reordered.append(rel_reorder_dict[rel])
+# #         relationships = relationships_reordered
+# #
+# #         if self.args['training']['eval_mode'] != 'pc':
+# #             return image_raw_ratio, images, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+# #         else:
+# #             return images, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+# #         # return image, image_s, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj
+# #
+# #     def __len__(self):
+# #         return len(self.annotations['images'])
+# class VisualGenomeDataset(torch.utils.data.Dataset):
+#     def __init__(self, args, device, annotations):
+#         self.args = args
+#         self.device = device
+#         self.image_dir = self.args['dataset']['image_dir']
+#         self.annot_dir = self.args['dataset']['annot_dir']
+#         self.subset_indices = None
+#         with open(annotations) as f:
+#             self.annotations = json.load(f)
+#         self.image_transform = transforms.Compose([transforms.ToTensor(),
+#                                                    transforms.Resize(size=600, max_size=1000)])
+#         self.image_transform_s = transforms.Compose([transforms.ToTensor(),
+#                                                      transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+#         self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
+#
+#     def __getitem__(self, idx):
+#         """
+#         Dataloader Outputs:
+#             image: an image in the Visual Genome dataset (to predict bounding boxes and labels in DETR-101)
+#             image_s: an image in the Visual Genome dataset resized to a square shape (to generate a uniform-sized image features)
+#             image_depth: the estimated image depth map
+#             categories: categories of all objects in the image
+#             super_categories: super-categories of all objects in the image
+#             masks: squared masks of all objects in the image
+#             bbox: bounding boxes of all objects in the image
+#             relationships: all target relationships in the image
+#             subj_or_obj: the edge directions of all target relationships in the image
+#         """
+#         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
+#         annot_path = os.path.join(self.annot_dir, annot_name)
+#         try:
+#             curr_annot = torch.load(annot_path)
+#         except:
+#             return None
+#
+#         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
+#         image = Image.open(image_path).convert('RGB')
+#         image = 255 * self.image_transform(image)[[2, 1, 0]]    # BGR
+#         image = self.image_norm(image)  # original size that produce better bounding boxes
+#
+#         image_s = Image.open(image_path).convert('RGB')
+#         image_s = 255 * self.image_transform_s(image_s)[[2, 1, 0]]  # BGR
+#         image_s = self.image_norm(image_s)  # squared size that unifies the size of feature maps
+#
+#         if self.args['models']['use_depth']:
+#             image_depth = curr_annot['image_depth']
+#         else:
+#             image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
+#         categories = curr_annot['categories']
+#         super_categories = curr_annot['super_categories']
+#         masks = curr_annot['masks']
+#         # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
+#         if masks.shape[0] <= 1 or masks.shape[0] > 30: # 25
+#             return None
+#         bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
+#
+#         subj_or_obj = curr_annot['subj_or_obj']
+#         relationships = curr_annot['relationships']
+#         relationships_reordered = []
+#         rel_reorder_dict = relation_class_freq2scat()
+#         for rel in relationships:
+#             rel[rel == 12] = 4      # wearing <- wears
+#             relationships_reordered.append(rel_reorder_dict[rel])
+#         relationships = relationships_reordered
+#
+#         for i in range(len(relationships)):
+#             random_values = np.random.random(len(relationships[i]))
+#             relationships[i][random_values < 0.5] = 2
+#             subj_or_obj[i][random_values < 0.5] = 1
+#             # rel[random_values < 0.5] = 2
+#             # for j in range(len(relationships[i])):
+#             #     if random.random() < 0.5:
+#             #         relationships[i][j] = 2
+#             #         subj_or_obj[i][j] = 1
+#
+#         return image, image_s, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj
+#
+#     def __len__(self):
+#         return len(self.annotations['images'])
 
 
 class VisualGenomeDatasetNonDynamic(torch.utils.data.Dataset):

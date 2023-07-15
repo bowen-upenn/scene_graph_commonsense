@@ -14,8 +14,8 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 1 #0.01
-    percent_test: 1 #0.05
+    percent_train: 0.001
+    percent_test: 0.001
     dataset: 'vg' # vg, oiv6
 models:
     detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
@@ -37,26 +37,32 @@ models:
     depth_model_type: 'DPT_Large'
     hierarchical_pred: True
     topk_cat: 2
-    nms: 0.7
+    nms: 0.5
     num_geometric: 15 #4 15
     num_possessive: 11 #2 11
     num_semantic: 24 #24 24
-transformers:
-    in_model: 566
-    d_model: 512
-    nheads: 8
-    dim_feedforward: 768
-    num_encoder_layers: 6
-    pre_norm: False
-    sparsity: 0.5
+transformer:
+    num_layers: 3
+    nhead: 6
+    d_model: 258
+    dropout: 0.5
+    dim_feedforward: 480
+#    in_model: 566
+#    d_model: 512
+#    nheads: 8
+#    dim_feedforward: 768
+#    num_layers: 6
+#    pre_norm: False
+#    sparsity: 0.5
+#    dropout: 0.5
 training:
     run_mode: 'train'      # train or eval
     train_mode: 'local'    # local or global
     eval_mode: 'pc'        # pc sgc or sgd
-    learning_rate: 0.01
+    learning_rate: 0.001
     weight_decay: 0.0001
-    batch_size: 32   # 48
-    num_epoch: 3
+    batch_size: 4   # 48
+    num_epoch: 4
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
     continue_train: False

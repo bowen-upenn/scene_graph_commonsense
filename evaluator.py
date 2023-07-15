@@ -548,38 +548,85 @@ class Evaluator_PC_NoGraphConstraint:
                    subject_cat_pred, object_cat_pred, subject_cat_target, object_cat_target,
                    subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target):
 
+        # Create a mask of non-zero elements in relation_pred
+        low = torch.sort(relation_pred.view(-1), descending=True)[0]
+        low = low[int(0.1*len(low))]
+        non_zero_mask = (relation_pred.view(-1) > low).nonzero().squeeze()
+        # non_zero_mask = torch.zeros(relation_pred.shape[0] * relation_pred.shape[1], dtype=torch.bool)
+        # max_indices = torch.argmax(relation_pred, dim=1)
+        # for i in range(relation_pred.shape[0]):
+        #     max_indices[i] += i * 50
+        #     non_zero_mask[max_indices[i]] = True
+
+        # if self.relation_pred is None:
+        #     self.which_in_batch = which_in_batch.repeat_interleave(self.num_relations)
+        #     # self.confidence = (connectivity.repeat_interleave(self.num_relations) + relation_pred.view(-1))
+        #     self.confidence = relation_pred.view(-1)
+        #
+        #     self.relation_pred = torch.arange(self.num_relations).repeat(len(relation_pred))
+        #     self.relation_target = relation_target.repeat_interleave(self.num_relations)
+        #
+        #     self.subject_cat_pred = subject_cat_pred.repeat_interleave(self.num_relations)
+        #     self.object_cat_pred = object_cat_pred.repeat_interleave(self.num_relations)
+        #     self.subject_cat_target = subject_cat_target.repeat_interleave(self.num_relations)
+        #     self.object_cat_target = object_cat_target.repeat_interleave(self.num_relations)
+        #
+        #     self.subject_bbox_pred = subject_bbox_pred.repeat_interleave(self.num_relations, dim=0)
+        #     self.object_bbox_pred = object_bbox_pred.repeat_interleave(self.num_relations, dim=0)
+        #     self.subject_bbox_target = subject_bbox_target.repeat_interleave(self.num_relations, dim=0)
+        #     self.object_bbox_target = object_bbox_target.repeat_interleave(self.num_relations, dim=0)
+        # else:
+        #     self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat_interleave(self.num_relations)))
+        #     # self.confidence = torch.hstack((self.confidence, (connectivity.repeat_interleave(self.num_relations) + relation_pred.view(-1))))
+        #     self.confidence = torch.hstack((self.confidence, relation_pred.view(-1)))
+        #
+        #     self.relation_pred = torch.hstack((self.relation_pred, torch.arange(self.num_relations).repeat(len(relation_pred))))
+        #     self.relation_target = torch.hstack((self.relation_target, relation_target.repeat_interleave(self.num_relations)))
+        #
+        #     self.subject_cat_pred = torch.hstack((self.subject_cat_pred, subject_cat_pred.repeat_interleave(self.num_relations)))
+        #     self.object_cat_pred = torch.hstack((self.object_cat_pred, object_cat_pred.repeat_interleave(self.num_relations)))
+        #     self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target.repeat_interleave(self.num_relations)))
+        #     self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target.repeat_interleave(self.num_relations)))
+        #
+        #     self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred.repeat_interleave(self.num_relations, dim=0)))
+        #     self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat_interleave(self.num_relations, dim=0)))
+        #     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat_interleave(self.num_relations, dim=0)))
+        #     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat_interleave(self.num_relations, dim=0)))
+
         if self.relation_pred is None:
-            self.which_in_batch = which_in_batch.repeat(self.num_relations)
-            self.confidence = torch.hstack(relation_pred)
+            self.which_in_batch = which_in_batch.repeat_interleave(self.num_relations)[non_zero_mask]
+            self.confidence = (connectivity.repeat_interleave(self.num_relations) + relation_pred.view(-1))[non_zero_mask]
+            # self.confidence = relation_pred.view(-1)[non_zero_mask]
 
-            self.relation_pred = torch.arange(self.num_relations).repeat(len(relation_pred))
-            self.relation_target = relation_target.repeat(self.num_relations)
+            self.relation_pred = torch.arange(self.num_relations).repeat(len(relation_pred))[non_zero_mask]
+            self.relation_target = relation_target.repeat_interleave(self.num_relations)[non_zero_mask]
 
-            self.subject_cat_pred = subject_cat_pred.repeat(self.num_relations)
-            self.object_cat_pred = object_cat_pred.repeat(self.num_relations)
-            self.subject_cat_target = subject_cat_target.repeat(self.num_relations)
-            self.object_cat_target = object_cat_target.repeat(self.num_relations)
+            self.subject_cat_pred = subject_cat_pred.repeat_interleave(self.num_relations)[non_zero_mask]
+            self.object_cat_pred = object_cat_pred.repeat_interleave(self.num_relations)[non_zero_mask]
+            self.subject_cat_target = subject_cat_target.repeat_interleave(self.num_relations)[non_zero_mask]
+            self.object_cat_target = object_cat_target.repeat_interleave(self.num_relations)[non_zero_mask]
 
-            self.subject_bbox_pred = subject_bbox_pred.repeat(self.num_relations, 1)
-            self.object_bbox_pred = object_bbox_pred.repeat(self.num_relations, 1)
-            self.subject_bbox_target = subject_bbox_target.repeat(self.num_relations, 1)
-            self.object_bbox_target = object_bbox_target.repeat(self.num_relations, 1)
+            self.subject_bbox_pred = subject_bbox_pred.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]
+            self.object_bbox_pred = object_bbox_pred.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]
+            self.subject_bbox_target = subject_bbox_target.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]
+            self.object_bbox_target = object_bbox_target.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]
         else:
-            self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(self.num_relations)))
-            self.confidence = torch.hstack((self.confidence, relation_pred))
+            self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat_interleave(self.num_relations)[non_zero_mask]))
+            self.confidence = torch.hstack((self.confidence, (connectivity.repeat_interleave(self.num_relations) + relation_pred.view(-1))[non_zero_mask]))
+            # self.confidence = torch.hstack((self.confidence, relation_pred.view(-1)[non_zero_mask]))
 
-            self.relation_pred = torch.hstack((self.relation_pred, torch.arange(self.num_relations).repeat(len(relation_pred))))
-            self.relation_target = torch.hstack((self.relation_target, relation_target.repeat(self.num_relations)))
+            self.relation_pred = torch.hstack((self.relation_pred, torch.arange(self.num_relations).repeat(len(relation_pred))[non_zero_mask]))
+            self.relation_target = torch.hstack((self.relation_target, relation_target.repeat_interleave(self.num_relations)[non_zero_mask]))
 
-            self.subject_cat_pred = torch.hstack((self.subject_cat_pred, subject_cat_pred.repeat(self.num_relations)))
-            self.object_cat_pred = torch.hstack((self.object_cat_pred, object_cat_pred.repeat(self.num_relations)))
-            self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target.repeat(self.num_relations)))
-            self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target.repeat(self.num_relations)))
+            self.subject_cat_pred = torch.hstack((self.subject_cat_pred, subject_cat_pred.repeat_interleave(self.num_relations)[non_zero_mask]))
+            self.object_cat_pred = torch.hstack((self.object_cat_pred, object_cat_pred.repeat_interleave(self.num_relations)[non_zero_mask]))
+            self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target.repeat_interleave(self.num_relations)[non_zero_mask]))
+            self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target.repeat_interleave(self.num_relations)[non_zero_mask]))
 
-            self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred.repeat(self.num_relations, 1)))
-            self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat(self.num_relations, 1)))
-            self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat(self.num_relations, 1)))
-            self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(self.num_relations, 1)))
+            self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]))
+            self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]))
+            self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]))
+            self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat_interleave(self.num_relations, dim=0)[non_zero_mask]))
 
     def compute(self, per_class=False):
         """
@@ -631,6 +678,22 @@ class Evaluator_PC_NoGraphConstraint:
 
         return recall_k, recall_k_per_class, mean_recall_k
 
+    def clear_data(self):
+        self.which_in_batch = None
+        self.confidence = None
+        self.relation_pred = None
+        self.relation_target = None
+
+        self.subject_cat_pred = None
+        self.object_cat_pred = None
+        self.subject_cat_target = None
+        self.object_cat_target = None
+
+        self.subject_bbox_pred = None
+        self.object_bbox_pred = None
+        self.subject_bbox_target = None
+        self.object_bbox_target = None
+
 
 class Evaluator_SGD:
     """
@@ -647,6 +710,7 @@ class Evaluator_SGD:
         self.motif_total = 0.0
         self.motif_correct = 0.0
         self.result_dict = {20: 0.0, 50: 0.0, 100: 0.0}
+        self.result_dict_wrong_label_corr_rel = {20: 0.0, 50: 0.0, 100: 0.0}
 
         self.result_per_class = {k: torch.tensor([0.0 for i in range(self.num_classes)]) for k in self.top_k}
         self.num_conn_target_per_class = torch.tensor([0.0 for i in range(self.num_classes)])
@@ -783,13 +847,21 @@ class Evaluator_SGD:
 
                 found = False   # found if any one of the three sub-models predict correctly
                 for j in range(len(keep_inds)):     # for each target <subject, relation, object> triple, find any match in the top k confident predictions
-                    if (self.compare_object_cat(self.subject_cat_target[curr_image][i], self.subject_cat_pred[curr_image_pred][keep_inds][j]) and
-                        self.compare_object_cat(self.object_cat_target[curr_image][i], self.object_cat_pred[curr_image_pred][keep_inds][j])):
 
-                        sub_iou = self.iou(self.subject_bbox_target[curr_image][i], self.subject_bbox_pred[curr_image_pred][keep_inds][j])
-                        obj_iou = self.iou(self.object_bbox_target[curr_image][i], self.object_bbox_pred[curr_image_pred][keep_inds][j])
-                        if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
-                            if self.relation_target[curr_image][i] == self.relation_pred[curr_image_pred][keep_inds][j]:
+                    # if (self.compare_object_cat(self.subject_cat_target[curr_image][i], self.subject_cat_pred[curr_image_pred][keep_inds][j]) and
+                    #     self.compare_object_cat(self.object_cat_target[curr_image][i], self.object_cat_pred[curr_image_pred][keep_inds][j])):
+                    #
+                    #     sub_iou = self.iou(self.subject_bbox_target[curr_image][i], self.subject_bbox_pred[curr_image_pred][keep_inds][j])
+                    #     obj_iou = self.iou(self.object_bbox_target[curr_image][i], self.object_bbox_pred[curr_image_pred][keep_inds][j])
+                    #     if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
+
+                    sub_iou = self.iou(self.subject_bbox_target[curr_image][i], self.subject_bbox_pred[curr_image_pred][keep_inds][j])
+                    obj_iou = self.iou(self.object_bbox_target[curr_image][i], self.object_bbox_pred[curr_image_pred][keep_inds][j])
+                    if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
+
+                        if self.relation_target[curr_image][i] == self.relation_pred[curr_image_pred][keep_inds][j]:
+                            if (self.compare_object_cat(self.subject_cat_target[curr_image][i], self.subject_cat_pred[curr_image_pred][keep_inds][j]) and
+                                    self.compare_object_cat(self.object_cat_target[curr_image][i], self.object_cat_pred[curr_image_pred][keep_inds][j])):
                                 for k in self.top_k:
                                     if j >= k:
                                         continue
@@ -797,16 +869,37 @@ class Evaluator_SGD:
                                     if per_class:
                                         self.result_per_class[k][self.relation_target[curr_image][i]] += 1.0
                                 found = True
+
+                            for k in self.top_k:
+                                if j >= k:
+                                    continue
+                                self.result_dict_wrong_label_corr_rel[k] += 1.0
                             if found:
                                 break
+
+                                # if (self.compare_object_cat(self.subject_cat_target[curr_image][i], self.subject_cat_pred[curr_image_pred][keep_inds][j]) and
+                        #     self.compare_object_cat(self.object_cat_target[curr_image][i], self.object_cat_pred[curr_image_pred][keep_inds][j])):
+                        #
+                        #     if self.relation_target[curr_image][i] == self.relation_pred[curr_image_pred][keep_inds][j]:
+                        #         for k in self.top_k:
+                        #             if j >= k:
+                        #                 continue
+                        #             self.result_dict[k] += 1.0
+                        #             if per_class:
+                        #                 self.result_per_class[k][self.relation_target[curr_image][i]] += 1.0
+                        #         found = True
+                        #     if found:
+                        #         break
+
 
                 self.num_connected_target += 1.0
                 self.num_conn_target_per_class[self.relation_target[curr_image][i]] += 1.0
 
         recall_k = [self.result_dict[k] / self.num_connected_target for k in self.top_k]
+        recall_k_wrong_label_corr_rel = [self.result_dict_wrong_label_corr_rel[k] / self.num_connected_target for k in self.top_k]
         recall_k_per_class = [self.result_per_class[k] / self.num_conn_target_per_class for k in self.top_k]
         mean_recall_k = [torch.nanmean(r) for r in recall_k_per_class]
-        return recall_k, recall_k_per_class, mean_recall_k
+        return recall_k, recall_k_per_class, mean_recall_k, recall_k_wrong_label_corr_rel
 
     def clear_data(self):
         self.which_in_batch = None

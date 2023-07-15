@@ -2,6 +2,191 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+
+
+class PositionalEncoding1D(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[batch_size, embedding_dim, seq_len]``
+        """
+        x = x + self.pe[:x.size(2)].permute(2, 1, 0)
+        return self.dropout(x)
+
+
+class PositionalEncoding2D(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        # create constant 'pe' buffer with sinusoid values
+        position_i = torch.arange(max_len).unsqueeze(1).repeat(1, max_len)
+        position_j = torch.arange(max_len).unsqueeze(0).repeat(max_len, 1)
+        position = position_i + position_j
+        position = position.unsqueeze(-1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+
+        pe = torch.zeros(max_len, max_len, d_model)
+        pe[:, :, 0::2] = torch.sin(position * div_term)
+        pe[:, :, 1::2] = torch.cos(position * div_term)[:, :, :int(pe.shape[-1]/2)]  # odd number
+
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[batch_size, embedding_dim, width, height]``
+        """
+        x = x + self.pe[:x.size(2), :x.size(3)].permute(2, 1, 0)
+        return self.dropout(x)
+
+
+class TransformerEncoder(nn.Module):
+    def __init__(self, args):
+        super(TransformerEncoder, self).__init__()
+        self.args = args
+        self.num_classes = self.args['models']['num_classes']
+        self.num_super_classes = self.args['models']['num_super_classes']
+        self.d_model = self.args['transformer']['d_model']
+        self.input_dim = self.args['models']['num_img_feature']
+
+        self.marker_embedding = nn.Embedding(2, self.d_model)
+        self.pos_encoder = PositionalEncoding2D(self.d_model-1)
+        encoder_layer = nn.TransformerEncoderLayer(self.d_model, nhead=self.args['transformer']['nhead'],
+                        dim_feedforward=self.args['transformer']['dim_feedforward'], dropout=self.args['transformer']['dropout'])
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.args['transformer']['num_layers'])
+
+        # (1) crop out a minimum union bounding box
+        # (2) two parallel conv layers to reduce dim
+        #     conv only, no linear layers to keep 2d spatial dim, mega-pix tokens, and 2d positional embeds
+        # (3) optional global features, one more parallel conv but larger pooling stride
+        # (4) no dynamic batch sizing necessary
+
+        # self.conv1 = nn.Conv2d(self.input_dim+1, 2 * input_dim, kernel_size=3, stride=1, padding=0)
+        # self.conv2 = nn.Conv2d(self.input_dim+1, 2 * input_dim, kernel_size=3, stride=1, padding=0)
+        # self.dropout1 = nn.Dropout(p=0.5)
+        # self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
+        # self.subject_proj = nn.Linear(self.args['models']['num_img_feature'])
+
+        if args['dataset']['dataset'] == 'vg':
+            self.fc1 = nn.Linear(self.d_model + 2 * (self.num_classes+self.num_super_classes), self.d_model)
+        else:
+            self.fc1 = nn.Linear(self.d_model + 2 * self.num_classes, self.d_model)
+        if args['models']['hierarchical_pred']:
+            self.fc2_1 = nn.Linear(self.d_model, self.args['models']['num_geometric'])
+            self.fc2_2 = nn.Linear(self.d_model, self.args['models']['num_possessive'])
+            self.fc2_3 = nn.Linear(self.d_model, self.args['models']['num_semantic'])
+            self.fc3 = nn.Linear(self.d_model, 3)
+        else:
+            self.fc_flat = nn.Linear(self.d_model, self.args['models']['num_relations'])
+        self.fc4 = nn.Linear(self.d_model, 1)
+        self.dropout2 = nn.Dropout(p=0.5)
+
+    def bayesian_head(self, pred):
+        pred = self.dropout2(F.relu(self.fc1(pred)))
+        connectivity = self.fc4(pred)  # (batch_size, 1)
+
+        super_relation = F.log_softmax(self.fc3(pred), dim=1)
+        relation_1 = self.fc2_1(pred)  # geometric
+        relation_1 = F.log_softmax(relation_1, dim=1) + super_relation[:, 0].view(-1, 1)
+        relation_2 = self.fc2_2(pred)  # possessive
+        relation_2 = F.log_softmax(relation_2, dim=1) + super_relation[:, 1].view(-1, 1)
+        relation_3 = self.fc2_3(pred)  # semantic
+        relation_3 = F.log_softmax(relation_3, dim=1) + super_relation[:, 2].view(-1, 1)
+        return relation_1, relation_2, relation_3, super_relation, connectivity
+
+    def flat_head(self, pred):
+        pred = self.dropout(F.relu(self.fc1(pred)))
+        connectivity = self.fc4(pred)  # (batch_size, 1)
+        relation = self.fc_flat(pred)
+        return relation, connectivity
+
+    def concat_class_labels(self, h, c1, c2, s1, s2, rank, one_hot=True):
+        if one_hot:
+            c1 = F.one_hot(c1, num_classes=self.num_classes)
+            c2 = F.one_hot(c2, num_classes=self.num_classes)
+            if s1 is not None:
+                sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=self.num_super_classes)
+                for i in range(1, 4):  # at most 4 diff super class for each subclass instance
+                    idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
+                    if len(idx) > 0:
+                        sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=self.num_super_classes)
+                sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=self.num_super_classes)
+                for i in range(1, 4):
+                    idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
+                    if len(idx) > 0:
+                        sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=self.num_super_classes)
+                hc = torch.cat((h, c1, c2, sc1.to(rank), sc2.to(rank)), dim=1)
+            else:
+                hc = torch.cat((h, c1, c2), dim=1)
+        else:
+            if s1 is not None:
+                hc = torch.cat((h, c1, c2, s1, s2), dim=1)
+            else:
+                hc = torch.cat((h, c1, c2), dim=1)
+        return hc
+
+    def organize_src(self, src_sub, src_obj, rank):
+        # assuming src is of shape (batch_size, channels, height, width)
+        has_value = torch.cat((torch.sum(src_sub.flatten(start_dim=2), dim=1) != 0,
+                               torch.sum(src_obj.flatten(start_dim=2), dim=1) != 0), dim=1)  # size [bs, 2048]
+        has_value = has_value.permute(1, 0)
+        seq_lens = torch.sum(has_value, dim=0)
+        max_len = torch.max(seq_lens)
+
+        # linearize subject and object separately with their own positional encoding
+        src_sub = self.pos_encoder(src_sub)
+        src_sub = src_sub.flatten(start_dim=2)  # flattening height and width into one dimension
+        src_sub = torch.cat((src_sub, torch.ones(src_sub.shape[0], 1, src_sub.shape[2]).to(rank)), dim=1)  # add subject or object marker
+        src_sub = src_sub.permute(2, 0, 1)  # transformer expects seq_len, batch, embedding
+
+        src_obj = self.pos_encoder(src_obj)
+        src_obj = src_obj.flatten(start_dim=2)  # flattening height and width into one dimension
+        src_obj = torch.cat((src_obj, torch.ones(src_obj.shape[0], 1, src_obj.shape[2]).to(rank)), dim=1)  # add subject or object marker
+        src_obj = src_obj.permute(2, 0, 1)  # transformer expects seq_len, batch, embedding
+
+        src = torch.cat((src_sub, src_obj), dim=0)  # size [2048, bs, 258]
+
+        # filter out zeros the transformer for better efficiency but keep the original positional encoding
+        src_filt_pad = torch.zeros(max_len, src.shape[1], src.shape[2]).to(rank)  # size [seq_len, batch, embedding]
+        src_key_padding_mask = torch.zeros((src.shape[1], max_len), dtype=torch.bool).to(rank)  # size [batch, seq_len]
+        for bid in range(src.shape[1]):  # src.shape[1] is batch size
+            src_filt_pad[:seq_lens[bid], bid, :] = src[has_value[:, bid], bid, :]
+            src_key_padding_mask[bid, seq_lens[bid]:] = 1  # 1 represents padding
+        src = src_filt_pad
+
+        return src, src_key_padding_mask
+
+    def forward(self, src_sub, src_obj, cat_sub, cat_obj, scat_sub, scat_obj, rank):
+        src, src_key_padding_mask = self.organize_src(src_sub, src_obj, rank)
+        del src_sub, src_obj
+
+        hidden = self.transformer_encoder(src=src, mask=None, src_key_padding_mask=src_key_padding_mask)  # keys, values, and queries are all the same
+        hidden = hidden[-1, :, :]   # single output
+
+        hidden = self.concat_class_labels(hidden, cat_sub, cat_obj, scat_sub, scat_obj, rank)
+
+        if self.args['models']['hierarchical_pred']:
+            # add the bayesian head for hierarchical predictions
+            relation_1, relation_2, relation_3, super_relation, connectivity = self.bayesian_head(hidden)
+            return relation_1, relation_2, relation_3, super_relation, connectivity
+        else:
+            relation, connectivity = self.flat_head(hidden)
+            return relation, connectivity
+
 
 
 class MotifHead(nn.Module):
