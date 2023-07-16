@@ -14,7 +14,8 @@ from .transformer import build_transformer
 
 class RelTR(nn.Module):
     """ RelTR: Relation Transformer for Scene Graph Generation """
-    def __init__(self, backbone, transformer, num_classes, num_rel_classes, num_entities, num_triplets, aux_loss=False, matcher=None):
+    def __init__(self, backbone, transformer, num_classes, num_rel_classes, num_rel_prior, num_rel_geometric, num_rel_possessive,
+                 num_rel_semantic, num_entities, num_triplets, aux_loss=False, hierar=False, matcher=None):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -55,15 +56,42 @@ class RelTR(nn.Module):
                                         nn.ReLU(inplace=True),
                                         nn.Linear(512, 128))
 
-        # predicate classification
-        self.rel_class_embed = MLP(hidden_dim*2+128, hidden_dim, num_rel_classes + 1, 2)
-
         # subject/object label classfication and box regression
         self.sub_class_embed = nn.Linear(hidden_dim, num_classes + 1)
         self.sub_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.obj_class_embed = nn.Linear(hidden_dim, num_classes + 1)
         self.obj_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
 
+        ## ADD-ON #################################################
+        self.hierar = hierar
+        if self.hierar:
+            # bayesian predicate classification with relation hierarchy
+            self.fc_rel = nn.Linear(hidden_dim*2+128, hidden_dim, 2)
+            self.fc_rel_prior = nn.Linear(hidden_dim, num_rel_prior)
+            self.fc_rel_geo = nn.Linear(hidden_dim, num_rel_geometric)
+            self.fc_rel_pos = nn.Linear(hidden_dim, num_rel_possessive)
+            self.fc_rel_sem = nn.Linear(hidden_dim, num_rel_semantic)
+            self.rel_dropout = nn.Dropout(p=0.5)
+        else:
+            # flat predicate classification
+            self.rel_class_embed = MLP(hidden_dim * 2 + 128, hidden_dim, num_rel_classes + 1, 2)
+        ##########################################################
+
+    ## ADD-ON #################################################
+    def bayesian_head(self, hidden):
+        # hidden expects size [_, batch_size, num_queries, hidden_dim]
+        hidden = self.rel_dropout(F.relu(self.fc_rel(hidden)))
+        rel_prior = F.log_softmax(self.fc_rel_prior(hidden), dim=-1)
+
+        rel_geo = self.fc_rel_geo(hidden)  # geometric
+        rel_geo = F.log_softmax(rel_geo, dim=-1) + rel_prior[:, :, :, 0].unsqueeze(-1)
+        rel_pos = self.fc_rel_pos(hidden)  # possessive
+        rel_pos = F.log_softmax(rel_pos, dim=-1) + rel_prior[:, :, :, 1].unsqueeze(-1)
+        rel_sem = self.fc_rel_sem(hidden)  # semantic
+        rel_sem = F.log_softmax(rel_sem, dim=-1) + rel_prior[:, :, :, 2].unsqueeze(-1)
+
+        return rel_prior, rel_geo, rel_pos, rel_sem
+    ##########################################################
 
     def forward(self, samples: NestedTensor):
         """ The forward expects a NestedTensor, which consists of:
@@ -108,12 +136,31 @@ class RelTR(nn.Module):
         outputs_class_obj = self.obj_class_embed(hs_obj)
         outputs_coord_obj = self.obj_bbox_embed(hs_obj).sigmoid()
 
-        outputs_class_rel = self.rel_class_embed(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
+        ## ADD-ON #################################################
+        if self.hierar:
+            outputs_class_rel_prior, outputs_class_geo, outputs_class_pos, outputs_class_sem \
+                = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
+            outputs_class_rel = torch.cat((outputs_class_geo, outputs_class_pos, outputs_class_sem), dim=-1)
+            print('outputs_class_rel_prior!!!!!!!!!!!', outputs_class_rel_prior.shape, 'outputs_class_geo', outputs_class_geo.shape,
+                  'outputs_class_pos', outputs_class_pos.shape, 'outputs_class_sem', outputs_class_sem.shape, 'outputs_class_rel', outputs_class_rel.shape)
+        else:
+            outputs_class_rel = self.rel_class_embed(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
+            print('outputs_class_rel!!!!!!!!!!!', outputs_class_rel.shape, 'outputs_class_rel[-1]', outputs_class_rel[-1].shape,
+                  'outputs_class_sub', outputs_class_sub.shape, 'outputs_class_obj', outputs_class_obj.shape)
+        ###########################################################
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1],
                'sub_logits': outputs_class_sub[-1], 'sub_boxes': outputs_coord_sub[-1],
                'obj_logits': outputs_class_obj[-1], 'obj_boxes': outputs_coord_obj[-1],
                'rel_logits': outputs_class_rel[-1]}
+        ## ADD-ON #################################################
+        if self.hierar:
+            out['rel_prior_logits'] = outputs_class_rel_prior[-1]
+            out['rel_geo_logits'] = outputs_class_geo[-1]
+            out['rel_pos_logits'] = outputs_class_pos[-1]
+            out['rel_sem_logits'] = outputs_class_sem[-1]
+        ###########################################################
+
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord, outputs_class_sub, outputs_coord_sub,
                                                     outputs_class_obj, outputs_coord_obj, outputs_class_rel)
@@ -138,7 +185,8 @@ class SetCriterion(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, num_classes, num_rel_classes, matcher, weight_dict, eos_coef, losses):
+    def __init__(self, num_classes, num_rel_classes, matcher, weight_dict, eos_coef, losses,
+                 num_rel_prior, num_rel_geometric, num_rel_possessive, num_rel_semantic, hierar=False):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -153,6 +201,13 @@ class SetCriterion(nn.Module):
         self.weight_dict = weight_dict
         self.eos_coef = eos_coef
         self.losses = losses
+        ## ADD-ON #################################################
+        self.num_rel_prior = num_rel_prior
+        self.num_rel_geometric = num_rel_geometric
+        self.num_rel_possessive = num_rel_possessive
+        self.num_rel_semantic = num_rel_semantic
+        self.hierar = hierar
+        ###########################################################
         empty_weight = torch.ones(self.num_classes + 1)
         empty_weight[-1] = self.eos_coef
         self.register_buffer('empty_weight', empty_weight)
@@ -207,7 +262,12 @@ class SetCriterion(nn.Module):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
         This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
         """
-        pred_logits = outputs['rel_logits']
+        ## ADD-ON #################################################
+        if self.hierar:
+            pred_logits = outputs['rel_prior_logits']
+        ###########################################################
+        else:
+            pred_logits = outputs['rel_logits']
         device = pred_logits.device
         tgt_lengths = torch.as_tensor([len(v["rel_annotations"]) for v in targets], device=device)
         # Count the number of predictions that are NOT "no-object" (which is the last class)
@@ -252,9 +312,15 @@ class SetCriterion(nn.Module):
 
         src_logits = outputs['rel_logits']
         idx = self._get_src_permutation_idx(indices[1])
-        target_classes_o = torch.cat([t["rel_annotations"][J,2] for t, (_, J) in zip(targets, indices[1])])
+        target_classes_o = torch.cat([t["rel_annotations"][J, 2] for t, (_, J) in zip(targets, indices[1])])
         target_classes = torch.full(src_logits.shape[:2], self.num_rel_classes, dtype=torch.int64, device=src_logits.device)
-        target_classes[idx] = target_classes_o
+        target_classes[idx] = target_classes_o  # size [batch_size, num_queries]
+
+        ## ADD-ON #################################################
+        if self.hierar:
+
+        ###########################################################
+
 
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight_rel)
 
@@ -389,9 +455,16 @@ def build(args):
         transformer,
         num_classes=num_classes,
         num_rel_classes = num_rel_classes,
+        ## ADD-ON #################################################
+        num_rel_prior=args.num_rel_prior,
+        num_rel_geometric=args.num_rel_geometric,
+        num_rel_possessive=args.num_rel_possessive,
+        num_rel_semantic=args.num_rel_semantic,
+        ###########################################################
         num_entities=args.num_entities,
         num_triplets=args.num_triplets,
         aux_loss=args.aux_loss,
+        hierar=args.hierar,
         matcher=matcher)
 
     weight_dict = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef}
@@ -407,8 +480,10 @@ def build(args):
 
     losses = ['labels', 'boxes', 'cardinality', "relations"]
 
+    ## ADD-ON #################################################
     criterion = SetCriterion(num_classes, num_rel_classes, matcher=matcher, weight_dict=weight_dict,
-                             eos_coef=args.eos_coef, losses=losses)
+                             eos_coef=args.eos_coef, losses=losses, hierar=args.hierar)
+    ###########################################################
     criterion.to(device)
     postprocessors = {'bbox': PostProcess()}
 

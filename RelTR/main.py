@@ -103,6 +103,14 @@ def get_args_parser():
 
     parser.add_argument('--return_interm_layers', action='store_true',
                         help="Return the fpn if there is the tag")
+
+    ## ADD-ON #################################################
+    parser.add_argument('--hierar', action='store_true')
+    parser.add_argument('--num_rel_prior', default=4, type=int)
+    parser.add_argument('--num_rel_geometric', default=15, type=int)
+    parser.add_argument('--num_rel_possessive', default=11, type=int)
+    parser.add_argument('--num_rel_semantic', default=24, type=int)
+    ###########################################################
     return parser
 
 
