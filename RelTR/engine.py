@@ -105,6 +105,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
     iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
     coco_evaluator = CocoEvaluator(base_ds, iou_types)
 
+    counter = 0
     for samples, targets in metric_logger.log_every(data_loader, 100, header):
 
         samples = samples.to(device)
@@ -141,11 +142,17 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
             coco_evaluator.update(res)
 
         ######################################
-        if args.dataset == 'vg':
-            evaluator['sgdet'].print_stats()
-        else:
-            task_evaluation_sg.eval_rel_results(all_results, 100, do_val=True, do_vis=False)
+        if counter % 100 == 0:
+            if args.dataset == 'vg':
+                evaluator['sgdet'].print_stats()
+            else:
+                task_evaluation_sg.eval_rel_results(all_results, 100, do_val=True, do_vis=False)
+        counter += 1
         ######################################
+    if args.dataset == 'vg':
+        evaluator['sgdet'].print_stats()
+    else:
+        task_evaluation_sg.eval_rel_results(all_results, 100, do_val=True, do_vis=False)
 
     if args.eval and args.dataset == 'vg':
         calculate_mR_from_evaluator_list(evaluator_list, 'sgdet')
