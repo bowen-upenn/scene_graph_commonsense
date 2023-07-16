@@ -61,9 +61,9 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             test_record = json.load(f)
 
     # if args['models']['hierarchical_pred']:
-    #     edge_head = DDP(EdgeHeadHier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
-    #                                  num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
-    #                                  num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+    # edge_head = DDP(EdgeHeadHier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+    #                              num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+    #                              num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
     # else:
     #     edge_head = DDP(EdgeHead(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
     #                              num_classes=args['models']['num_classes'])).to(rank)
@@ -71,7 +71,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
     transformer_encoder.train()
 
     if args['models']['detr_or_faster_rcnn'] == 'detr':
-        detr = DDP(build_detr101(args)).to(rank)
+        detr = DDP(build_detr101(args))
         detr.eval()
     elif args['models']['detr_or_faster_rcnn'] == 'faster':
         faster_rcnn = build_model(faster_rcnn_cfg).to(rank)
@@ -135,6 +135,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                 continue
 
             with torch.no_grad():
+                detr.to(rank)
                 images = torch.stack(images).to(rank)
                 image_feature, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images))
                 src, mask = image_feature[-1].decompose()
@@ -143,6 +144,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                 image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
                 image_feature = image_feature.permute(1, 2, 0)
                 image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+                detr.to('cpu')
             del images
 
             # append corresponding image index to each triplet
@@ -153,13 +155,25 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     all_triplets.append(triplet)
 
             all_image_idx = torch.tensor([triplet[-1] for triplet in all_triplets]).to(rank)
+            # index_counts = torch.bincount(all_image_idx)
+
+            image_depth = torch.stack(image_depth).to(rank)
+            image_feature = torch.cat((image_feature, image_depth), dim=1)
+
+            # # duplicate the image features based on the index tensor
+            # new_image_feature = torch.empty(len(all_image_idx), *image_feature.shape[1:]).to(rank)
+            # current_idx = 0
+            # for idx, count in enumerate(index_counts):
+            #     new_image_feature[current_idx:current_idx + count] = image_feature[idx].repeat(count, 1, 1, 1)
+            #     current_idx += count
+            # image_feature = new_image_feature
 
             all_sub_categories = torch.tensor([triplet[0] for triplet in all_triplets]).to(rank)
             all_obj_categories = torch.tensor([triplet[5] for triplet in all_triplets]).to(rank)
             all_sub_super_categories = [[sc.to(rank) for sc in triplet[1]] for triplet in all_triplets]
             all_obj_super_categories = [[sc.to(rank) for sc in triplet[6]] for triplet in all_triplets]
-            all_sub_bboxes = torch.stack([triplet[2] for triplet in all_triplets]).to(rank)
-            all_obj_bboxes = torch.stack([triplet[7] for triplet in all_triplets]).to(rank)
+            all_sub_bboxes = torch.stack([triplet[2] for triplet in all_triplets]).long().to(rank)
+            all_obj_bboxes = torch.stack([triplet[7] for triplet in all_triplets]).long().to(rank)
 
             all_sub_masks = torch.zeros(len(all_triplets), args['models']['feature_size'], args['models']['feature_size'], dtype=torch.uint8).to(rank)
             all_obj_masks = torch.zeros(len(all_triplets), args['models']['feature_size'], args['models']['feature_size'], dtype=torch.uint8).to(rank)
@@ -172,15 +186,17 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             all_obj_features = torch.zeros(len(all_triplets), args['models']['num_img_feature'] + 1, args['models']['feature_size'], args['models']['feature_size']).to(rank)
             for i in range(len(all_triplets)):
                 image_idx = all_triplets[i][-1]
-                all_img_features[i, :-1] = image_feature[image_idx].to(rank)
-                all_img_features[i, -1] = image_depth[image_idx].to(rank)
+                all_img_features[i] = image_feature[image_idx]
                 all_sub_features[i] = all_img_features[i] * all_sub_masks[i]
                 all_obj_features[i] = all_img_features[i] * all_obj_masks[i]
+            del image_depth, image_feature, all_img_features
 
             all_relations_target = torch.stack([triplet[4].to(rank) for triplet in all_triplets])
 
             loss_connectivity, loss_relationship = 0.0, 0.0
             if args['models']['hierarchical_pred']:
+                # relation_1, relation_2, relation_3, super_relation, connectivity = transformer_encoder(image_feature, all_sub_bboxes, all_obj_bboxes,
+                #                                     all_sub_categories, all_obj_categories, all_sub_super_categories, all_obj_super_categories, rank)
                 relation_1, relation_2, relation_3, super_relation, connectivity = transformer_encoder(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
                                                                                              all_sub_super_categories, all_obj_super_categories, rank)
                 relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
@@ -189,8 +205,8 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                                                    all_sub_super_categories, all_obj_super_categories, rank)
                 super_relation = None
 
-            print("relation", relation.shape, "all_relations_target", all_relations_target.shape, "all_sub_categories", all_sub_categories.shape,
-                  "all_sub_masks", all_sub_masks.shape, "all_sub_bboxes", all_sub_bboxes.shape)
+            # print("relation", relation.shape, "all_relations_target", all_relations_target.shape, "all_sub_categories", all_sub_categories.shape,
+            #       "all_sub_masks", all_sub_masks.shape, "all_sub_bboxes", all_sub_bboxes.shape)
 
             if args['models']['hierarchical_pred']:
                 super_relation_target = all_relations_target.clone()
@@ -251,11 +267,10 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             torch.save(transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'TransEncoderFlat' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
-        if epoch == 2:
-            if args['models']['detr_or_faster_rcnn'] == 'detr':
-                test_local(args, detr, transformer_encoder, test_loader, test_record, epoch, rank)
-            else:
-                test_local(args, faster_rcnn, transformer_encoder, test_loader, test_record, epoch, rank)
+        if args['models']['detr_or_faster_rcnn'] == 'detr':
+            test_local(args, detr, transformer_encoder, test_loader, test_record, epoch, rank)
+        else:
+            test_local(args, faster_rcnn, transformer_encoder, test_loader, test_record, epoch, rank)
 
     dist.destroy_process_group()  # clean up
     print('FINISHED TRAINING\n')

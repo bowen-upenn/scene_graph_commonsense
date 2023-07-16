@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from reformer_pytorch import Reformer, Autopadder
 
 
 class PositionalEncoding1D(nn.Module):
@@ -62,12 +63,15 @@ class TransformerEncoder(nn.Module):
         self.num_super_classes = self.args['models']['num_super_classes']
         self.d_model = self.args['transformer']['d_model']
         self.input_dim = self.args['models']['num_img_feature']
+        self.hidden_dim = self.args['models']['hidden_dim']
 
-        self.marker_embedding = nn.Embedding(2, self.d_model)
         self.pos_encoder = PositionalEncoding2D(self.d_model-1)
-        encoder_layer = nn.TransformerEncoderLayer(self.d_model, nhead=self.args['transformer']['nhead'],
-                        dim_feedforward=self.args['transformer']['dim_feedforward'], dropout=self.args['transformer']['dropout'])
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.args['transformer']['num_layers'])
+        self.transformer_encoder = Reformer(dim=self.d_model, depth=self.args['transformer']['num_layers'], bucket_size=16,
+                                            heads=self.args['transformer']['nhead'], lsh_dropout=self.args['transformer']['dropout'], causal=False)
+        self.transformer_encoder = Autopadder(self.transformer_encoder)
+        # encoder_layer = nn.TransformerEncoderLayer(self.d_model, nhead=self.args['transformer']['nhead'],
+        #                 dim_feedforward=self.args['transformer']['dim_feedforward'], dropout=self.args['transformer']['dropout'])
+        # self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.args['transformer']['num_layers'])
 
         # (1) crop out a minimum union bounding box
         # (2) two parallel conv layers to reduce dim
@@ -75,10 +79,10 @@ class TransformerEncoder(nn.Module):
         # (3) optional global features, one more parallel conv but larger pooling stride
         # (4) no dynamic batch sizing necessary
 
-        # self.conv1 = nn.Conv2d(self.input_dim+1, 2 * input_dim, kernel_size=3, stride=1, padding=0)
-        # self.conv2 = nn.Conv2d(self.input_dim+1, 2 * input_dim, kernel_size=3, stride=1, padding=0)
+        # self.conv1 = nn.Conv2d(self.input_dim+1, self.input_dim+1, kernel_size=3, stride=2, padding=0)
+        # self.conv2 = nn.Conv2d(self.input_dim+1, self.input_dim+1, kernel_size=3, stride=2, padding=0)
         # self.dropout1 = nn.Dropout(p=0.5)
-        # self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
         # self.subject_proj = nn.Linear(self.args['models']['num_img_feature'])
 
         if args['dataset']['dataset'] == 'vg':
@@ -141,43 +145,63 @@ class TransformerEncoder(nn.Module):
 
     def organize_src(self, src_sub, src_obj, rank):
         # assuming src is of shape (batch_size, channels, height, width)
+        src_sub = self.maxpool(src_sub)
+        src_obj = self.maxpool(src_obj)
+
         has_value = torch.cat((torch.sum(src_sub.flatten(start_dim=2), dim=1) != 0,
                                torch.sum(src_obj.flatten(start_dim=2), dim=1) != 0), dim=1)  # size [bs, 2048]
         has_value = has_value.permute(1, 0)
         seq_lens = torch.sum(has_value, dim=0)
         max_len = torch.max(seq_lens)
 
+        # apply conv layer to reduce spatial dimensions
+        # print('src_sub 1', src_sub.shape, 'src_obj', src_obj.shape)
+        # src_sub = self.maxpool(F.relu(self.conv1(src_sub)))
+        # src_obj = self.maxpool(F.relu(self.conv2(src_obj)))
+        # print('src_sub 2', src_sub.shape, 'src_obj', src_obj.shape)
+
         # linearize subject and object separately with their own positional encoding
         src_sub = self.pos_encoder(src_sub)
         src_sub = src_sub.flatten(start_dim=2)  # flattening height and width into one dimension
         src_sub = torch.cat((src_sub, torch.ones(src_sub.shape[0], 1, src_sub.shape[2]).to(rank)), dim=1)  # add subject or object marker
-        src_sub = src_sub.permute(2, 0, 1)  # transformer expects seq_len, batch, embedding
+        src_sub = src_sub.permute(0, 2, 1)  # transformer expects batch, seq_len, embedding # (2, 0, 1) transformer expects seq_len, batch, embedding
 
         src_obj = self.pos_encoder(src_obj)
         src_obj = src_obj.flatten(start_dim=2)  # flattening height and width into one dimension
         src_obj = torch.cat((src_obj, torch.ones(src_obj.shape[0], 1, src_obj.shape[2]).to(rank)), dim=1)  # add subject or object marker
-        src_obj = src_obj.permute(2, 0, 1)  # transformer expects seq_len, batch, embedding
+        src_obj = src_obj.permute(0, 2, 1)  # transformer expects batch, seq_len, embedding
 
-        src = torch.cat((src_sub, src_obj), dim=0)  # size [2048, bs, 258]
+        src = torch.cat((src_sub, src_obj), dim=1)  # size [2048, bs, 258]
+        # print('src 1', src.shape)
 
         # filter out zeros the transformer for better efficiency but keep the original positional encoding
-        src_filt_pad = torch.zeros(max_len, src.shape[1], src.shape[2]).to(rank)  # size [seq_len, batch, embedding]
-        src_key_padding_mask = torch.zeros((src.shape[1], max_len), dtype=torch.bool).to(rank)  # size [batch, seq_len]
-        for bid in range(src.shape[1]):  # src.shape[1] is batch size
-            src_filt_pad[:seq_lens[bid], bid, :] = src[has_value[:, bid], bid, :]
-            src_key_padding_mask[bid, seq_lens[bid]:] = 1  # 1 represents padding
+        src_filt_pad = torch.zeros(src.shape[0], max_len, src.shape[2]).to(rank)  # size [batch, seq_len, embedding]
+        src_key_padding_mask = torch.ones((src.shape[0], max_len), dtype=torch.bool).to(rank)  # size [batch, seq_len]
+        for bid in range(src.shape[0]):  # src.shape[1] is batch size
+            src_filt_pad[bid, :seq_lens[bid], :] = src[bid, has_value[:, bid], :]
+            src_key_padding_mask[bid, seq_lens[bid]:] = False  # 0 represents padding
         src = src_filt_pad
+        # print('src 2', src.shape)
+        # src_filt_pad = torch.zeros(max_len, src.shape[1], src.shape[2]).to(rank)  # size [seq_len, batch, embedding]
+        # src_key_padding_mask = torch.zeros((src.shape[1], max_len), dtype=torch.bool).to(rank)  # size [batch, seq_len]
+        # for bid in range(src.shape[1]):  # src.shape[1] is batch size
+        #     src_filt_pad[:seq_lens[bid], bid, :] = src[has_value[:, bid], bid, :]
+        #     src_key_padding_mask[bid, seq_lens[bid]:] = 1  # 1 represents padding
+        # src = src_filt_pad
 
         return src, src_key_padding_mask
 
     def forward(self, src_sub, src_obj, cat_sub, cat_obj, scat_sub, scat_obj, rank):
-        src, src_key_padding_mask = self.organize_src(src_sub, src_obj, rank)
+        src, input_mask = self.organize_src(src_sub, src_obj, rank)
         del src_sub, src_obj
 
-        hidden = self.transformer_encoder(src=src, mask=None, src_key_padding_mask=src_key_padding_mask)  # keys, values, and queries are all the same
-        hidden = hidden[-1, :, :]   # single output
+        # hidden = self.transformer_encoder(src=src, mask=None, src_key_padding_mask=src_key_padding_mask)  # keys, values, and queries are all the same
+        hidden = self.transformer_encoder(src, input_mask=input_mask)  # keys, values, and queries are all the same
+        hidden = hidden[:, -1, :]   # single output
+        # print('hidden 1', hidden.shape)
 
         hidden = self.concat_class_labels(hidden, cat_sub, cat_obj, scat_sub, scat_obj, rank)
+        # print('hidden 2', hidden.shape)
 
         if self.args['models']['hierarchical_pred']:
             # add the bayesian head for hierarchical predictions
@@ -187,6 +211,53 @@ class TransformerEncoder(nn.Module):
             relation, connectivity = self.flat_head(hidden)
             return relation, connectivity
 
+    # def format_src(self, src, bbox_sub, bbox_obj, rank):
+    #     """ src expects [batch_size, channels, height, width], bbox expects [batch_size, [xmin, xmax, ymin, ymax]]
+    #     """
+    #     # add 2d positional encoding
+    #     src = self.pos_encoder(src)
+    #
+    #     # add marker encoding to distinguish subject [1], object [2], and union regions [3] in src
+    #     src = torch.cat((src, torch.zeros(src.shape[0], 1, src.shape[2], src.shape[3]).to(rank)), dim=1)
+    #     for bid in range(src.shape[0]):  # src.shape[0] is batch_size
+    #         src[bid, -1, bbox_sub[bid, 2]:bbox_sub[bid, 3], bbox_sub[bid, 0]:bbox_sub[bid, 1]] += 1
+    #         src[bid, -1, bbox_obj[bid, 2]:bbox_obj[bid, 3], bbox_obj[bid, 0]:bbox_obj[bid, 1]] += 2
+    #
+    #     # find zero paddings outside subject and object, remove them to reduce transformer input sequence length
+    #     src = src.flatten(start_dim=2)  # size [batch_size, channels, seq_len]
+    #     has_value = src[:, -1] != 0  # size [batch_size, seq_len]
+    #     seq_lens = torch.sum(has_value, dim=1)
+    #     max_len = torch.max(seq_lens)
+    #
+    #     # transformer expects [seq_len, batch_size, embedding]
+    #     src = src.permute(2, 0, 1)
+    #
+    #     # filter out zeros the transformer for better efficiency but keep the original positional encoding
+    #     src_filt_pad = torch.zeros(max_len, src.shape[1], src.shape[2]).to(rank)  # size [seq_len, batch_size, channels]
+    #     src_key_padding_mask = torch.zeros((src.shape[1], max_len), dtype=torch.bool).to(rank)  # size [batch_size, seq_len]
+    #     for bid in range(src.shape[1]):  # src.shape[1] is now batch_size
+    #         src_filt_pad[:seq_lens[bid], bid, :] = src[has_value[bid], bid, :]
+    #         src_key_padding_mask[bid, seq_lens[bid]:] = 1  # 1 represents padding
+    #     src = src_filt_pad
+    #
+    #     return src, src_key_padding_mask
+    #
+    # def forward(self, image_feature, bbox_sub, bbox_obj, cat_sub, cat_obj, scat_sub, scat_obj, rank):
+    #     src, src_key_padding_mask = self.format_src(image_feature, bbox_sub, bbox_obj, rank)
+    #     del image_feature
+    #
+    #     hidden = self.transformer_encoder(src=src, mask=None, src_key_padding_mask=src_key_padding_mask)  # keys, values, and queries are all the same
+    #     hidden = hidden[-1, :, :]   # single output
+    #
+    #     hidden = self.concat_class_labels(hidden, cat_sub, cat_obj, scat_sub, scat_obj, rank)
+    #
+    #     if self.args['models']['hierarchical_pred']:
+    #         # add the bayesian head for hierarchical predictions
+    #         relation_1, relation_2, relation_3, super_relation, connectivity = self.bayesian_head(hidden)
+    #         return relation_1, relation_2, relation_3, super_relation, connectivity
+    #     else:
+    #         relation, connectivity = self.flat_head(hidden)
+    #         return relation, connectivity
 
 
 class MotifHead(nn.Module):

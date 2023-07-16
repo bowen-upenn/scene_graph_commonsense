@@ -60,6 +60,17 @@ def iou(bbox_target, bbox_pred):
         return float(intersect) / float(union)
 
 
+def find_union_bounding_box(bbox1, bbox2):
+    # bbox expects format x_min, x_max, y_min, y_max
+    [x1min, x1max, y1min, y1max] = bbox1
+    [x2min, x2max, y2min, y2max] = bbox2
+    xmin = min(x1min, x2min)
+    xmax = max(x1max, x2max)
+    ymin = min(y1min, y2min)
+    ymax = max(y1max, y2max)
+    return xmin, xmax, ymin, ymax
+
+
 def build_detr101(args):
     """
     This function builds the DETR-101 object detection backbone.
