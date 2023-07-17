@@ -429,21 +429,47 @@ def init_distributed_mode(args):
 
 
 @torch.no_grad()
-def accuracy(output, target, topk=(1,)):
+def accuracy(output, target, topk=(1,), accumulate=False):
     """Computes the precision@k for the specified values of k"""
-    if target.numel() == 0:
-        return [torch.zeros([], device=output.device)]
-    maxk = max(topk)
-    batch_size = target.size(0)
+    ## ADD-ON #################################################
+    if accumulate:
+        # output and target are lists of three tensors for geo, pos, and sem relations
+        accum_correct_k = [[] for _ in topk]
+        accum_batch_size = [[] for _ in topk]
 
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
+        for out, tar in zip(output, target):
+            if tar.numel() == 0:
+                return [torch.zeros([], device=out.device)]
+            maxk = max(topk)
+            batch_size = tar.size(0)
 
-    res = []
-    for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0)
-        res.append(correct_k.mul_(100.0 / batch_size))
+            _, pred = out.topk(maxk, 1, True, True)
+            pred = pred.t()
+            # print('pred', pred, 'tar', tar)
+            correct = pred.eq(tar.view(1, -1).expand_as(pred))
+
+            for i, k in enumerate(topk):
+                accum_correct_k[i].append(correct[:k].view(-1).float().sum(0))
+                accum_batch_size[i].append(batch_size)
+
+        res = []
+        for i, k in enumerate(topk):
+            res.append(sum(accum_correct_k[i]).mul_(100.0 / sum(accum_batch_size[i])))
+    ###########################################################
+    else:
+        if target.numel() == 0:
+            return [torch.zeros([], device=output.device)]
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].view(-1).float().sum(0)
+            res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
 

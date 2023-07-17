@@ -340,25 +340,41 @@ class SetCriterion(nn.Module):
             empty_weight_rel_prior = torch.ones(self.num_rel_prior + 1).to(target_classes.device)
             empty_weight_rel_prior[-1] = self.eos_coef  # weight for no object
             loss_ce += F.cross_entropy(outputs['rel_prior_logits'].transpose(1, 2), target_classes_prior, empty_weight_rel_prior)
+            # print('outputs[rel_prior_logits].transpose(1, 2)', outputs['rel_prior_logits'].transpose(1, 2).shape, target_classes_prior.shape)
 
             begin_pos = 1 + self.num_rel_geo
             begin_sem = 1 + self.num_rel_geo + self.num_rel_pos
             samples_geo = target_classes < self.num_rel_geo
             samples_pos = torch.logical_and(target_classes >= self.num_rel_geo, target_classes < self.num_rel_geo + self.num_rel_pos)
             samples_sem = torch.logical_and(target_classes >= self.num_rel_geo + self.num_rel_pos, target_classes < self.num_rel_classes - 1)
+            rel_error = torch.zeros(3)
+            # print('samples_geo', samples_geo.shape, 'samples_pos', samples_pos.shape, 'samples_sem', samples_sem.shape)
             if torch.sum(samples_geo) > 0:
                 loss_ce += F.cross_entropy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo])
+                rel_error[0] = 100 - accuracy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo])[0]
             if torch.sum(samples_pos) > 0:
                 loss_ce += F.cross_entropy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo)
+                rel_error[1] = 100 - accuracy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo)[0]
             if torch.sum(samples_sem) > 0:
                 loss_ce += F.cross_entropy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos)
+                rel_error[2] = 100 - accuracy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos)[0]
+
+            # print('src_logits[:, :, 1:begin_pos][samples_geo]', src_logits[:, :, 1:begin_pos][samples_geo].shape, target_classes[samples_geo].shape)
+            # print('src_logits[:, :, begin_pos:begin_sem][samples_pos]', src_logits[:, :, begin_pos:begin_sem][samples_pos].shape, target_classes[samples_pos].shape)
+            # print('src_logits[:, :, begin_sem:-1][samples_sem]', src_logits[:, :, begin_sem:-1][samples_sem].shape, target_classes[samples_sem].shape, '\n')
+
+            losses = {'loss_rel': loss_ce}
+            if log:
+                losses['rel_error'] = 100 - accuracy([src_logits[:, :, 1:begin_pos][samples_geo], src_logits[:, :, begin_pos:begin_sem][samples_pos], src_logits[:, :, begin_sem:-1][samples_sem]],
+                              [target_classes[samples_geo], target_classes[samples_pos]-self.num_rel_geo, target_classes[samples_sem]-self.num_rel_geo-self.num_rel_pos], accumulate=True)[0]
         ###########################################################
         else:
             loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight_rel)
+            print('src_logits.transpose(1, 2)', src_logits.transpose(1, 2).shape, target_classes.shape)
+            losses = {'loss_rel': loss_ce}
 
-        losses = {'loss_rel': loss_ce}
-        if log:
-            losses['rel_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+            if log:
+                losses['rel_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
 
     def _get_src_permutation_idx(self, indices):
