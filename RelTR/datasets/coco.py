@@ -16,10 +16,11 @@ from pycocotools import mask as coco_mask
 import datasets.transforms as T
 
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks):
+    def __init__(self, img_folder, ann_file, transforms, return_masks, hierar=False):
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
+        self.hierar = hierar
 
         #TODO load relationship
         with open('/'.join(ann_file.split('/')[:-1])+'/rel.json', 'r') as f:
@@ -33,10 +34,22 @@ class CocoDetection(torchvision.datasets.CocoDetection):
 
         self.rel_categories = all_rels['rel_categories']
 
+        ## ADD-ON #################################################
+        self.rel_label_mapping = [50,  0,  1,  2,  3,  4,  5, 26,  6, 15,  7, 27, 28, 29, 30, 31, 16, 17,
+                                  32, 33, 18, 34,  8,  9, 35, 36, 37, 19, 38, 10, 20, 11, 12, 13, 39, 40,
+                                  21, 41, 42, 43, 44, 45, 22, 14, 46, 47, 48, 49, 23, 24, 25, 51]
+        ##########################################################
+
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
         rel_target = self.rel_annotations[str(image_id)]
+
+        ## ADD-ON #################################################
+        if self.hierar:
+            for rel in rel_target:  # a triplet of subject, object, and relation labels
+                rel[2] = self.rel_label_mapping[rel[2]]
+        ##########################################################
 
         target = {'image_id': image_id, 'annotations': target, 'rel_annotations': rel_target}
 
@@ -177,5 +190,5 @@ def build(image_set, args):
         else:
             ann_file = ann_path + 'val.json'
 
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=False)
+    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=False, hierar=args.hierar)
     return dataset

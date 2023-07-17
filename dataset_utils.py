@@ -590,7 +590,6 @@ def object_class_faster2fre():
             137: 87, 138: 66, 139: 45, 140: 130, 141: 145, 142: 123, 143: 58, 144: 33, 145: 2, 146: 116, 147: 82, 148: 98, 149: 11, 150: 89, 0: 150}
 
 
-
 def relation_class_by_freq():
     return {0: 'on', 1: 'has', 2: 'in', 3: 'of', 4: 'wearing', 5: 'near', 6: 'with', 7: 'above', 8: 'holding', 9: 'behind',
             10: 'under', 11: 'sitting on', 12: 'wears', 13: 'standing on', 14: 'in front of', 15: 'attached to', 16: 'at', 17: 'hanging from', 18: 'over', 19: 'for',
@@ -667,7 +666,6 @@ def find_top_caregories_relations_gqa():
     # all_relations_count = Counter(all_relations)
     # top_relations = all_relations_count.most_common(52)
     # top_relations = [top_relations[i][0] for i in range(len(top_relations))]
-
 
 def object_name2label_gqa():
     return {'window': 0, 'man': 1, 'shirt': 2, 'tree': 3, 'wall': 4, 'person': 5, 'sky': 6, 'building': 7, 'ground': 8, 'sign': 9,
