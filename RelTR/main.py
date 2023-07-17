@@ -140,6 +140,18 @@ def main(args):
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('number of params:', n_parameters)
 
+    ## ADD-ON #################################################
+    if args.hierar and args.resume_from_flat:
+        # freeze all parameters
+        for param in model_without_ddp.parameters():
+            param.requires_grad = False
+        # unfreeze the parameters of the specified layers
+        layers_to_unfreeze = ['fc_rel', 'fc_rel_prior', 'fc_rel_geo', 'fc_rel_pos', 'fc_rel_sem']
+        for name, param in model_without_ddp.named_parameters():
+            if any(layer in name for layer in layers_to_unfreeze):
+                param.requires_grad = True
+    ###########################################################
+
     param_dicts = [
         {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
         {
@@ -181,11 +193,11 @@ def main(args):
         ## ADD-ON #################################################
         model_without_ddp.load_state_dict(checkpoint['model'], strict=not args.resume_from_flat)
         # del checkpoint['optimizer']
-        # if not args.resume_from_flat and not args.eval and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
-        # ###########################################################
-        #     optimizer.load_state_dict(checkpoint['optimizer'])
-        #     lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-        #     args.start_epoch = checkpoint['epoch'] + 1
+        if not args.resume_from_flat and not args.eval and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
+        ###########################################################
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+            args.start_epoch = checkpoint['epoch'] + 1
 
     if args.eval:
         print('It is the {}th checkpoint'.format(checkpoint['epoch']))

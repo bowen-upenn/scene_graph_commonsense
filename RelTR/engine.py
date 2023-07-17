@@ -72,9 +72,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
         ######################################
-        if counter % print_freq == 0:
-            _, _ = evaluate(model, criterion, postprocessors, data_loader_val, base_ds, device, args, quick=True)
-        counter += 1
+        # if counter % print_freq == 0:
+        #     _, _ = evaluate(model, criterion, postprocessors, data_loader_val, base_ds, device, args, quick=True)
+        # counter += 1
         ######################################
 
     # gather the stats from all processes
