@@ -19,7 +19,8 @@ from lib.openimages_evaluation import task_evaluation_sg
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0):
+                    device: torch.device, epoch: int,
+                    postprocessors, data_loader_val, base_ds, args, max_norm: float = 0,):
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -30,7 +31,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('rel_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
 
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 500
+    print_freq = 100
+    counter = 0
 
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
@@ -69,6 +71,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(rel_error=loss_dict_reduced['rel_error'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
+        ######################################
+        if counter % print_freq == 0:
+            _, _ = evaluate(model, criterion, postprocessors, data_loader_val, base_ds, device, args, quick=True)
+        counter += 1
+        ######################################
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -76,7 +84,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, args):
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, args, quick=False):
     model.eval()
     criterion.eval()
 
@@ -148,7 +156,10 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
             else:
                 task_evaluation_sg.eval_rel_results(all_results, 100, do_val=True, do_vis=False)
         counter += 1
+        if quick:
+            break
         ######################################
+
     if args.dataset == 'vg':
         evaluator['sgdet'].print_stats()
     else:
