@@ -110,6 +110,7 @@ def get_args_parser():
     parser.add_argument('--num_rel_geometric', default=15, type=int)
     parser.add_argument('--num_rel_possessive', default=11, type=int)
     parser.add_argument('--num_rel_semantic', default=24, type=int)
+    parser.add_argument('--resume_from_flat', action='store_true')
     ###########################################################
     return parser
 
@@ -177,12 +178,14 @@ def main(args):
     output_dir = Path(args.output_dir)
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu')
-        model_without_ddp.load_state_dict(checkpoint['model'], strict=True)
+        ## ADD-ON #################################################
+        model_without_ddp.load_state_dict(checkpoint['model'], strict=not args.resume_from_flat)
         # del checkpoint['optimizer']
-        if not args.eval and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-            args.start_epoch = checkpoint['epoch'] + 1
+        # if not args.resume_from_flat and not args.eval and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
+        # ###########################################################
+        #     optimizer.load_state_dict(checkpoint['optimizer'])
+        #     lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        #     args.start_epoch = checkpoint['epoch'] + 1
 
     if args.eval:
         print('It is the {}th checkpoint'.format(checkpoint['epoch']))

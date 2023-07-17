@@ -31,7 +31,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('rel_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
 
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 100
+    print_freq = 500
     counter = 0
 
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
@@ -155,9 +155,10 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
                 evaluator['sgdet'].print_stats()
             else:
                 task_evaluation_sg.eval_rel_results(all_results, 100, do_val=True, do_vis=False)
+
+            if quick and counter > 0:
+                break
         counter += 1
-        if quick:
-            break
         ######################################
 
     if args.dataset == 'vg':

@@ -25,9 +25,18 @@ class BasicSceneGraphEvaluator:
         evaluators = {m: cls(mode=m, multiple_preds=True, **kwargs) for m in ('preddet', 'phrdet')}
         return evaluators
 
-    def evaluate_scene_graph_entry(self, gt_entry, pred_scores, viz_dict=None, iou_thresh=0.5):
+    def evaluate_scene_graph_entry(self, gt_entry, pred_scores, viz_dict=None, iou_thresh=0.5,
+                                   ## ADD-ON #################################################
+                                   hierar=False, num_rel_prior=3, num_rel_geometric=15,
+                                   num_rel_possessive=11, num_rel_semantic=24):
+                                   ###########################################################
+
         res = evaluate_from_dict(gt_entry, pred_scores, self.mode, self.result_dict,
-                                  viz_dict=viz_dict, iou_thresh=iou_thresh, multiple_preds=self.multiple_preds)
+                                 viz_dict=viz_dict, iou_thresh=iou_thresh, multiple_preds=self.multiple_preds,
+                                 ## ADD-ON #################################################
+                                 hierar=hierar, num_rel_prior=num_rel_prior, num_rel_geometric=num_rel_geometric,
+                                 num_rel_possessive=num_rel_possessive, num_rel_semantic=num_rel_semantic)
+                                 ###########################################################
         # self.print_stats()
         return res
 
@@ -42,8 +51,11 @@ class BasicSceneGraphEvaluator:
             output['R@%i' % k] = np.mean(v)
         return output
 
-def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=False,
-                       viz_dict=None, **kwargs):
+def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=False, viz_dict=None,
+                       ## ADD-ON #################################################
+                       hierar=False, num_rel_prior=3, num_rel_geometric=15, num_rel_possessive=11, num_rel_semantic=24,
+                       ###########################################################
+                       **kwargs):
     """
     Shortcut to doing evaluate_recall from dict
     :param gt_entry: Dictionary containing gt_relations, gt_boxes, gt_classes
@@ -56,14 +68,18 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
     """
     gt_rels = gt_entry['gt_relations']
 
-
     gt_boxes = gt_entry['gt_boxes'].astype(float)
     gt_classes = gt_entry['gt_classes']
 
     rel_scores = pred_entry['rel_scores']
 
-    pred_rels = 1+rel_scores.argmax(1)
-    predicate_scores = rel_scores.max(1)
+    ## ADD-ON #################################################
+    if not hierar:
+    ###########################################################
+        # we have reordered label indices to put __background__ to label 50
+        # but in the original setting, label 0 is the __background__
+        pred_rels = 1+rel_scores.argmax(1)
+        predicate_scores = rel_scores.max(1)
 
     sub_boxes = pred_entry['sub_boxes']
     obj_boxes = pred_entry['obj_boxes']
@@ -71,6 +87,39 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
     obj_score = pred_entry['obj_scores']
     sub_class = pred_entry['sub_classes']
     obj_class = pred_entry['obj_classes']
+
+    ## ADD-ON #################################################
+    if hierar:
+        gt_rels = np.tile(gt_rels, (num_rel_prior, 1))
+        gt_boxes = np.tile(gt_boxes, (num_rel_prior, 1))
+        gt_classes = np.tile(gt_classes, num_rel_prior)
+
+        # splitting the tensor into three parts based on the specified ranges
+        first_range = slice(0, num_rel_geometric)  # 0:15
+        second_range = slice(num_rel_geometric, num_rel_geometric + num_rel_possessive)  # 15:26
+        third_range = slice(num_rel_geometric + num_rel_possessive, rel_scores.shape[1])  # 26:50
+
+        # applying argmax along the appropriate dimensions
+        pred_rels_geo = rel_scores[:, first_range].argmax(1)
+        pred_rels_pos = rel_scores[:, second_range].argmax(1) + num_rel_geometric
+        pred_rels_sem = rel_scores[:, third_range].argmax(1) + num_rel_geometric + num_rel_possessive
+
+        # concatenating the predictions along the batch dimension
+        pred_rels = np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)
+
+        # same for predicate_scores
+        predicate_scores_geo = rel_scores[:, first_range].max(1)
+        predicate_scores_pos = rel_scores[:, second_range].max(1)
+        predicate_scores_sem = rel_scores[:, third_range].max(1)
+        predicate_scores = np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)
+
+        sub_boxes = np.tile(sub_boxes, (num_rel_prior, 1))
+        obj_boxes = np.tile(obj_boxes, (num_rel_prior, 1))
+        sub_score = np.tile(sub_score, num_rel_prior)
+        obj_score = np.tile(obj_score, num_rel_prior)
+        sub_class = np.tile(sub_class, num_rel_prior)
+        obj_class = np.tile(obj_class, num_rel_prior)
+    ###########################################################
 
     pred_to_gt, _, rel_scores = evaluate_recall(
                 gt_rels, gt_boxes, gt_classes,
