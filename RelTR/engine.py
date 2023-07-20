@@ -138,9 +138,9 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
         metric_logger.update(rel_error=loss_dict_reduced['rel_error'])
 
         if args.dataset == 'vg':
-            evaluate_rel_batch(outputs, targets, evaluator, evaluator_list)
+            evaluate_rel_batch(outputs, targets, evaluator, evaluator_list, hierar=args.hierar)
         else:
-            evaluate_rel_batch_oi(outputs, targets, all_results)
+            evaluate_rel_batch_oi(outputs, targets, all_results, hierar=args.hierar)
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors['bbox'](outputs, orig_target_sizes)
@@ -187,7 +187,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
 
     return stats, coco_evaluator
 
-def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list):
+def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list, hierar=False):
     for batch, target in enumerate(targets):
         target_bboxes_scaled = rescale_bboxes(target['boxes'].cpu(), torch.flip(target['orig_size'],dims=[0]).cpu()).clone().numpy() # recovered boxes with original size
 
@@ -200,7 +200,8 @@ def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list):
 
         pred_sub_scores, pred_sub_classes = torch.max(outputs['sub_logits'][batch].softmax(-1)[:, :-1], dim=1)
         pred_obj_scores, pred_obj_classes = torch.max(outputs['obj_logits'][batch].softmax(-1)[:, :-1], dim=1)
-        rel_scores = outputs['rel_logits'][batch][:,1:-1].softmax(-1)
+        # rel_scores = outputs['rel_logits'][batch][:,:-2].softmax(-1)
+        rel_scores = outputs['rel_logits'][batch]#[:,1:-1].softmax(-1)
 
         pred_entry = {'sub_boxes': sub_bboxes_scaled,
                       'sub_classes': pred_sub_classes.cpu().clone().numpy(),
@@ -208,9 +209,9 @@ def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list):
                       'obj_boxes': obj_bboxes_scaled,
                       'obj_classes': pred_obj_classes.cpu().clone().numpy(),
                       'obj_scores': pred_obj_scores.cpu().clone().numpy(),
-                      'rel_scores': rel_scores.cpu().clone().numpy()}
+                      'rel_scores': rel_scores.cpu().clone()}
 
-        evaluator['sgdet'].evaluate_scene_graph_entry(gt_entry, pred_entry)
+        evaluator['sgdet'].evaluate_scene_graph_entry(gt_entry, pred_entry, hierar=hierar)
 
         if evaluator_list is not None:
             for pred_id, _, evaluator_rel in evaluator_list:
@@ -219,7 +220,7 @@ def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list):
                 gt_entry_rel['gt_relations'] = gt_entry_rel['gt_relations'][mask, :]
                 if gt_entry_rel['gt_relations'].shape[0] == 0:
                     continue
-                evaluator_rel['sgdet'].evaluate_scene_graph_entry(gt_entry_rel, pred_entry)
+                evaluator_rel['sgdet'].evaluate_scene_graph_entry(gt_entry_rel, pred_entry, hierar=hierar)
 
 
 def evaluate_rel_batch_oi(outputs, targets, all_results):

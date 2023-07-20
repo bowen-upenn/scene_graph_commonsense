@@ -19,6 +19,17 @@ from engine import evaluate, train_one_epoch
 from models import build_model
 
 
+# rel_label_mapping = torch.tensor([50,  0,  1,  2,  3,  4,  5, 26,  6, 15,  7, 27, 28, 29, 30, 31, 16, 17,
+#                         32, 33, 18, 34,  8,  9, 35, 36, 37, 19, 38, 10, 20, 11, 12, 13, 39, 40,
+#                         21, 41, 42, 43, 44, 45, 22, 14, 46, 47, 48, 49, 23, 24, 25, 51])
+# rel_label_mapping = torch.tensor([0,  1,  2,  3,  4,  5,  6, 27,  7, 16,  8, 28, 29, 30, 31, 32, 17, 18,
+#         33, 34, 19, 35,  9, 10, 36, 37, 38, 20, 39, 11, 21, 12, 13, 14, 40, 41,
+#         22, 42, 43, 44, 45, 46, 23, 15, 47, 48, 49, 50, 24, 25, 26, 51])
+map = torch.tensor([ 0,  1,  2,  3,  4,  5,  6, 27,  7, 16,  8, 28, 29, 30, 31, 32, 17, 18,
+        33, 34, 19, 35,  9, 10, 36, 37, 38, 20, 39, 11, 21, 12, 13, 14, 40, 41,
+        22, 42, 43, 44, 45, 46, 23, 15, 47, 48, 49, 50, 24, 25, 26, 51])
+
+
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
     parser.add_argument('--lr', default=1e-4, type=float)
@@ -141,15 +152,15 @@ def main(args):
     print('number of params:', n_parameters)
 
     ## ADD-ON #################################################
-    if args.hierar and args.resume_from_flat:
-        # freeze all parameters
-        for param in model_without_ddp.parameters():
-            param.requires_grad = False
-        # unfreeze the parameters of the specified layers
-        layers_to_unfreeze = ['fc_rel', 'fc_rel_prior', 'fc_rel_geo', 'fc_rel_pos', 'fc_rel_sem']
-        for name, param in model_without_ddp.named_parameters():
-            if any(layer in name for layer in layers_to_unfreeze):
-                param.requires_grad = True
+    # if args.hierar and args.resume_from_flat:
+    #     # freeze all parameters
+    #     for param in model_without_ddp.parameters():
+    #         param.requires_grad = False
+    #     # unfreeze the parameters of the specified layers
+    #     layers_to_unfreeze = ['fc_rel', 'fc_rel_prior', 'fc_rel_geo', 'fc_rel_pos', 'fc_rel_sem']
+    #     for name, param in model_without_ddp.named_parameters():
+    #         if any(layer in name for layer in layers_to_unfreeze):
+    #             param.requires_grad = True
     ###########################################################
 
     param_dicts = [
@@ -188,7 +199,7 @@ def main(args):
         model_without_ddp.detr.load_state_dict(checkpoint['model'])
 
     output_dir = Path(args.output_dir)
-    if args.resume:
+    if args.resume or args.eval:
         checkpoint = torch.load(args.resume, map_location='cpu')
         ## ADD-ON #################################################
         model_without_ddp.load_state_dict(checkpoint['model'], strict=not args.resume_from_flat)
@@ -198,6 +209,42 @@ def main(args):
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             args.start_epoch = checkpoint['epoch'] + 1
+
+        ## ADD-ON #################################################
+        # model_without_ddp.rel_class_embed[0].weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])
+        # model_without_ddp.rel_class_embed[0].bias.data.copy_(checkpoint['model']['rel_class_embed.layers.0.bias'])
+        # model_without_ddp.rel_class_embed[2].weight.data.copy_(checkpoint['model']['rel_class_embed.layers.1.weight'])
+        # model_without_ddp.rel_class_embed[2].bias.data.copy_(checkpoint['model']['rel_class_embed.layers.1.bias'])
+
+        if args.resume_from_flat:
+            # model_without_ddp.fc_rel.weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])
+            # model_without_ddp.fc_rel.bias.data.copy_(checkpoint['model']['rel_class_embed.layers.0.bias'])
+            # model_without_ddp.rel_class_embed[0].weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])
+            # model_without_ddp.rel_class_embed[0].bias.data.copy_(checkpoint['model']['rel_class_embed.layers.0.bias'])
+            model_without_ddp.fc_rel.weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])
+            model_without_ddp.fc_rel.bias.data.copy_(checkpoint['model']['rel_class_embed.layers.0.bias'])
+
+            # reorder rows in the pretrained weights of the final layer
+            pretrained_layers_1_weight = checkpoint['model']['rel_class_embed.layers.1.weight']  # size 52, 256
+            pretrained_layers_1_weight = pretrained_layers_1_weight[map, :]
+            model_without_ddp.fc_rel_prior.weight[-2].data.copy_(pretrained_layers_1_weight[0])
+            print('model_without_ddp.fc_rel_prior.weight', model_without_ddp.fc_rel_prior.weight.shape, 'pretrained_layers_1_weight', pretrained_layers_1_weight.shape)
+            model_without_ddp.fc_rel_prior.weight[-1].data.copy_(pretrained_layers_1_weight[-1])
+            model_without_ddp.fc_rel_geo.weight.data.copy_(pretrained_layers_1_weight[1:16])
+            model_without_ddp.fc_rel_pos.weight.data.copy_(pretrained_layers_1_weight[16:27])
+            model_without_ddp.fc_rel_sem.weight.data.copy_(pretrained_layers_1_weight[27:-1])
+
+            pretrained_layers_1_bias = checkpoint['model']['rel_class_embed.layers.1.bias']
+            pretrained_layers_1_bias = pretrained_layers_1_bias[map]
+            model_without_ddp.fc_rel_prior.bias[-2].data.copy_(pretrained_layers_1_bias[0])
+            model_without_ddp.fc_rel_prior.bias[-1].data.copy_(pretrained_layers_1_bias[-1])
+            model_without_ddp.fc_rel_geo.bias.data.copy_(pretrained_layers_1_bias[1:16])
+            model_without_ddp.fc_rel_pos.bias.data.copy_(pretrained_layers_1_bias[16:27])
+            model_without_ddp.fc_rel_sem.bias.data.copy_(pretrained_layers_1_bias[27:-1])
+
+            # model_without_ddp.rel_class_embed[2].weight.data.copy_(pretrained_layers_1_weight)
+            # model_without_ddp.rel_class_embed[2].bias.data.copy_(pretrained_layers_1_bias)
+        ###########################################################
 
     if args.eval:
         print('It is the {}th checkpoint'.format(checkpoint['epoch']))

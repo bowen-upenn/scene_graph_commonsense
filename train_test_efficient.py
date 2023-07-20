@@ -60,15 +60,15 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
         with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'r') as f:
             test_record = json.load(f)
 
-    # if args['models']['hierarchical_pred']:
-    # edge_head = DDP(EdgeHeadHier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
-    #                              num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
-    #                              num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
-    # else:
-    #     edge_head = DDP(EdgeHead(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
-    #                              num_classes=args['models']['num_classes'])).to(rank)
-    transformer_encoder = DDP(TransformerEncoder(args)).to(rank)
-    transformer_encoder.train()
+    if args['models']['hierarchical_pred']:
+        edge_head = DDP(EdgeHeadHier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                     num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+    else:
+        edge_head = DDP(EdgeHead(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
+                                 num_classes=args['models']['num_classes'])).to(rank)
+    # transformer_encoder = DDP(TransformerEncoder(args)).to(rank)
+    # transformer_encoder.train()
 
     if args['models']['detr_or_faster_rcnn'] == 'detr':
         detr = DDP(build_detr101(args))
@@ -84,9 +84,9 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransEncoderHier' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
-            transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransEncoderFlat' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
     #     if args['models']['hierarchical_pred']:
     #         edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
     #     else:
@@ -95,7 +95,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
     # optimizer = optim.SGD([{'params': edge_head.parameters(), 'initial_lr': args['training']['learning_rate']}],
     #                       lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
 
-    optimizer = optim.SGD([{'params': transformer_encoder.parameters(), 'initial_lr': args['training']['learning_rate']}],
+    optimizer = optim.SGD([{'params': edge_head.parameters(), 'initial_lr': args['training']['learning_rate']}],
                             lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
     original_lr = optimizer.param_groups[0]["lr"]
 
@@ -195,13 +195,11 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
 
             loss_connectivity, loss_relationship = 0.0, 0.0
             if args['models']['hierarchical_pred']:
-                # relation_1, relation_2, relation_3, super_relation, connectivity = transformer_encoder(image_feature, all_sub_bboxes, all_obj_bboxes,
-                #                                     all_sub_categories, all_obj_categories, all_sub_super_categories, all_obj_super_categories, rank)
-                relation_1, relation_2, relation_3, super_relation, connectivity = transformer_encoder(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
+                relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
                                                                                              all_sub_super_categories, all_obj_super_categories, rank)
                 relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
             else:
-                relation, connectivity = transformer_encoder(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
+                relation, connectivity = edge_head(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
                                                    all_sub_super_categories, all_obj_super_categories, rank)
                 super_relation = None
 
@@ -262,21 +260,21 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             running_losses, running_loss_connectivity, running_loss_relationship, connectivity_recall, connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if args['models']['hierarchical_pred']:
-            torch.save(transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'TransEncoderHier' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHier' + str(epoch) + '_' + str(rank) + '.pth')
         else:
-            torch.save(transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'TransEncoderFlat' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         if args['models']['detr_or_faster_rcnn'] == 'detr':
-            test_local(args, detr, transformer_encoder, test_loader, test_record, epoch, rank)
+            test_local(args, detr, edge_head, test_loader, test_record, epoch, rank)
         else:
-            test_local(args, faster_rcnn, transformer_encoder, test_loader, test_record, epoch, rank)
+            test_local(args, faster_rcnn, edge_head, test_loader, test_record, epoch, rank)
 
     dist.destroy_process_group()  # clean up
     print('FINISHED TRAINING\n')
 
 
-def test_local(args, backbone, transformer_encoder, test_loader, test_record, epoch, rank):
+def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank):
     backbone.eval()
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
@@ -344,11 +342,11 @@ def test_local(args, backbone, transformer_encoder, test_loader, test_record, ep
             FIRST DIRECTION
             """
             if args['models']['hierarchical_pred']:
-                relation_1, relation_2, relation_3, super_relation, connectivity = transformer_encoder(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
+                relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
                                                                                              all_sub_super_categories, all_obj_super_categories, rank)
                 relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
             else:
-                relation, connectivity = transformer_encoder(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
+                relation, connectivity = edge_head(all_sub_features, all_obj_features, all_sub_categories, all_obj_categories,
                                                    all_sub_super_categories, all_obj_super_categories, rank)
                 super_relation = None
 
@@ -364,11 +362,11 @@ def test_local(args, backbone, transformer_encoder, test_loader, test_record, ep
             SECOND DIRECTION
             """
             if args['models']['hierarchical_pred']:
-                relation_1, relation_2, relation_3, super_relation, connectivity = transformer_encoder(all_obj_features, all_sub_features, all_obj_categories, all_sub_categories,
+                relation_1, relation_2, relation_3, super_relation, connectivity = edge_head(all_obj_features, all_sub_features, all_obj_categories, all_sub_categories,
                                                                                              all_obj_super_categories, all_sub_super_categories, rank)
                 relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
             else:
-                relation, connectivity = transformer_encoder(all_obj_features, all_sub_features, all_obj_categories, all_sub_categories,
+                relation, connectivity = edge_head(all_obj_features, all_sub_features, all_obj_categories, all_sub_categories,
                                                    all_obj_super_categories, all_sub_super_categories, rank)
                 super_relation = None
 

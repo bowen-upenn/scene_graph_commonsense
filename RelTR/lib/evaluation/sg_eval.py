@@ -61,10 +61,10 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
     :param gt_entry: Dictionary containing gt_relations, gt_boxes, gt_classes
     :param pred_entry: Dictionary containing pred_rels, pred_boxes (if detection), pred_classes
     :param mode: 'det' or 'cls'
-    :param result_dict: 
-    :param viz_dict: 
-    :param kwargs: 
-    :return: 
+    :param result_dict:
+    :param viz_dict:
+    :param kwargs:
+    :return:
     """
     gt_rels = gt_entry['gt_relations']
 
@@ -72,14 +72,16 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
     gt_classes = gt_entry['gt_classes']
 
     rel_scores = pred_entry['rel_scores']
+    # find all rel predictions of no object and no relations
+    no_rel = np.logical_or(rel_scores.softmax(-1).argmax(1) == 0, rel_scores.softmax(-1).argmax(1) == rel_scores.shape[1] - 1)
+    has_rel = np.logical_and(rel_scores.softmax(-1).argmax(1) != 0, rel_scores.softmax(-1).argmax(1) != rel_scores.shape[1] - 1)
 
-    ## ADD-ON #################################################
-    if not hierar:
-    ###########################################################
-        # we have reordered label indices to put __background__ to label 50
-        # but in the original setting, label 0 is the __background__
-        pred_rels = 1+rel_scores.argmax(1)
-        predicate_scores = rel_scores.max(1)
+    rel_scores = rel_scores[:, 1: -1].softmax(-1)
+    rel_scores = rel_scores.numpy()
+
+    # label 0 is the __background__
+    pred_rels = rel_scores.argmax(1) + 1
+    predicate_scores = rel_scores.max(1)
 
     sub_boxes = pred_entry['sub_boxes']
     obj_boxes = pred_entry['obj_boxes']
@@ -88,11 +90,14 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
     sub_class = pred_entry['sub_classes']
     obj_class = pred_entry['obj_classes']
 
-    ## ADD-ON #################################################
+    ### ADD-ON #################################################
     if hierar:
-        gt_rels = np.tile(gt_rels, (num_rel_prior, 1))
-        gt_boxes = np.tile(gt_boxes, (num_rel_prior, 1))
-        gt_classes = np.tile(gt_classes, num_rel_prior)
+        # print('gt_rels before', gt_rels.shape, 'no_rel', no_rel.shape)
+        # print('gt_rels[no_rel]', gt_rels[no_rel].shape, 'np.tile(gt_rels[~no_rel], (num_rel_prior, 1))', np.tile(gt_rels[~no_rel], (num_rel_prior, 1)).shape)
+        # gt_rels = np.concatenate((gt_rels[no_rel], np.tile(gt_rels[~no_rel], (num_rel_prior, 1))), axis=0)
+        # print('gt_rels after', gt_rels.shape)
+        # gt_boxes = np.tile(gt_boxes, (num_rel_prior, 1))
+        # gt_classes = np.tile(gt_classes, num_rel_prior)
 
         # splitting the tensor into three parts based on the specified ranges
         first_range = slice(0, num_rel_geometric)  # 0:15
@@ -100,26 +105,31 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
         third_range = slice(num_rel_geometric + num_rel_possessive, rel_scores.shape[1])  # 26:50
 
         # applying argmax along the appropriate dimensions
-        pred_rels_geo = rel_scores[:, first_range].argmax(1)
-        pred_rels_pos = rel_scores[:, second_range].argmax(1) + num_rel_geometric
-        pred_rels_sem = rel_scores[:, third_range].argmax(1) + num_rel_geometric + num_rel_possessive
+        pred_rels_geo = rel_scores[has_rel == True, first_range].argmax(1) + 1
+        pred_rels_pos = rel_scores[has_rel == True, second_range].argmax(1) + num_rel_geometric + 1
+        pred_rels_sem = rel_scores[has_rel == True, third_range].argmax(1) + num_rel_geometric + num_rel_possessive + 1
 
         # concatenating the predictions along the batch dimension
-        pred_rels = np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)
+        # print('has_rel', has_rel.shape, sum(has_rel), 'no_rel', no_rel.shape, sum(no_rel))
+        # print('pred_rels', pred_rels.shape, 'pred_rels[no_rel == True]', pred_rels[no_rel == True].shape)
+        # print('pred_rels_geo', pred_rels_geo.shape, 'pred_rels_pos', pred_rels_pos.shape, 'pred_rels_sem', pred_rels_sem.shape)
+        # print('np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)', np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0).shape)
+        pred_rels = np.concatenate((pred_rels[no_rel == True], np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)), axis=0)
+        # print('pred_rels', pred_rels.shape)
 
         # same for predicate_scores
-        predicate_scores_geo = rel_scores[:, first_range].max(1)
-        predicate_scores_pos = rel_scores[:, second_range].max(1)
-        predicate_scores_sem = rel_scores[:, third_range].max(1)
-        predicate_scores = np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)
+        predicate_scores_geo = rel_scores[has_rel == True, first_range].max(1)
+        predicate_scores_pos = rel_scores[has_rel == True, second_range].max(1)
+        predicate_scores_sem = rel_scores[has_rel == True, third_range].max(1)
+        predicate_scores = np.concatenate((predicate_scores[no_rel == True], np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)), axis=0)
 
-        sub_boxes = np.tile(sub_boxes, (num_rel_prior, 1))
-        obj_boxes = np.tile(obj_boxes, (num_rel_prior, 1))
-        sub_score = np.tile(sub_score, num_rel_prior)
-        obj_score = np.tile(obj_score, num_rel_prior)
-        sub_class = np.tile(sub_class, num_rel_prior)
-        obj_class = np.tile(obj_class, num_rel_prior)
-    ###########################################################
+        sub_boxes = np.concatenate((sub_boxes[no_rel == True], np.tile(sub_boxes[has_rel == True], (num_rel_prior, 1))), axis=0)
+        obj_boxes = np.concatenate((obj_boxes[no_rel == True], np.tile(obj_boxes[has_rel == True], (num_rel_prior, 1))), axis=0)
+        sub_score = np.concatenate((sub_score[no_rel == True], np.tile(sub_score[has_rel == True], num_rel_prior)), axis=0)
+        obj_score = np.concatenate((obj_score[no_rel == True], np.tile(obj_score[has_rel == True], num_rel_prior)), axis=0)
+        sub_class = np.concatenate((sub_class[no_rel == True], np.tile(sub_class[has_rel == True], num_rel_prior)), axis=0)
+        obj_class = np.concatenate((obj_class[no_rel == True], np.tile(obj_class[has_rel == True], num_rel_prior)), axis=0)
+    # ###########################################################
 
     pred_to_gt, _, rel_scores = evaluate_recall(
                 gt_rels, gt_boxes, gt_classes,

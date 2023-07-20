@@ -13,6 +13,10 @@ from .matcher import build_matcher
 from .transformer import build_transformer
 
 
+inv_map = torch.tensor([0,  1,  2,  3,  4,  5,  6,  8, 10, 22, 23, 29, 31, 32, 33, 43,  9, 16,
+        17, 20, 27, 30, 36, 42, 48, 49, 50,  7, 11, 12, 13, 14, 15, 18, 19, 21,
+        24, 25, 26, 28, 34, 35, 37, 38, 39, 40, 41, 44, 45, 46, 47, 51])
+
 class RelTR(nn.Module):
     """ RelTR: Relation Transformer for Scene Graph Generation """
     def __init__(self, backbone, transformer, num_classes, num_rel_classes, num_rel_prior, num_rel_geometric, num_rel_possessive,
@@ -67,12 +71,17 @@ class RelTR(nn.Module):
         self.hierar = hierar
         if self.hierar:
             # bayesian predicate classification with relation hierarchy
-            self.fc_rel = nn.Linear(hidden_dim*2+128, hidden_dim)
+            self.fc_rel = nn.Linear(hidden_dim * 2 + 128, hidden_dim)
             self.fc_rel_prior = nn.Linear(hidden_dim, num_rel_prior + 1)
             self.fc_rel_geo = nn.Linear(hidden_dim, num_rel_geometric)
             self.fc_rel_pos = nn.Linear(hidden_dim, num_rel_possessive)
             self.fc_rel_sem = nn.Linear(hidden_dim, num_rel_semantic)
-            self.rel_dropout = nn.Dropout(p=0.5)
+            # self.rel_dropout = nn.Dropout(p=0.5)
+            # self.rel_class_embed = nn.Sequential(
+            #     nn.Linear(hidden_dim * 2 + 128, hidden_dim),
+            #     nn.ReLU(),
+            #     nn.Linear(hidden_dim, num_rel_classes + 1)
+            # )
         else:
             # flat predicate classification
             self.rel_class_embed = MLP(hidden_dim * 2 + 128, hidden_dim, num_rel_classes + 1, 2)
@@ -81,17 +90,32 @@ class RelTR(nn.Module):
     ## ADD-ON #################################################
     def bayesian_head(self, hidden):
         # hidden expects size [_, batch_size, num_queries, hidden_dim]
-        hidden = self.rel_dropout(F.relu(self.fc_rel(hidden)))
-        rel_prior = F.log_softmax(self.fc_rel_prior(hidden), dim=-1)
+        # outputs_class_rel = self.rel_class_embed(hidden)
+        # outputs_class_rel = outputs_class_rel[:, :, :, inv_map]
+
+        hidden = F.relu(self.fc_rel(hidden))
+        rel_prior = self.fc_rel_prior(hidden)
 
         rel_geo = self.fc_rel_geo(hidden)  # geometric
-        rel_geo = F.log_softmax(rel_geo, dim=-1) + rel_prior[:, :, :, 0].unsqueeze(-1)
         rel_pos = self.fc_rel_pos(hidden)  # possessive
-        rel_pos = F.log_softmax(rel_pos, dim=-1) + rel_prior[:, :, :, 1].unsqueeze(-1)
         rel_sem = self.fc_rel_sem(hidden)  # semantic
-        rel_sem = F.log_softmax(rel_sem, dim=-1) + rel_prior[:, :, :, 2].unsqueeze(-1)
 
-        return rel_prior, rel_geo, rel_pos, rel_sem
+        outputs_class_rel = torch.cat((rel_prior[:, :, :, -2].unsqueeze(-1), rel_geo, rel_pos, rel_sem,
+                                       rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
+        outputs_class_rel = outputs_class_rel[:, :, :, inv_map]
+
+        # # hidden expects size [_, batch_size, num_queries, hidden_dim]
+        # hidden = self.rel_dropout(F.relu(self.fc_rel(hidden)))
+        # rel_prior = F.log_softmax(self.fc_rel_prior(hidden), dim=-1)
+        #
+        # rel_geo = self.fc_rel_geo(hidden)  # geometric
+        # rel_geo = F.log_softmax(rel_geo, dim=-1) + rel_prior[:, :, :, 0].unsqueeze(-1)
+        # rel_pos = self.fc_rel_pos(hidden)  # possessive
+        # rel_pos = F.log_softmax(rel_pos, dim=-1) + rel_prior[:, :, :, 1].unsqueeze(-1)
+        # rel_sem = self.fc_rel_sem(hidden)  # semantic
+        # rel_sem = F.log_softmax(rel_sem, dim=-1) + rel_prior[:, :, :, 2].unsqueeze(-1)
+
+        return rel_prior, outputs_class_rel #rel_prior, rel_geo, rel_pos, rel_sem
     ##########################################################
 
     def forward(self, samples: NestedTensor):
@@ -139,11 +163,12 @@ class RelTR(nn.Module):
 
         ## ADD-ON #################################################
         if self.hierar:
-            outputs_class_rel_prior, outputs_class_geo, outputs_class_pos, outputs_class_sem \
-                = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
+            # outputs_class_rel_prior, outputs_class_geo, outputs_class_pos, outputs_class_sem \
+            #     = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
+            outputs_class_rel_prior, outputs_class_rel = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
             # rel_prior id -2 is __back_ground__, and -1 is no_object
-            outputs_class_rel = torch.cat((outputs_class_rel_prior[:, :, :, -2].unsqueeze(-1), outputs_class_geo, outputs_class_pos, outputs_class_sem,
-                                           outputs_class_rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
+            # outputs_class_rel = torch.cat((outputs_class_rel_prior[:, :, :, -2].unsqueeze(-1), outputs_class_geo, outputs_class_pos, outputs_class_sem,
+            #                                outputs_class_rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
         ###########################################################
         else:
             outputs_class_rel = self.rel_class_embed(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
@@ -339,7 +364,7 @@ class SetCriterion(nn.Module):
 
             empty_weight_rel_prior = torch.ones(self.num_rel_prior + 1).to(target_classes.device)
             empty_weight_rel_prior[-1] = self.eos_coef  # weight for no object
-            loss_ce += F.cross_entropy(outputs['rel_prior_logits'].transpose(1, 2), target_classes_prior, empty_weight_rel_prior)
+            loss_ce += F.nll_loss(outputs['rel_prior_logits'].transpose(1, 2), target_classes_prior, empty_weight_rel_prior)
             # print('outputs[rel_prior_logits].transpose(1, 2)', outputs['rel_prior_logits'].transpose(1, 2).shape, target_classes_prior.shape)
 
             begin_pos = 1 + self.num_rel_geo
@@ -350,13 +375,13 @@ class SetCriterion(nn.Module):
             rel_error = torch.zeros(3)
             # print('samples_geo', samples_geo.shape, 'samples_pos', samples_pos.shape, 'samples_sem', samples_sem.shape)
             if torch.sum(samples_geo) > 0:
-                loss_ce += F.cross_entropy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo])
+                loss_ce += F.nll_loss(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo])
                 rel_error[0] = 100 - accuracy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo])[0]
             if torch.sum(samples_pos) > 0:
-                loss_ce += F.cross_entropy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo)
+                loss_ce += F.nll_loss(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo)
                 rel_error[1] = 100 - accuracy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo)[0]
             if torch.sum(samples_sem) > 0:
-                loss_ce += F.cross_entropy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos)
+                loss_ce += F.nll_loss(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos)
                 rel_error[2] = 100 - accuracy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos)[0]
 
             # print('src_logits[:, :, 1:begin_pos][samples_geo]', src_logits[:, :, 1:begin_pos][samples_geo].shape, target_classes[samples_geo].shape)
@@ -370,7 +395,6 @@ class SetCriterion(nn.Module):
         ###########################################################
         else:
             loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight_rel)
-            print('src_logits.transpose(1, 2)', src_logits.transpose(1, 2).shape, target_classes.shape)
             losses = {'loss_rel': loss_ce}
 
             if log:

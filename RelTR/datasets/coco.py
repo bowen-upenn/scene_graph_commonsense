@@ -35,9 +35,9 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         self.rel_categories = all_rels['rel_categories']
 
         ## ADD-ON #################################################
-        self.rel_label_mapping = [50,  0,  1,  2,  3,  4,  5, 26,  6, 15,  7, 27, 28, 29, 30, 31, 16, 17,
-                                  32, 33, 18, 34,  8,  9, 35, 36, 37, 19, 38, 10, 20, 11, 12, 13, 39, 40,
-                                  21, 41, 42, 43, 44, 45, 22, 14, 46, 47, 48, 49, 23, 24, 25, 51]
+        self.rel_label_mapping = [0,  1,  2,  3,  4,  5,  6, 27,  7, 16,  8, 28, 29, 30, 31, 32, 17, 18,
+        33, 34, 19, 35,  9, 10, 36, 37, 38, 20, 39, 11, 21, 12, 13, 14, 40, 41,
+        22, 42, 43, 44, 45, 46, 23, 15, 47, 48, 49, 50, 24, 25, 26, 51]
         ##########################################################
 
     def __getitem__(self, idx):
@@ -46,9 +46,9 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         rel_target = self.rel_annotations[str(image_id)]
 
         ## ADD-ON #################################################
-        if self.hierar:
-            for rel in rel_target:  # a triplet of subject, object, and relation labels
-                rel[2] = self.rel_label_mapping[rel[2]]
+        # if self.hierar:
+        #     for rel in rel_target:  # a triplet of subject, object, and relation labels
+        #         rel[2] = self.rel_label_mapping[rel[2]]
         ##########################################################
 
         target = {'image_id': image_id, 'annotations': target, 'rel_annotations': rel_target}

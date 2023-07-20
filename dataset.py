@@ -12,6 +12,7 @@ from utils import *
 from dataset_utils import *
 import cv2
 import random
+from dataset_utils import TwoCropTransform
 
 
 class PrepareVisualGenomeDataset(torch.utils.data.Dataset):
@@ -121,6 +122,12 @@ class VisualGenomeDatasetEfficient(torch.utils.data.Dataset):
         self.image_transform_to_tensor = transforms.ToTensor()
         self.image_transform = transforms.Compose([transforms.ToTensor(),
                                                      transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+
+        self.image_transform_jitter = transforms.Compose([transforms.ToTensor(),
+                                                   transforms.RandomApply([
+                                                        transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
+                                                   ], p=0.8),
+                                                   transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
         self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
 
     def __getitem__(self, idx):

@@ -12,6 +12,16 @@ from utils import *
 import cv2
 
 
+class TwoCropTransform:
+    """Create two crops of the same image"""
+    def __init__(self, transform1, transform2):
+        self.transform1 = transform1
+        self.transform2 = transform2
+
+    def __call__(self, x):
+        return [self.transform1(x), self.transform2(x)]
+
+
 # Dataset utils functions
 def prepare_data_offline(args, data_loader, device, annot, image_transform, depth_estimator, start=0):
     """
