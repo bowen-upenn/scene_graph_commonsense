@@ -53,7 +53,7 @@ class BasicSceneGraphEvaluator:
 
 def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=False, viz_dict=None,
                        ## ADD-ON #################################################
-                       hierar=False, num_rel_prior=3, num_rel_geometric=15, num_rel_possessive=11, num_rel_semantic=24,
+                       hierar=False, has_rel_only=False, num_rel_prior=3, num_rel_geometric=15, num_rel_possessive=11, num_rel_semantic=24,
                        ###########################################################
                        **kwargs):
     """
@@ -72,12 +72,15 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
     gt_classes = gt_entry['gt_classes']
 
     rel_scores = pred_entry['rel_scores']
-    # find all rel predictions of no object and no relations
-    no_rel = np.logical_or(rel_scores.softmax(-1).argmax(1) == 0, rel_scores.softmax(-1).argmax(1) == rel_scores.shape[1] - 1)
-    has_rel = np.logical_and(rel_scores.softmax(-1).argmax(1) != 0, rel_scores.softmax(-1).argmax(1) != rel_scores.shape[1] - 1)
 
-    rel_scores = rel_scores[:, 1: -1].softmax(-1)
-    rel_scores = rel_scores.numpy()
+    if (not hierar) or (hierar and not has_rel_only):
+        no_rel = np.zeros(rel_scores.shape[0])
+        has_rel = np.ones(rel_scores.shape[0])
+    else:
+        rel_scores_prior = pred_entry['rel_scores_prior']
+        # find all rel predictions of no object and no relations
+        no_rel = np.logical_or(rel_scores_prior.softmax(-1).argmax(1) == 0, rel_scores_prior.softmax(-1).argmax(1) == rel_scores_prior.shape[1] - 1)
+        has_rel = np.logical_and(rel_scores_prior.softmax(-1).argmax(1) != 0, rel_scores_prior.softmax(-1).argmax(1) != rel_scores_prior.shape[1] - 1)
 
     # label 0 is the __background__
     pred_rels = rel_scores.argmax(1) + 1
@@ -92,13 +95,6 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
 
     ### ADD-ON #################################################
     if hierar:
-        # print('gt_rels before', gt_rels.shape, 'no_rel', no_rel.shape)
-        # print('gt_rels[no_rel]', gt_rels[no_rel].shape, 'np.tile(gt_rels[~no_rel], (num_rel_prior, 1))', np.tile(gt_rels[~no_rel], (num_rel_prior, 1)).shape)
-        # gt_rels = np.concatenate((gt_rels[no_rel], np.tile(gt_rels[~no_rel], (num_rel_prior, 1))), axis=0)
-        # print('gt_rels after', gt_rels.shape)
-        # gt_boxes = np.tile(gt_boxes, (num_rel_prior, 1))
-        # gt_classes = np.tile(gt_classes, num_rel_prior)
-
         # splitting the tensor into three parts based on the specified ranges
         first_range = slice(0, num_rel_geometric)  # 0:15
         second_range = slice(num_rel_geometric, num_rel_geometric + num_rel_possessive)  # 15:26
@@ -110,12 +106,7 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
         pred_rels_sem = rel_scores[has_rel == True, third_range].argmax(1) + num_rel_geometric + num_rel_possessive + 1
 
         # concatenating the predictions along the batch dimension
-        # print('has_rel', has_rel.shape, sum(has_rel), 'no_rel', no_rel.shape, sum(no_rel))
-        # print('pred_rels', pred_rels.shape, 'pred_rels[no_rel == True]', pred_rels[no_rel == True].shape)
-        # print('pred_rels_geo', pred_rels_geo.shape, 'pred_rels_pos', pred_rels_pos.shape, 'pred_rels_sem', pred_rels_sem.shape)
-        # print('np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)', np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0).shape)
         pred_rels = np.concatenate((pred_rels[no_rel == True], np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)), axis=0)
-        # print('pred_rels', pred_rels.shape)
 
         # same for predicate_scores
         predicate_scores_geo = rel_scores[has_rel == True, first_range].max(1)

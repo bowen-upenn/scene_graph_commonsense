@@ -19,12 +19,6 @@ from engine import evaluate, train_one_epoch
 from models import build_model
 
 
-# rel_label_mapping = torch.tensor([50,  0,  1,  2,  3,  4,  5, 26,  6, 15,  7, 27, 28, 29, 30, 31, 16, 17,
-#                         32, 33, 18, 34,  8,  9, 35, 36, 37, 19, 38, 10, 20, 11, 12, 13, 39, 40,
-#                         21, 41, 42, 43, 44, 45, 22, 14, 46, 47, 48, 49, 23, 24, 25, 51])
-# rel_label_mapping = torch.tensor([0,  1,  2,  3,  4,  5,  6, 27,  7, 16,  8, 28, 29, 30, 31, 32, 17, 18,
-#         33, 34, 19, 35,  9, 10, 36, 37, 38, 20, 39, 11, 21, 12, 13, 14, 40, 41,
-#         22, 42, 43, 44, 45, 46, 23, 15, 47, 48, 49, 50, 24, 25, 26, 51])
 map = torch.tensor([ 0,  1,  2,  3,  4,  5,  6, 27,  7, 16,  8, 28, 29, 30, 31, 32, 17, 18,
         33, 34, 19, 35,  9, 10, 36, 37, 38, 20, 39, 11, 21, 12, 13, 14, 40, 41,
         22, 42, 43, 44, 45, 46, 23, 15, 47, 48, 49, 50, 24, 25, 26, 51])
@@ -228,7 +222,6 @@ def main(args):
             pretrained_layers_1_weight = checkpoint['model']['rel_class_embed.layers.1.weight']  # size 52, 256
             pretrained_layers_1_weight = pretrained_layers_1_weight[map, :]
             model_without_ddp.fc_rel_prior.weight[-2].data.copy_(pretrained_layers_1_weight[0])
-            print('model_without_ddp.fc_rel_prior.weight', model_without_ddp.fc_rel_prior.weight.shape, 'pretrained_layers_1_weight', pretrained_layers_1_weight.shape)
             model_without_ddp.fc_rel_prior.weight[-1].data.copy_(pretrained_layers_1_weight[-1])
             model_without_ddp.fc_rel_geo.weight.data.copy_(pretrained_layers_1_weight[1:16])
             model_without_ddp.fc_rel_pos.weight.data.copy_(pretrained_layers_1_weight[16:27])
