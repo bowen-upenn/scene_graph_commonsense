@@ -39,7 +39,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
         outputs = model(samples)
-        loss_dict = criterion(outputs, targets)
+        loss_dict = criterion(outputs, targets, eval=False)
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
@@ -119,8 +119,8 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        outputs = model(samples)
-        loss_dict = criterion(outputs, targets)
+        outputs = model(samples, eval=True)
+        loss_dict = criterion(outputs, targets, eval=True)
         weight_dict = criterion.weight_dict
 
         # reduce losses over all GPUs for logging purposes

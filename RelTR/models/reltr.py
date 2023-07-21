@@ -16,6 +16,9 @@ from .transformer import build_transformer
 inv_map = torch.tensor([0,  1,  2,  3,  4,  5,  6,  8, 10, 22, 23, 29, 31, 32, 33, 43,  9, 16,
         17, 20, 27, 30, 36, 42, 48, 49, 50,  7, 11, 12, 13, 14, 15, 18, 19, 21,
         24, 25, 26, 28, 34, 35, 37, 38, 39, 40, 41, 44, 45, 46, 47, 51])
+map = torch.tensor([ 0,  1,  2,  3,  4,  5,  6, 27,  7, 16,  8, 28, 29, 30, 31, 32, 17, 18,
+        33, 34, 19, 35,  9, 10, 36, 37, 38, 20, 39, 11, 21, 12, 13, 14, 40, 41,
+        22, 42, 43, 44, 45, 46, 23, 15, 47, 48, 49, 50, 24, 25, 26, 51])
 
 class RelTR(nn.Module):
     """ RelTR: Relation Transformer for Scene Graph Generation """
@@ -87,7 +90,7 @@ class RelTR(nn.Module):
         ##########################################################
 
     ## ADD-ON #################################################
-    def bayesian_head(self, hidden):
+    def bayesian_head(self, hidden, eval):
         # hidden expects size [_, batch_size, num_queries, hidden_dim]
         hidden = F.relu(self.fc_rel(hidden))
         rel_prior = self.fc_rel_prior(hidden)
@@ -98,7 +101,8 @@ class RelTR(nn.Module):
 
         outputs_class_rel = torch.cat((rel_prior[:, :, :, -2].unsqueeze(-1), rel_geo, rel_pos, rel_sem,
                                        rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
-        outputs_class_rel = outputs_class_rel[:, :, :, inv_map]
+        if eval:
+            outputs_class_rel = outputs_class_rel[:, :, :, inv_map]
 
         # # hidden expects size [_, batch_size, num_queries, hidden_dim]
         # hidden = self.rel_dropout(F.relu(self.fc_rel(hidden)))
@@ -114,7 +118,7 @@ class RelTR(nn.Module):
         return rel_prior, outputs_class_rel #rel_prior, rel_geo, rel_pos, rel_sem
     ##########################################################
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor, eval=False):
         """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
@@ -161,7 +165,7 @@ class RelTR(nn.Module):
         if self.hierar:
             # outputs_class_rel_prior, outputs_class_geo, outputs_class_pos, outputs_class_sem \
             #     = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
-            outputs_class_rel_prior, outputs_class_rel = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1).detach())
+            outputs_class_rel_prior, outputs_class_rel = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1).detach(), eval)
             # rel_prior id -2 is __back_ground__, and -1 is no_object
             # outputs_class_rel = torch.cat((outputs_class_rel_prior[:, :, :, -2].unsqueeze(-1), outputs_class_geo, outputs_class_pos, outputs_class_sem,
             #                                outputs_class_rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
@@ -249,9 +253,7 @@ class SetCriterion(nn.Module):
         self.num_rel_pos = num_rel_pos
         self.num_rel_sem = num_rel_sem
         self.hierar = hierar
-        self.map = torch.tensor([ 0,  1,  2,  3,  4,  5,  6, 27,  7, 16,  8, 28, 29, 30, 31, 32, 17, 18,
-                33, 34, 19, 35,  9, 10, 36, 37, 38, 20, 39, 11, 21, 12, 13, 14, 40, 41,
-                22, 42, 43, 44, 45, 46, 23, 15, 47, 48, 49, 50, 24, 25, 26, 51])
+        self.at_eval = False
         ###########################################################
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
@@ -342,7 +344,7 @@ class SetCriterion(nn.Module):
         losses['loss_giou'] = loss_giou.sum() / num_boxes
         return losses
 
-    def loss_relations(self, outputs, targets, indices, num_boxes, log=True):
+    def loss_relations(self, outputs, targets, indices, num_boxes, eval=False, log=True):
         """Compute the predicate classification loss
         """
         assert 'rel_logits' in outputs
@@ -351,12 +353,14 @@ class SetCriterion(nn.Module):
 
         idx = self._get_src_permutation_idx(indices[1])
         target_classes_o = torch.cat([t["rel_annotations"][J, 2] for t, (_, J) in zip(targets, indices[1])])
+
+        if self.hierar and not self.at_eval:
+            target_classes_o = inv_map[target_classes_o].to(target_classes_o.device)
+
         target_classes = torch.full(src_logits.shape[:2], self.num_rel_classes, dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o  # size [batch_size, num_queries]
 
         if self.hierar:
-            target_classes = self.map[target_classes].to(target_classes.device)
-
             target_classes_prior = target_classes.clone()
             target_classes_prior[torch.logical_and(target_classes_prior > 0, target_classes_prior < self.num_rel_geo + 1)] = 0  # geometric
             target_classes_prior[torch.logical_and(target_classes_prior >= self.num_rel_geo + 1, target_classes_prior < self.num_rel_geo + self.num_rel_pos + 1)] = 1  # possessive
@@ -369,8 +373,6 @@ class SetCriterion(nn.Module):
             empty_weight_rel_prior[-1] = self.eos_coef  # weight for no object
             loss_ce = F.cross_entropy(outputs['rel_prior_logits'].transpose(1, 2), target_classes_prior, empty_weight_rel_prior)
 
-            src_logits = src_logits[:, :, self.map]
-
             begin_pos = self.num_rel_geo + 1
             begin_sem = self.num_rel_geo + self.num_rel_pos + 1
             samples_geo = torch.logical_and(target_classes >= 1, target_classes < self.num_rel_geo + 1)
@@ -381,12 +383,15 @@ class SetCriterion(nn.Module):
             if torch.sum(samples_geo) > 0:
                 loss_ce += F.cross_entropy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo] - 1)
                 rel_error[0] = 100 - accuracy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo] - 1)[0]
+                # print('rel_error[0]', rel_error[0], 'src_logits', src_logits[:, :, 1:begin_pos][samples_geo].argmax(1), 'target_classes', target_classes[samples_geo] - 1)
             if torch.sum(samples_pos) > 0:
                 loss_ce += F.cross_entropy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo - 1)
                 rel_error[1] = 100 - accuracy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo - 1)[0]
+                # print('rel_error[1]', rel_error[1], 'src_logits', src_logits[:, :, begin_pos:begin_sem][samples_pos].argmax(1), 'target_classes', target_classes[samples_pos] - self.num_rel_geo - 1)
             if torch.sum(samples_sem) > 0:
                 loss_ce += F.cross_entropy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos - 1)
                 rel_error[2] = 100 - accuracy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos - 1)[0]
+                # print('rel_error[2]', rel_error[2], 'src_logits', src_logits[:, :, begin_sem:-1][samples_sem].argmax(1), 'target_classes', target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos - 1)
 
             # print('src_logits[:, :, 1:begin_pos][samples_geo]', src_logits[:, :, 1:begin_pos][samples_geo].shape, target_classes[samples_geo])
             # print('src_logits[:, :, begin_pos:begin_sem][samples_pos]', src_logits[:, :, begin_pos:begin_sem][samples_pos].shape, target_classes[samples_pos])
@@ -398,53 +403,8 @@ class SetCriterion(nn.Module):
 
         if log:
             losses['rel_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+        print('error', 100 - accuracy(src_logits[idx], target_classes_o)[0], 'pred', src_logits[idx].argmax(-1), 'tar', target_classes_o)
 
-        # ## ADD-ON #################################################
-        # loss_ce = 0.0
-        # if self.hierar:
-        #     target_classes_prior = target_classes.clone()
-        #     target_classes_prior[target_classes < self.num_rel_geo] = 0  # geometric
-        #     target_classes_prior[torch.logical_and(target_classes >= self.num_rel_geo, target_classes < self.num_rel_geo + self.num_rel_pos)] = 1  # possessive
-        #     target_classes_prior[torch.logical_and(target_classes >= self.num_rel_geo + self.num_rel_pos, target_classes < self.num_rel_classes - 1)] = 2  # semantic
-        #     target_classes_prior[target_classes == self.num_rel_classes - 1] = 3  # background relation
-        #     target_classes_prior[target_classes == self.num_rel_classes] = 4  # no object
-        #
-        #     empty_weight_rel_prior = torch.ones(self.num_rel_prior + 1).to(target_classes.device)
-        #     empty_weight_rel_prior[-1] = self.eos_coef  # weight for no object
-        #     loss_ce += F.cross_entropy(outputs['rel_prior_logits'].transpose(1, 2), target_classes_prior, empty_weight_rel_prior)
-        #     # print('outputs[rel_prior_logits].transpose(1, 2)', outputs['rel_prior_logits'].transpose(1, 2).shape, target_classes_prior.shape)
-        #
-        #     begin_pos = self.num_rel_geo
-        #     begin_sem = self.num_rel_geo + self.num_rel_pos
-        #     samples_geo = target_classes < self.num_rel_geo
-        #     samples_pos = torch.logical_and(target_classes >= self.num_rel_geo, target_classes < self.num_rel_geo + self.num_rel_pos)
-        #     samples_sem = torch.logical_and(target_classes >= self.num_rel_geo + self.num_rel_pos, target_classes < self.num_rel_classes - 1)
-        #     rel_error = torch.zeros(3)
-        #     # print('samples_geo', samples_geo.shape, 'samples_pos', samples_pos.shape, 'samples_sem', samples_sem.shape)
-        #     if torch.sum(samples_geo) > 0:
-        #         loss_ce += F.cross_entropy(src_logits[:, :, :begin_pos][samples_geo], target_classes[samples_geo])
-        #         rel_error[0] = 100 - accuracy(src_logits[:, :, :begin_pos][samples_geo], target_classes[samples_geo])[0]
-        #     if torch.sum(samples_pos) > 0:
-        #         loss_ce += F.cross_entropy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo)
-        #         rel_error[1] = 100 - accuracy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo)[0]
-        #     if torch.sum(samples_sem) > 0:
-        #         loss_ce += F.cross_entropy(src_logits[:, :, begin_sem:][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos)
-        #         rel_error[2] = 100 - accuracy(src_logits[:, :, begin_sem:][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos)[0]
-        #
-        #     # print('src_logits[:, :, 1:begin_pos][samples_geo]', src_logits[:, :, 1:begin_pos][samples_geo].shape, target_classes[samples_geo].shape)
-        #     # print('src_logits[:, :, begin_pos:begin_sem][samples_pos]', src_logits[:, :, begin_pos:begin_sem][samples_pos].shape, target_classes[samples_pos].shape)
-        #     # print('src_logits[:, :, begin_sem:-1][samples_sem]', src_logits[:, :, begin_sem:-1][samples_sem].shape, target_classes[samples_sem].shape, '\n')
-        #
-        #     losses = {'loss_rel': loss_ce}
-        #     if log:
-        #         losses['rel_error'] = rel_error
-        # ###########################################################
-        # else:
-        #     loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight_rel)
-        #     losses = {'loss_rel': loss_ce}
-        #
-        #     if log:
-        #         losses['rel_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
 
     def _get_src_permutation_idx(self, indices):
@@ -469,7 +429,7 @@ class SetCriterion(nn.Module):
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def forward(self, outputs, targets):
+    def forward(self, outputs, targets, eval=False):
         """ This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
@@ -490,6 +450,7 @@ class SetCriterion(nn.Module):
         num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
 
         # Compute all the requested losses
+        self.at_eval = eval
         losses = {}
         for loss in self.losses:
             losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
