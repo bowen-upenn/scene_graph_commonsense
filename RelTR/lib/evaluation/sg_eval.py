@@ -27,7 +27,7 @@ class BasicSceneGraphEvaluator:
 
     def evaluate_scene_graph_entry(self, gt_entry, pred_scores, viz_dict=None, iou_thresh=0.5,
                                    ## ADD-ON #################################################
-                                   hierar=False, num_rel_prior=3, num_rel_geometric=15,
+                                   hierar=False, num_rel_prior=4, num_rel_geometric=15,
                                    num_rel_possessive=11, num_rel_semantic=24):
                                    ###########################################################
 
@@ -53,7 +53,7 @@ class BasicSceneGraphEvaluator:
 
 def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=False, viz_dict=None,
                        ## ADD-ON #################################################
-                       hierar=False, has_rel_only=False, num_rel_prior=3, num_rel_geometric=15, num_rel_possessive=11, num_rel_semantic=24,
+                       hierar=True, has_rel_only=True, num_rel_prior=4, num_rel_geometric=15, num_rel_possessive=11, num_rel_semantic=24,
                        ###########################################################
                        **kwargs):
     """
@@ -73,19 +73,6 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
 
     rel_scores = pred_entry['rel_scores']
 
-    if (not hierar) or (hierar and not has_rel_only):
-        no_rel = np.zeros(rel_scores.shape[0])
-        has_rel = np.ones(rel_scores.shape[0])
-    else:
-        rel_scores_prior = pred_entry['rel_scores_prior']
-        # find all rel predictions of no object and no relations
-        no_rel = np.logical_or(rel_scores_prior.softmax(-1).argmax(1) == 0, rel_scores_prior.softmax(-1).argmax(1) == rel_scores_prior.shape[1] - 1)
-        has_rel = np.logical_and(rel_scores_prior.softmax(-1).argmax(1) != 0, rel_scores_prior.softmax(-1).argmax(1) != rel_scores_prior.shape[1] - 1)
-
-    # label 0 is the __background__
-    pred_rels = rel_scores.argmax(1) + 1
-    predicate_scores = rel_scores.max(1)
-
     sub_boxes = pred_entry['sub_boxes']
     obj_boxes = pred_entry['obj_boxes']
     sub_score = pred_entry['sub_scores']
@@ -94,11 +81,36 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
     obj_class = pred_entry['obj_classes']
 
     ### ADD-ON #################################################
-    if hierar:
+    if not hierar:
+        rel_scores = rel_scores[:, 1:-1]
+        rel_scores = rel_scores.softmax(-1)
+        rel_scores = rel_scores.numpy()
+
+        # label 0 is the __background__
+        pred_rels = rel_scores.argmax(1) + 1
+        predicate_scores = rel_scores.max(1)
+    else:
+        rel_scores_prior = pred_entry['rel_scores_prior']
+        rel_scores_prior = rel_scores_prior[:, :3].softmax(-1).numpy()
+
+        if has_rel_only:
+            # has_rel = np.zeros(rel_scores.shape[0], dtype=np.uint8)
+            has_rel = np.logical_and(rel_scores.argmax(1) != 0, rel_scores.argmax(1) != rel_scores.shape[1] - 1)
+        else:
+            has_rel = np.ones(rel_scores.shape[0], dtype=np.uint8)
+        rel_scores = rel_scores[:, 1:-1]
+
         # splitting the tensor into three parts based on the specified ranges
         first_range = slice(0, num_rel_geometric)  # 0:15
         second_range = slice(num_rel_geometric, num_rel_geometric + num_rel_possessive)  # 15:26
         third_range = slice(num_rel_geometric + num_rel_possessive, rel_scores.shape[1])  # 26:50
+
+        # apply softmax
+        rel_scores[has_rel == True, first_range] = rel_scores[has_rel == True, first_range].softmax(-1)
+        rel_scores[has_rel == True, second_range] = rel_scores[has_rel == True, second_range].softmax(-1)
+        rel_scores[has_rel == True, third_range] = rel_scores[has_rel == True, third_range].softmax(-1)
+        rel_scores[has_rel == False, :] = rel_scores[has_rel == False, :].softmax(-1)
+        rel_scores = rel_scores.numpy()
 
         # applying argmax along the appropriate dimensions
         pred_rels_geo = rel_scores[has_rel == True, first_range].argmax(1) + 1
@@ -106,21 +118,85 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
         pred_rels_sem = rel_scores[has_rel == True, third_range].argmax(1) + num_rel_geometric + num_rel_possessive + 1
 
         # concatenating the predictions along the batch dimension
-        pred_rels = np.concatenate((pred_rels[no_rel == True], np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)), axis=0)
+        pred_rels = np.concatenate((rel_scores[has_rel == False].argmax(-1) + 1, np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)), axis=0)
 
         # same for predicate_scores
-        predicate_scores_geo = rel_scores[has_rel == True, first_range].max(1)
-        predicate_scores_pos = rel_scores[has_rel == True, second_range].max(1)
-        predicate_scores_sem = rel_scores[has_rel == True, third_range].max(1)
-        predicate_scores = np.concatenate((predicate_scores[no_rel == True], np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)), axis=0)
+        predicate_scores_geo = rel_scores[has_rel == True, first_range].max(1) * rel_scores_prior[has_rel == True, 0]
+        predicate_scores_pos = rel_scores[has_rel == True, second_range].max(1) * rel_scores_prior[has_rel == True, 1]
+        predicate_scores_sem = rel_scores[has_rel == True, third_range].max(1) * rel_scores_prior[has_rel == True, 2]
+        predicate_scores = np.concatenate((rel_scores[has_rel == False].max(1), np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)), axis=0)
 
-        sub_boxes = np.concatenate((sub_boxes[no_rel == True], np.tile(sub_boxes[has_rel == True], (num_rel_prior, 1))), axis=0)
-        obj_boxes = np.concatenate((obj_boxes[no_rel == True], np.tile(obj_boxes[has_rel == True], (num_rel_prior, 1))), axis=0)
-        sub_score = np.concatenate((sub_score[no_rel == True], np.tile(sub_score[has_rel == True], num_rel_prior)), axis=0)
-        obj_score = np.concatenate((obj_score[no_rel == True], np.tile(obj_score[has_rel == True], num_rel_prior)), axis=0)
-        sub_class = np.concatenate((sub_class[no_rel == True], np.tile(sub_class[has_rel == True], num_rel_prior)), axis=0)
-        obj_class = np.concatenate((obj_class[no_rel == True], np.tile(obj_class[has_rel == True], num_rel_prior)), axis=0)
-    # ###########################################################
+        sub_boxes = np.concatenate((sub_boxes[has_rel == False], np.tile(sub_boxes[has_rel == True], (num_rel_prior-1, 1))), axis=0)
+        obj_boxes = np.concatenate((obj_boxes[has_rel == False], np.tile(obj_boxes[has_rel == True], (num_rel_prior-1, 1))), axis=0)
+        sub_score = np.concatenate((sub_score[has_rel == False], np.tile(sub_score[has_rel == True], num_rel_prior-1)), axis=0)
+        obj_score = np.concatenate((obj_score[has_rel == False], np.tile(obj_score[has_rel == True], num_rel_prior-1)), axis=0)
+        sub_class = np.concatenate((sub_class[has_rel == False], np.tile(sub_class[has_rel == True], num_rel_prior-1)), axis=0)
+        obj_class = np.concatenate((obj_class[has_rel == False], np.tile(obj_class[has_rel == True], num_rel_prior-1)), axis=0)
+
+        # # splitting the tensor into three parts based on the specified ranges
+        # first_range = slice(0, num_rel_geometric)  # 0:15
+        # second_range = slice(num_rel_geometric, num_rel_geometric + num_rel_possessive)  # 15:26
+        # third_range = slice(num_rel_geometric + num_rel_possessive, rel_scores.shape[1])  # 26:50
+        #
+        # # apply softmax
+        # rel_scores[has_rel==True, first_range] = rel_scores[has_rel==True, first_range].softmax(-1)
+        # rel_scores[has_rel==True, second_range] = rel_scores[has_rel==True, second_range].softmax(-1)
+        # rel_scores[has_rel==True, third_range] = rel_scores[has_rel==True, third_range].softmax(-1)
+        # rel_scores[has_rel==False, :] = rel_scores[has_rel==False, :].softmax(-1)
+        # rel_scores = rel_scores.numpy()
+        #
+        # # applying max along the appropriate dimensions
+        # predicate_scores_geo = rel_scores[has_rel==True, first_range].max(1)
+        # predicate_scores_pos = rel_scores[has_rel==True, second_range].max(1)
+        # predicate_scores_sem = rel_scores[has_rel==True, third_range].max(1)
+        # # predicate_scores = np.concatenate((predicate_scores[no_rel == True], np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)), axis=0)
+        #
+        # # find the two highest scores
+        # predicate_scores_concat = np.concatenate([predicate_scores_geo[:, np.newaxis],
+        #                                           predicate_scores_pos[:, np.newaxis],
+        #                                           predicate_scores_sem[:, np.newaxis]], axis=1)
+        # # print('predicate_scores_concat', predicate_scores_concat[:2, :])
+        # # print('predicate_scores_concat', predicate_scores_concat.shape)
+        # topk_indices = np.argsort(predicate_scores_concat, axis=1)[:, -2:]
+        # topk_values = np.take_along_axis(predicate_scores_concat, topk_indices, axis=1)
+        # # print('topk_values', topk_values.shape, 'topk_indices', topk_indices.shape)
+        # predicate_scores = topk_values.flatten()
+        #
+        # predicate_scores = np.concatenate((rel_scores[has_rel==False, :].max(1), predicate_scores), axis=0)
+        # # print('predicate_scores', predicate_scores[:4])
+        # # print('predicate_scores', predicate_scores.shape, predicate_scores[:10])
+        #
+        # # applying argmax along the appropriate dimensions
+        # pred_rels_geo = rel_scores[has_rel==True, first_range].argmax(1) + 1
+        # pred_rels_pos = rel_scores[has_rel==True, second_range].argmax(1) + num_rel_geometric + 1
+        # pred_rels_sem = rel_scores[has_rel==True, third_range].argmax(1) + num_rel_geometric + num_rel_possessive + 1
+        #
+        # pred_rels_concat = np.concatenate([pred_rels_geo[:, np.newaxis],
+        #                                    pred_rels_pos[:, np.newaxis],
+        #                                    pred_rels_sem[:, np.newaxis]], axis=1)
+        # # print('pred_rels_concat', pred_rels_concat[:2, :])
+        # # print('pred_rels_concat', pred_rels_concat.shape)
+        # pred_rels = np.take_along_axis(pred_rels_concat, topk_indices, axis=1)
+        # # print('pred_rels', pred_rels.shape)
+        # pred_rels = pred_rels.flatten()
+        # pred_rels = np.concatenate((rel_scores[has_rel==False].argmax(1)+1, pred_rels), axis=0)
+        # # print('pred_rels', pred_rels[:4])
+        # # print('pred_rels', pred_rels.shape, pred_rels[:10])
+        #
+        # # concatenating the predictions along the batch dimension
+        # # pred_rels = np.concatenate((pred_rels[no_rel == True], np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)), axis=0)
+        #
+        # # print('sub_boxes', sub_boxes.shape, 'sub_score', sub_score.shape, 'sub_class', sub_class.shape)
+        # sub_boxes = np.concatenate((sub_boxes[has_rel==False], np.repeat(sub_boxes[has_rel==True], 2, axis=0)), axis=0)
+        # # print('sub_boxes', sub_boxes[:4])
+        # obj_boxes = np.concatenate((obj_boxes[has_rel==False], np.repeat(obj_boxes[has_rel==True], 2, axis=0)), axis=0)
+        # sub_score = np.concatenate((sub_score[has_rel==False], np.repeat(sub_score[has_rel==True], 2)), axis=0)
+        # # print('sub_score', sub_score[:4], '\n')
+        # obj_score = np.concatenate((obj_score[has_rel==False], np.repeat(obj_score[has_rel==True], 2)), axis=0)
+        # sub_class = np.concatenate((sub_class[has_rel==False], np.repeat(sub_class[has_rel==True], 2)), axis=0)
+        # obj_class = np.concatenate((obj_class[has_rel==False], np.repeat(obj_class[has_rel==True], 2)), axis=0)
+        # # print('sub_boxes', sub_boxes.shape, 'sub_score', sub_score.shape, 'sub_class', sub_class.shape)
+    ############################################################
 
     pred_to_gt, _, rel_scores = evaluate_recall(
                 gt_rels, gt_boxes, gt_classes,

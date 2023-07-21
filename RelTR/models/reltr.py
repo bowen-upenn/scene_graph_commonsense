@@ -92,9 +92,9 @@ class RelTR(nn.Module):
         hidden = F.relu(self.fc_rel(hidden))
         rel_prior = self.fc_rel_prior(hidden)
 
-        rel_geo = self.fc_rel_geo(hidden) #* rel_prior[:, :, :, 0].unsqueeze(-1)  # geometric
-        rel_pos = self.fc_rel_pos(hidden) #* rel_prior[:, :, :, 1].unsqueeze(-1)  # possessive
-        rel_sem = self.fc_rel_sem(hidden) #* rel_prior[:, :, :, 2].unsqueeze(-1)  # semantic
+        rel_geo = self.fc_rel_geo(hidden)# * rel_prior[:, :, :, 0].unsqueeze(-1)  # geometric
+        rel_pos = self.fc_rel_pos(hidden)# * rel_prior[:, :, :, 1].unsqueeze(-1)  # possessive
+        rel_sem = self.fc_rel_sem(hidden)# * rel_prior[:, :, :, 2].unsqueeze(-1)  # semantic
 
         outputs_class_rel = torch.cat((rel_prior[:, :, :, -2].unsqueeze(-1), rel_geo, rel_pos, rel_sem,
                                        rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
@@ -161,7 +161,7 @@ class RelTR(nn.Module):
         if self.hierar:
             # outputs_class_rel_prior, outputs_class_geo, outputs_class_pos, outputs_class_sem \
             #     = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
-            outputs_class_rel_prior, outputs_class_rel = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1))
+            outputs_class_rel_prior, outputs_class_rel = self.bayesian_head(torch.cat((hs_sub, hs_obj, so_masks), dim=-1).detach())
             # rel_prior id -2 is __back_ground__, and -1 is no_object
             # outputs_class_rel = torch.cat((outputs_class_rel_prior[:, :, :, -2].unsqueeze(-1), outputs_class_geo, outputs_class_pos, outputs_class_sem,
             #                                outputs_class_rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
@@ -354,14 +354,19 @@ class SetCriterion(nn.Module):
         target_classes = torch.full(src_logits.shape[:2], self.num_rel_classes, dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o  # size [batch_size, num_queries]
 
-        target_classes_prior = self.map[target_classes].to(target_classes.device)
-        target_classes_prior[torch.logical_and(target_classes_prior > 0, target_classes_prior < self.num_rel_geo + 1)] = 0  # geometric
-        target_classes_prior[torch.logical_and(target_classes_prior >= self.num_rel_geo + 1, target_classes_prior < self.num_rel_geo + self.num_rel_pos + 1)] = 1  # possessive
-        target_classes_prior[torch.logical_and(target_classes_prior >= self.num_rel_geo + self.num_rel_pos + 1, target_classes_prior < self.num_rel_classes - 1)] = 2  # semantic
+        loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight_rel)
 
-        loss_ce = F.cross_entropy(outputs['rel_prior_logits'][target_classes_prior <= 2][:, :self.num_rel_classes - 1], target_classes_prior[target_classes_prior <= 2])
+        if self.hierar:
+            target_classes_prior = self.map[target_classes].to(target_classes.device)
+            target_classes_prior[torch.logical_and(target_classes_prior > 0, target_classes_prior < self.num_rel_geo + 1)] = 0  # geometric
+            target_classes_prior[torch.logical_and(target_classes_prior >= self.num_rel_geo + 1, target_classes_prior < self.num_rel_geo + self.num_rel_pos + 1)] = 1  # possessive
+            target_classes_prior[torch.logical_and(target_classes_prior >= self.num_rel_geo + self.num_rel_pos + 1, target_classes_prior < self.num_rel_classes - 1)] = 2  # semantic
+            target_classes_prior[target_classes == self.num_rel_classes - 1] = 3  # background relation
+            target_classes_prior[target_classes == self.num_rel_classes] = 4  # no object
 
-        loss_ce += F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight_rel)
+            if len(outputs['rel_prior_logits'][target_classes <= 2]) > 0:
+                loss_ce += F.cross_entropy(outputs['rel_prior_logits'][target_classes <= 2][:, :3], target_classes_prior[target_classes <= 2])
+
         losses = {'loss_rel': loss_ce}
 
         if log:

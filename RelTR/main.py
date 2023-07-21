@@ -146,15 +146,16 @@ def main(args):
     print('number of params:', n_parameters)
 
     ## ADD-ON #################################################
-    # if args.hierar and args.resume_from_flat:
-    #     # freeze all parameters
-    #     for param in model_without_ddp.parameters():
-    #         param.requires_grad = False
-    #     # unfreeze the parameters of the specified layers
-    #     layers_to_unfreeze = ['fc_rel', 'fc_rel_prior', 'fc_rel_geo', 'fc_rel_pos', 'fc_rel_sem']
-    #     for name, param in model_without_ddp.named_parameters():
-    #         if any(layer in name for layer in layers_to_unfreeze):
-    #             param.requires_grad = True
+    if args.hierar and args.resume_from_flat:
+        # freeze all parameters
+        for param in model_without_ddp.parameters():
+            param.requires_grad = False
+        # unfreeze the parameters of the specified layers
+        layers_to_unfreeze = ['fc_rel.weight', 'fc_rel_prior.weight', 'fc_rel_geo.weight', 'fc_rel_pos.weight', 'fc_rel_sem.weight',
+                              'fc_rel.bias', 'fc_rel_prior.bias', 'fc_rel_geo.bias', 'fc_rel_pos.bias', 'fc_rel_sem.bias']
+        for name, param in model_without_ddp.named_parameters():
+            if name in layers_to_unfreeze:
+                param.requires_grad = True
     ###########################################################
 
     param_dicts = [
@@ -210,7 +211,7 @@ def main(args):
         # model_without_ddp.rel_class_embed[2].weight.data.copy_(checkpoint['model']['rel_class_embed.layers.1.weight'])
         # model_without_ddp.rel_class_embed[2].bias.data.copy_(checkpoint['model']['rel_class_embed.layers.1.bias'])
 
-        if args.resume_from_flat:
+        if args.hierar and args.resume_from_flat:
             # model_without_ddp.fc_rel.weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])
             # model_without_ddp.fc_rel.bias.data.copy_(checkpoint['model']['rel_class_embed.layers.0.bias'])
             # model_without_ddp.rel_class_embed[0].weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])

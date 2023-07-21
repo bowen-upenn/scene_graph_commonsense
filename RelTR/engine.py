@@ -72,7 +72,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
         ######################################
-        # if counter % print_freq == 0:
+        # if counter == 100 or counter == 500 or counter == 1000:
         #     _, _ = evaluate(model, criterion, postprocessors, data_loader_val, base_ds, device, args, quick=True)
         # counter += 1
         ######################################
@@ -200,7 +200,7 @@ def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list, hierar=False
 
         pred_sub_scores, pred_sub_classes = torch.max(outputs['sub_logits'][batch].softmax(-1)[:, :-1], dim=1)
         pred_obj_scores, pred_obj_classes = torch.max(outputs['obj_logits'][batch].softmax(-1)[:, :-1], dim=1)
-        rel_scores = outputs['rel_logits'][batch][:,1:-1].softmax(-1)
+        rel_scores = outputs['rel_logits'][batch]
 
         pred_entry = {'sub_boxes': sub_bboxes_scaled,
                       'sub_classes': pred_sub_classes.cpu().clone().numpy(),
@@ -208,7 +208,7 @@ def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list, hierar=False
                       'obj_boxes': obj_bboxes_scaled,
                       'obj_classes': pred_obj_classes.cpu().clone().numpy(),
                       'obj_scores': pred_obj_scores.cpu().clone().numpy(),
-                      'rel_scores': rel_scores.cpu().clone().numpy()}
+                      'rel_scores': rel_scores.cpu().clone()}
         if hierar:
             rel_scores_prior = outputs['rel_prior_logits'][batch]
             pred_entry['rel_scores_prior'] = rel_scores_prior.cpu().clone()
