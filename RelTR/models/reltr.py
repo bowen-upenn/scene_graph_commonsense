@@ -92,12 +92,22 @@ class RelTR(nn.Module):
     ## ADD-ON #################################################
     def bayesian_head(self, hidden, eval):
         # hidden expects size [_, batch_size, num_queries, hidden_dim]
-        hidden = F.relu(self.fc_rel(hidden))
-        rel_prior = self.fc_rel_prior(hidden)
+        # hidden = F.relu(self.fc_rel(hidden))
+        # rel_prior = self.fc_rel_prior(hidden)
+        #
+        # rel_geo = self.fc_rel_geo(hidden) * rel_prior[:, :, :, 0].unsqueeze(-1)  # geometric
+        # rel_pos = self.fc_rel_pos(hidden) * rel_prior[:, :, :, 1].unsqueeze(-1)  # possessive
+        # rel_sem = self.fc_rel_sem(hidden) * rel_prior[:, :, :, 2].unsqueeze(-1)  # semantic
 
-        rel_geo = self.fc_rel_geo(hidden)# * rel_prior[:, :, :, 0].unsqueeze(-1)  # geometric
-        rel_pos = self.fc_rel_pos(hidden)# * rel_prior[:, :, :, 1].unsqueeze(-1)  # possessive
-        rel_sem = self.fc_rel_sem(hidden)# * rel_prior[:, :, :, 2].unsqueeze(-1)  # semantic
+        hidden = F.relu(self.fc_rel(hidden))
+        rel_prior = F.log_softmax(self.fc_rel_prior(hidden), dim=-1)
+
+        rel_geo = self.fc_rel_geo(hidden)  # geometric
+        rel_geo = F.log_softmax(rel_geo, dim=-1) + rel_prior[:, :, :, 0].unsqueeze(-1)
+        rel_pos = self.fc_rel_pos(hidden)  # possessive
+        rel_pos = F.log_softmax(rel_pos, dim=-1) + rel_prior[:, :, :, 1].unsqueeze(-1)
+        rel_sem = self.fc_rel_sem(hidden)  # semantic
+        rel_sem = F.log_softmax(rel_sem, dim=-1) + rel_prior[:, :, :, 2].unsqueeze(-1)
 
         outputs_class_rel = torch.cat((rel_prior[:, :, :, -2].unsqueeze(-1), rel_geo, rel_pos, rel_sem,
                                        rel_prior[:, :, :, -1].unsqueeze(-1)), dim=-1)
@@ -354,7 +364,7 @@ class SetCriterion(nn.Module):
         idx = self._get_src_permutation_idx(indices[1])
         target_classes_o = torch.cat([t["rel_annotations"][J, 2] for t, (_, J) in zip(targets, indices[1])])
 
-        if self.hierar and not self.at_eval:
+        if self.hierar:# and not self.at_eval:
             target_classes_o = inv_map[target_classes_o].to(target_classes_o.device)
 
         target_classes = torch.full(src_logits.shape[:2], self.num_rel_classes, dtype=torch.int64, device=src_logits.device)
@@ -369,9 +379,14 @@ class SetCriterion(nn.Module):
             target_classes_prior[target_classes == self.num_rel_classes] = 4  # no object
 
             # print('outputs', outputs['rel_prior_logits'].shape, 'target_classes_prior', target_classes_prior.shape)
-            empty_weight_rel_prior = torch.ones(self.num_rel_prior + 1).to(target_classes.device)
-            empty_weight_rel_prior[-1] = self.eos_coef  # weight for no object
-            loss_ce = F.cross_entropy(outputs['rel_prior_logits'].transpose(1, 2), target_classes_prior, empty_weight_rel_prior)
+            # empty_weight_rel_prior = torch.ones(self.num_rel_prior + 1).to(target_classes.device)
+            # empty_weight_rel_prior[-1] = self.eos_coef  # weight for no object
+            # print('pred', outputs['rel_prior_logits'].argmax(-1),
+            #       'target_classes_prior', target_classes_prior,
+            #       'target_classes', target_classes)
+            # print('outputs[rel_prior_logits][:, :, :3][target_classes_prior < 3]', outputs['rel_prior_logits'][:, :, :3][target_classes_prior < 3].argmax(-1),
+            #       'target_classes_prior[target_classes_prior < 3]', target_classes_prior[target_classes_prior < 3])
+            loss_ce = F.nll_loss(outputs['rel_prior_logits'][:, :, :3][target_classes_prior < 3], target_classes_prior[target_classes_prior < 3])
 
             begin_pos = self.num_rel_geo + 1
             begin_sem = self.num_rel_geo + self.num_rel_pos + 1
@@ -381,15 +396,15 @@ class SetCriterion(nn.Module):
             rel_error = torch.zeros(3)
 
             if torch.sum(samples_geo) > 0:
-                loss_ce += F.cross_entropy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo] - 1)
+                loss_ce += F.nll_loss(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo] - 1)
                 rel_error[0] = 100 - accuracy(src_logits[:, :, 1:begin_pos][samples_geo], target_classes[samples_geo] - 1)[0]
                 # print('rel_error[0]', rel_error[0], 'src_logits', src_logits[:, :, 1:begin_pos][samples_geo].argmax(1), 'target_classes', target_classes[samples_geo] - 1)
             if torch.sum(samples_pos) > 0:
-                loss_ce += F.cross_entropy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo - 1)
+                loss_ce += F.nll_loss(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo - 1)
                 rel_error[1] = 100 - accuracy(src_logits[:, :, begin_pos:begin_sem][samples_pos], target_classes[samples_pos] - self.num_rel_geo - 1)[0]
                 # print('rel_error[1]', rel_error[1], 'src_logits', src_logits[:, :, begin_pos:begin_sem][samples_pos].argmax(1), 'target_classes', target_classes[samples_pos] - self.num_rel_geo - 1)
             if torch.sum(samples_sem) > 0:
-                loss_ce += F.cross_entropy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos - 1)
+                loss_ce += F.nll_loss(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos - 1)
                 rel_error[2] = 100 - accuracy(src_logits[:, :, begin_sem:-1][samples_sem], target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos - 1)[0]
                 # print('rel_error[2]', rel_error[2], 'src_logits', src_logits[:, :, begin_sem:-1][samples_sem].argmax(1), 'target_classes', target_classes[samples_sem] - self.num_rel_geo - self.num_rel_pos - 1)
 
@@ -402,8 +417,10 @@ class SetCriterion(nn.Module):
         losses = {'loss_rel': loss_ce}
 
         if log:
-            losses['rel_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
-        print('error', 100 - accuracy(src_logits[idx], target_classes_o)[0], 'pred', src_logits[idx].argmax(-1), 'tar', target_classes_o)
+            if self.hierar:
+                losses['rel_error'] = 100 - accuracy(outputs['rel_prior_logits'][:, :, :3][target_classes_prior < 3], target_classes_prior[target_classes_prior < 3])[0]
+            else:
+                losses['rel_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
 
         return losses
 

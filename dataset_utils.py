@@ -19,7 +19,7 @@ class TwoCropTransform:
         self.transform2 = transform2
 
     def __call__(self, x):
-        return [self.transform1(x), self.transform2(x)]
+        return self.transform1(x), self.transform2(x)
 
 
 # Dataset utils functions

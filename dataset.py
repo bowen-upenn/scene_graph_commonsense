@@ -41,6 +41,12 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         self.image_transform_to_tensor = transforms.ToTensor()
         self.image_transform_s = transforms.Compose([transforms.ToTensor(),
                                                      transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+        self.image_transform_s_jitter = transforms.Compose([transforms.ToTensor(),
+                                                            transforms.RandomApply([
+                                                                 transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
+                                                            ], p=0.8),
+                                                            transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+        self.image_transform_contrastive = TwoCropTransform(self.image_transform_s, self.image_transform_s_jitter)
         # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
         self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
 
@@ -74,13 +80,16 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             # image = self.image_norm(image)  # original size that produce better bounding boxes
 
             images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
-            images = 255 * self.image_transform_s(images)
+            images = 255 * self.image_transform_contrastive(images)
+            images, images_aug = images[0], images[1]
             images = self.image_norm(images)  # squared size that unifies the size of feature maps
+            images_aug = self.image_norm(images_aug)
         else:
             # detectron2 will automatically transform input images based on the config file
             # image = self.image_transform_to_tensor(image)
-            images = self.image_transform_to_tensor(images)
-            images = self.image_transform_s(images)
+            # images = self.image_transform_to_tensor(images)
+            images = self.image_transform_contrastive(images)
+            images, images_aug = images[0], images[1]
 
         if self.args['models']['use_depth']:
             image_depth = curr_annot['image_depth']
@@ -103,7 +112,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             relationships_reordered.append(rel_reorder_dict[rel])
         relationships = relationships_reordered
 
-        return images, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+        return images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
         # return image, image_s, image_depth, categories, super_categories, masks, bbox, relationships, subj_or_obj
 
     def __len__(self):

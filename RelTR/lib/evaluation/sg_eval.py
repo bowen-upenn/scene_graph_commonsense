@@ -7,6 +7,11 @@ import math
 from lib.pytorch_misc import intersect_2d, argsort_desc
 from lib.fpn.box_intersections_cpu.bbox import bbox_overlaps
 np.set_printoptions(precision=3)
+import torch
+
+inv_map = torch.tensor([0,  1,  2,  3,  4,  5,  6,  8, 10, 22, 23, 29, 31, 32, 33, 43,  9, 16,
+        17, 20, 27, 30, 36, 42, 48, 49, 50,  7, 11, 12, 13, 14, 15, 18, 19, 21,
+        24, 25, 26, 28, 34, 35, 37, 38, 39, 40, 41, 44, 45, 46, 47, 51])
 
 class BasicSceneGraphEvaluator:
     def __init__(self, mode, multiple_preds=False):
@@ -91,7 +96,8 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
         predicate_scores = rel_scores.max(1)
     else:
         rel_scores_prior = pred_entry['rel_scores_prior']
-        rel_scores_prior = rel_scores_prior[:, :3].softmax(-1).numpy()
+        # rel_scores_prior = rel_scores_prior[:, :3].softmax(-1).numpy()
+        rel_scores_prior = rel_scores_prior[:, :3].numpy()
 
         if has_rel_only:
             # has_rel = np.zeros(rel_scores.shape[0], dtype=np.uint8)
@@ -105,11 +111,11 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
         second_range = slice(num_rel_geometric, num_rel_geometric + num_rel_possessive)  # 15:26
         third_range = slice(num_rel_geometric + num_rel_possessive, rel_scores.shape[1])  # 26:50
 
-        # apply softmax
-        rel_scores[has_rel == True, first_range] = rel_scores[has_rel == True, first_range].softmax(-1)
-        rel_scores[has_rel == True, second_range] = rel_scores[has_rel == True, second_range].softmax(-1)
-        rel_scores[has_rel == True, third_range] = rel_scores[has_rel == True, third_range].softmax(-1)
-        rel_scores[has_rel == False, :] = rel_scores[has_rel == False, :].softmax(-1)
+        # # apply softmax
+        # rel_scores[has_rel == True, first_range] = rel_scores[has_rel == True, first_range].softmax(-1)
+        # rel_scores[has_rel == True, second_range] = rel_scores[has_rel == True, second_range].softmax(-1)
+        # rel_scores[has_rel == True, third_range] = rel_scores[has_rel == True, third_range].softmax(-1)
+        # rel_scores[has_rel == False, :] = rel_scores[has_rel == False, :].softmax(-1)
         rel_scores = rel_scores.numpy()
 
         # applying argmax along the appropriate dimensions
@@ -121,9 +127,9 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
         pred_rels = np.concatenate((rel_scores[has_rel == False].argmax(-1) + 1, np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)), axis=0)
 
         # same for predicate_scores
-        predicate_scores_geo = rel_scores[has_rel == True, first_range].max(1) * rel_scores_prior[has_rel == True, 0]
-        predicate_scores_pos = rel_scores[has_rel == True, second_range].max(1) * rel_scores_prior[has_rel == True, 1]
-        predicate_scores_sem = rel_scores[has_rel == True, third_range].max(1) * rel_scores_prior[has_rel == True, 2]
+        predicate_scores_geo = rel_scores[has_rel == True, first_range].max(1) #* rel_scores_prior[has_rel == True, 0]
+        predicate_scores_pos = rel_scores[has_rel == True, second_range].max(1) #* rel_scores_prior[has_rel == True, 1]
+        predicate_scores_sem = rel_scores[has_rel == True, third_range].max(1) #* rel_scores_prior[has_rel == True, 2]
         predicate_scores = np.concatenate((rel_scores[has_rel == False].max(1), np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)), axis=0)
 
         sub_boxes = np.concatenate((sub_boxes[has_rel == False], np.tile(sub_boxes[has_rel == True], (num_rel_prior-1, 1))), axis=0)
@@ -132,6 +138,50 @@ def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=F
         obj_score = np.concatenate((obj_score[has_rel == False], np.tile(obj_score[has_rel == True], num_rel_prior-1)), axis=0)
         sub_class = np.concatenate((sub_class[has_rel == False], np.tile(sub_class[has_rel == True], num_rel_prior-1)), axis=0)
         obj_class = np.concatenate((obj_class[has_rel == False], np.tile(obj_class[has_rel == True], num_rel_prior-1)), axis=0)
+
+
+        # rel_scores_prior = pred_entry['rel_scores_prior']
+        # rel_scores_prior = rel_scores_prior[:, :3].softmax(-1).numpy()
+        #
+        # if has_rel_only:
+        #     # has_rel = np.zeros(rel_scores.shape[0], dtype=np.uint8)
+        #     has_rel = np.logical_and(rel_scores.argmax(1) != 0, rel_scores.argmax(1) != rel_scores.shape[1] - 1)
+        # else:
+        #     has_rel = np.ones(rel_scores.shape[0], dtype=np.uint8)
+        # rel_scores = rel_scores[:, 1:-1]
+        #
+        # # splitting the tensor into three parts based on the specified ranges
+        # first_range = slice(0, num_rel_geometric)  # 0:15
+        # second_range = slice(num_rel_geometric, num_rel_geometric + num_rel_possessive)  # 15:26
+        # third_range = slice(num_rel_geometric + num_rel_possessive, rel_scores.shape[1])  # 26:50
+        #
+        # # apply softmax
+        # rel_scores[has_rel == True, first_range] = rel_scores[has_rel == True, first_range].softmax(-1)
+        # rel_scores[has_rel == True, second_range] = rel_scores[has_rel == True, second_range].softmax(-1)
+        # rel_scores[has_rel == True, third_range] = rel_scores[has_rel == True, third_range].softmax(-1)
+        # rel_scores = rel_scores.numpy()
+        #
+        # # applying argmax along the appropriate dimensions
+        # pred_rels_geo = rel_scores[has_rel == True, first_range].argmax(1) + 1
+        # pred_rels_pos = rel_scores[has_rel == True, second_range].argmax(1) + num_rel_geometric + 1
+        # pred_rels_sem = rel_scores[has_rel == True, third_range].argmax(1) + num_rel_geometric + num_rel_possessive + 1
+        #
+        # # concatenating the predictions along the batch dimension
+        # pred_rels = np.concatenate((pred_rels_geo, pred_rels_pos, pred_rels_sem), axis=0)
+        #
+        # # same for predicate_scores
+        # predicate_scores_geo = rel_scores[has_rel == True, first_range].max(1) #* rel_scores_prior[has_rel == True, 0]
+        # predicate_scores_pos = rel_scores[has_rel == True, second_range].max(1) #* rel_scores_prior[has_rel == True, 1]
+        # predicate_scores_sem = rel_scores[has_rel == True, third_range].max(1) #* rel_scores_prior[has_rel == True, 2]
+        # predicate_scores = np.concatenate((predicate_scores_geo, predicate_scores_pos, predicate_scores_sem), axis=0)
+        #
+        # sub_boxes = np.tile(sub_boxes[has_rel == True], (num_rel_prior-1, 1))
+        # obj_boxes = np.tile(obj_boxes[has_rel == True], (num_rel_prior-1, 1))
+        # sub_score = np.tile(sub_score[has_rel == True], num_rel_prior-1)
+        # obj_score = np.tile(obj_score[has_rel == True], num_rel_prior-1)
+        # sub_class = np.tile(sub_class[has_rel == True], num_rel_prior-1)
+        # obj_class = np.tile(obj_class[has_rel == True], num_rel_prior-1)
+
 
         # # splitting the tensor into three parts based on the specified ranges
         # first_range = slice(0, num_rel_geometric)  # 0:15
@@ -246,7 +296,7 @@ def evaluate_recall(gt_rels, gt_boxes, gt_classes,
     # assert np.all(pred_rels[:,0] != pred_rels[:,ĺeftright])
 
     pred_triplets = np.column_stack((sub_class, pred_rels, obj_class))
-    pred_triplet_boxes =  np.column_stack((sub_boxes, obj_boxes))
+    pred_triplet_boxes = np.column_stack((sub_boxes, obj_boxes))
     relation_scores = np.column_stack((sub_score, obj_score, predicate_scores))  #TODO!!!! do not * 0.1 finally
 
 

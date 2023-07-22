@@ -153,6 +153,7 @@ def main(args):
         # unfreeze the parameters of the specified layers
         layers_to_unfreeze = ['fc_rel.weight', 'fc_rel_prior.weight', 'fc_rel_geo.weight', 'fc_rel_pos.weight', 'fc_rel_sem.weight',
                               'fc_rel.bias', 'fc_rel_prior.bias', 'fc_rel_geo.bias', 'fc_rel_pos.bias', 'fc_rel_sem.bias']
+        # layers_to_unfreeze = ['fc_rel.weight', 'fc_rel.bias']
         for name, param in model_without_ddp.named_parameters():
             if name in layers_to_unfreeze:
                 param.requires_grad = True
@@ -238,7 +239,7 @@ def main(args):
 
             # model_without_ddp.rel_class_embed[2].weight.data.copy_(pretrained_layers_1_weight)
             # model_without_ddp.rel_class_embed[2].bias.data.copy_(pretrained_layers_1_bias)
-        ###########################################################
+        # ###########################################################
 
     if args.eval:
         print('It is the {}th checkpoint'.format(checkpoint['epoch']))
@@ -258,8 +259,8 @@ def main(args):
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth'] # anti-crash
             # extra checkpoint before LR drop and every 100 epochs
-            if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0:
-                checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
+            # if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0:
+            checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
                     'model': model_without_ddp.state_dict(),
