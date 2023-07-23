@@ -151,9 +151,9 @@ def main(args):
         for param in model_without_ddp.parameters():
             param.requires_grad = False
         # unfreeze the parameters of the specified layers
-        layers_to_unfreeze = ['fc_rel.weight', 'fc_rel_prior.weight', 'fc_rel_geo.weight', 'fc_rel_pos.weight', 'fc_rel_sem.weight',
-                              'fc_rel.bias', 'fc_rel_prior.bias', 'fc_rel_geo.bias', 'fc_rel_pos.bias', 'fc_rel_sem.bias']
-        # layers_to_unfreeze = ['fc_rel.weight', 'fc_rel.bias']
+        # layers_to_unfreeze = ['fc_rel.weight', 'fc_rel_prior.weight', 'fc_rel_geo.weight', 'fc_rel_pos.weight', 'fc_rel_sem.weight',
+        #                       'fc_rel.bias', 'fc_rel_prior.bias', 'fc_rel_geo.bias', 'fc_rel_pos.bias', 'fc_rel_sem.bias']
+        layers_to_unfreeze = ['fc_rel.weight', 'fc_rel.bias']
         for name, param in model_without_ddp.named_parameters():
             if name in layers_to_unfreeze:
                 param.requires_grad = True
@@ -212,7 +212,7 @@ def main(args):
         # model_without_ddp.rel_class_embed[2].weight.data.copy_(checkpoint['model']['rel_class_embed.layers.1.weight'])
         # model_without_ddp.rel_class_embed[2].bias.data.copy_(checkpoint['model']['rel_class_embed.layers.1.bias'])
 
-        if args.hierar and args.resume_from_flat:
+        if args.hierar and args.resume_from_flat and args.resume == "ckpt/checkpoint0149.pth":
             # model_without_ddp.fc_rel.weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])
             # model_without_ddp.fc_rel.bias.data.copy_(checkpoint['model']['rel_class_embed.layers.0.bias'])
             # model_without_ddp.rel_class_embed[0].weight.data.copy_(checkpoint['model']['rel_class_embed.layers.0.weight'])
@@ -239,7 +239,7 @@ def main(args):
 
             # model_without_ddp.rel_class_embed[2].weight.data.copy_(pretrained_layers_1_weight)
             # model_without_ddp.rel_class_embed[2].bias.data.copy_(pretrained_layers_1_bias)
-        # ###########################################################
+        ###########################################################
 
     if args.eval:
         print('It is the {}th checkpoint'.format(checkpoint['epoch']))

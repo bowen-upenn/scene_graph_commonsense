@@ -16,6 +16,7 @@ import util.misc as utils
 from util.box_ops import rescale_bboxes
 from lib.evaluation.sg_eval import BasicSceneGraphEvaluator, calculate_mR_from_evaluator_list
 from lib.openimages_evaluation import task_evaluation_sg
+from models.matcher import build_matcher
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
@@ -98,13 +99,14 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, arg
     # initilize evaluator
     # TODO merge evaluation programs
     if args.dataset == 'vg':
-        evaluator = BasicSceneGraphEvaluator.all_modes(multiple_preds=False)
+        matcher = build_matcher(args)
+        evaluator = BasicSceneGraphEvaluator.all_modes(multiple_preds=False, matcher=matcher)
         if args.eval:
             evaluator_list = []
             for index, name in enumerate(data_loader.dataset.rel_categories):
                 if index == 0:
                     continue
-                evaluator_list.append((index, name, BasicSceneGraphEvaluator.all_modes()))
+                evaluator_list.append((index, name, BasicSceneGraphEvaluator.all_modes(matcher=matcher)))
         else:
             evaluator_list = None
     else:
@@ -208,7 +210,9 @@ def evaluate_rel_batch(outputs, targets, evaluator, evaluator_list, hierar=False
                       'obj_boxes': obj_bboxes_scaled,
                       'obj_classes': pred_obj_classes.cpu().clone().numpy(),
                       'obj_scores': pred_obj_scores.cpu().clone().numpy(),
-                      'rel_scores': rel_scores.cpu().clone()}
+                      'rel_scores': rel_scores.cpu().clone(),
+                      'targets': targets,
+                      'outputs': outputs}
         if hierar:
             rel_scores_prior = outputs['rel_prior_logits'][batch]
             pred_entry['rel_scores_prior'] = rel_scores_prior.cpu().clone()

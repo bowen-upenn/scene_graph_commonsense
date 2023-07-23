@@ -97,7 +97,8 @@ class Evaluator_PC:
             if super_relation_pred is None:     # flat relationship prediction
                 self.which_in_batch = which_in_batch
                 self.connected_pred = torch.exp(connectivity)
-                self.confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                # self.confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                self.confidence = torch.max(relation_pred, dim=1)[0]
 
                 self.relation_pred = torch.argmax(relation_pred, dim=1)
                 self.relation_target = relation_target
@@ -116,7 +117,7 @@ class Evaluator_PC:
                 self.confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0]))
-                self.confidence += connectivity.repeat(3)
+                # self.confidence += connectivity.repeat(3)
                 self.connected_pred = torch.exp(connectivity).repeat(3)
 
                 self.relation_pred = torch.hstack((torch.argmax(relation_pred[:, :self.args['models']['num_geometric']], dim=1),
@@ -136,7 +137,8 @@ class Evaluator_PC:
         else:
             if super_relation_pred is None:  # flat relationship prediction
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
-                confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                # confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                confidence = torch.max(relation_pred, dim=1)[0]
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connected_pred = torch.hstack((self.connected_pred, torch.exp(connectivity)))
 
@@ -157,7 +159,7 @@ class Evaluator_PC:
                 confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
                                            torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
                                            torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0]))
-                confidence += connectivity.repeat(3)
+                # confidence += connectivity.repeat(3)
                 self.confidence = torch.hstack((self.confidence, confidence))
                 connectivity_pred = torch.exp(connectivity).repeat(3)
                 self.connected_pred = torch.hstack((self.connected_pred, connectivity_pred))
