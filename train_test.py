@@ -350,14 +350,16 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     running_loss_relationship += loss_relationship
 
             # Concatenate all hidden_cat and hidden_cat_labels along the 0th dimension
-            hidden_cat_all = torch.cat(hidden_cat_accumulated, dim=0)
-            hidden_cat_labels_all = torch.cat(hidden_cat_labels_accumulated, dim=0)
+            if len(hidden_cat_accumulated) > 0:
+                hidden_cat_all = torch.cat(hidden_cat_accumulated, dim=0)
+                hidden_cat_labels_all = torch.cat(hidden_cat_labels_accumulated, dim=0)
 
-            # Calculate the contrastive loss with all hidden_cat and hidden_cat_labels
-            # print('hidden_cat_all', hidden_cat_all.shape, 'hidden_cat_labels_all', hidden_cat_labels_all.shape)
-            temp = criterion_contrast(rank, hidden_cat_all, hidden_cat_labels_all)
-            # print('loss_contrast', temp, 'loss_relationship', loss_relationship)
-            loss_contrast += 0.0 if torch.isnan(temp) else args['training']['lambda_contrast'] * temp
+                # Calculate the contrastive loss with all hidden_cat and hidden_cat_labels
+                # print('hidden_cat_all', hidden_cat_all.shape, 'hidden_cat_labels_all', hidden_cat_labels_all.shape)
+                temp = criterion_contrast(rank, hidden_cat_all, hidden_cat_labels_all)
+                # print('loss_contrast', temp, 'loss_relationship', loss_relationship)
+                loss_contrast += 0.0 if torch.isnan(temp) else args['training']['lambda_contrast'] * temp
+
             running_loss_contrast += args['training']['lambda_contrast'] * loss_contrast
             losses += loss_contrast
             running_losses += losses.item()
