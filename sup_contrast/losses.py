@@ -95,10 +95,10 @@ class SupConLossHierar(nn.Module):
         # compute log_prob, where only different labels under the same parent class appear in the denominator
         logits_mask = logits_mask * mask_same_parent
         exp_logits = torch.exp(logits) * logits_mask    # for each sample in the row, logits_mask selects all its negative samples
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True) + 1e-7)
 
         # compute mean of log-likelihood over positive
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)  # mask selects all positive (augmented) samples
+        mean_log_prob_pos = (mask * log_prob).sum(1) / (mask.sum(1) + 1e-7)  # mask selects all positive (augmented) samples
 
         # loss
         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
@@ -188,7 +188,7 @@ class SupConLoss(nn.Module):
         # print('test3', torch.mean(log_prob))
 
         # compute mean of log-likelihood over positive
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+        mean_log_prob_pos = (mask * log_prob).sum(1) / (mask.sum(1) + 1e-7)
         # print('test4', torch.mean(mean_log_prob_pos))
 
         # loss

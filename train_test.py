@@ -89,7 +89,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
         # else:
         #     transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransEncoderFlat' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         if args['models']['hierarchical_pred']:
-            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHierContrast' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHierModifiedContrast' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
             edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
@@ -108,7 +108,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
         criterion_super_relationship = torch.nn.NLLLoss()
     else:
         criterion_relationship = torch.nn.CrossEntropyLoss(weight=class_weight.to(rank))
-    criterion_contrast = SupConLoss()
+    criterion_contrast = SupConLossHierar()
     criterion_connectivity = torch.nn.BCEWithLogitsLoss()  # pos_weight=torch.tensor([20]).to(rank)
 
     running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_recall, connectivity_precision, \
@@ -391,10 +391,10 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_recall, connectivity_precision, \
                 num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-        # if args['models']['hierarchical_pred']:
-        #     torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHierContrast' + str(epoch) + '_' + str(rank) + '.pth')
-        # else:
-        #     torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
+        if args['models']['hierarchical_pred']:
+            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHierModifiedContrast' + str(epoch) + '_' + str(rank) + '.pth')
+        else:
+            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         if args['models']['detr_or_faster_rcnn'] == 'detr':
@@ -418,6 +418,8 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
     print('Start Testing PC...')
     with torch.no_grad():
         for batch_count, data in enumerate(tqdm(test_loader), 0):
+            if epoch < 2 and batch_count > 100:
+                break
             """
             PREPARE INPUT DATA
             """

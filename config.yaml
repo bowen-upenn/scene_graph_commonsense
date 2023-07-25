@@ -61,7 +61,7 @@ training:
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.00001
     weight_decay: 0.0001
-    batch_size: 8   # 48
+    batch_size: 12   # 48
     num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
@@ -75,7 +75,7 @@ training:
     lambda_contrast: 1
     lambda_connectivity: 1
     lambda_not_connected: 1
-    print_freq: 20
-    eval_freq: 20
-    print_freq_test: 20
+    print_freq: 100
+    eval_freq: 100
+    print_freq_test: 50
     eval_freq_test: 1
