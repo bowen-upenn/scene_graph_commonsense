@@ -7,17 +7,10 @@ import yaml
 import os
 import json
 import torch.multiprocessing as mp
-import detectron2
 
-from dataset import VisualGenomeDataset, VisualGenomeDatasetEfficient, OpenImageV6Dataset
-# from train_test_local_concat import train_local
+from dataset import VisualGenomeDataset, OpenImageV6Dataset
 from train_test import train_local
-# from train_test_global import train_global
 from evaluate import eval_pc, eval_sgc, eval_sgd
-
-# from train_faster_rcnn import setup
-# from detectron2.engine import default_argument_parser
-
 
 if __name__ == "__main__":
     print('Torch', torch.__version__, 'Torchvision', torchvision.__version__)
@@ -34,7 +27,6 @@ if __name__ == "__main__":
     print('torch.distributed.is_available', torch.distributed.is_available())
     print('Using %d GPUs' % (torch.cuda.device_count()))
     print("Running model", args['models']['detr_or_faster_rcnn'])
-    # print("detectron2:", detectron2.__version__)
 
     # prepare datasets
     if args['dataset']['dataset'] == 'vg':
@@ -49,8 +41,6 @@ if __name__ == "__main__":
         print("Loading the datasets...")
         train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'])
         test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])
-        # train_dataset = VisualGenomeDatasetNonDynamic(args, device, args['dataset']['annotation_train'])
-        # test_dataset = VisualGenomeDatasetNonDynamic(args, device, args['dataset']['annotation_test'])
 
     elif args['dataset']['dataset'] == 'oiv6':
         args['models']['num_classes'] = 601
@@ -73,29 +63,13 @@ if __name__ == "__main__":
     test_subset = Subset(test_dataset, test_subset_idx)
     print('num of train, test:', len(train_subset), len(test_subset))
 
-    # prepare faster rcnn configs
-    faster_rcnn_cfg = None
-    if args['models']['detr_or_faster_rcnn'] == 'faster':
-        faster_rcnn_args = default_argument_parser().parse_args()
-        faster_rcnn_cfg = setup(faster_rcnn_args)
-
     # select training or evaluation
     if args['training']['run_mode'] == 'train':
-        # local prediction module or the model with optional transformer encoder
-        if args['training']['train_mode'] == 'local':
-            mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset, faster_rcnn_cfg))
-        # elif args['training']['train_mode'] == 'global' and args['dataset']['dataset'] == 'vg':
-        #     mp.spawn(train_global, nprocs=world_size, args=(args, train_subset, test_subset))
-        else:
-            print('Invalid arguments or not implemented.')
-
+         mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
     elif args['training']['run_mode'] == 'eval':
-        # if args['training']['train_mode'] == 'global':
-        #     print('Not implemented.')
-        # else:
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
-            mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset, faster_rcnn_cfg))
+            mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
         elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
             args['models']['topk_cat'] = 1
             mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset))

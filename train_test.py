@@ -13,18 +13,18 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from evaluator import Evaluator_PC, Evaluator_PC_Top3
-from model import TransformerEncoder, EdgeHead, EdgeHeadHier
+from model import FlatMotif, HierMotif
 from utils import *
 from sup_contrast.losses import SupConLoss, SupConLossHierar
 
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12356'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
-def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
+def train_local(gpu, args, train_subset, test_subset):
     """
     This function trains and evaluates the local prediction module on predicate classification tasks.
     :param gpu: current gpu index
@@ -32,10 +32,6 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
     :param train_subset: training dataset
     :param test_subset: testing dataset
     """
-    if args['models']['detr_or_faster_rcnn'] == 'faster':
-        from detectron2.modeling import build_model
-        from detectron2.structures.image_list import ImageList
-
     rank = gpu
     world_size = torch.cuda.device_count()
     setup(rank, world_size)
@@ -62,38 +58,27 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             test_record = json.load(f)
 
     if args['models']['hierarchical_pred']:
-        edge_head = DDP(EdgeHeadHier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+        local_predictor = DDP(HierMotif(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
                                      num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
                                      num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
     else:
-        edge_head = DDP(EdgeHead(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
+        local_predictor = DDP(FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
                                  num_classes=args['models']['num_classes'])).to(rank)
-    # transformer_encoder = DDP(TransformerEncoder(args)).to(rank)
-    # transformer_encoder.train()
 
     if args['models']['detr_or_faster_rcnn'] == 'detr':
         detr = DDP(build_detr101(args)).to(rank)
         detr.eval()
-    elif args['models']['detr_or_faster_rcnn'] == 'faster':
-        faster_rcnn = build_model(faster_rcnn_cfg).to(rank)
-        faster_rcnn.load_state_dict(torch.load(os.path.join(faster_rcnn_cfg.OUTPUT_DIR, "model_final.pth"))['model'], strict=True)
-        faster_rcnn = DDP(faster_rcnn)
-        faster_rcnn.eval()
     else:
         print('Unknown model.')
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
-        # if args['models']['hierarchical_pred']:
-        #     transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransEncoderHier' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
-        # else:
-        #     transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransEncoderFlat' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         if args['models']['hierarchical_pred']:
-            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHeadHierModifiedContrast' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
-            edge_head.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'EdgeHead' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
-    optimizer = optim.SGD([{'params': edge_head.parameters(), 'initial_lr': args['training']['learning_rate']}],
+    optimizer = optim.SGD([{'params': local_predictor.parameters(), 'initial_lr': args['training']['learning_rate']}],
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
 
     original_lr = optimizer.param_groups[0]["lr"]
@@ -109,7 +94,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
     else:
         criterion_relationship = torch.nn.CrossEntropyLoss(weight=class_weight.to(rank))
     criterion_contrast = SupConLossHierar()
-    criterion_connectivity = torch.nn.BCEWithLogitsLoss()  # pos_weight=torch.tensor([20]).to(rank)
+    criterion_connectivity = torch.nn.BCEWithLogitsLoss()
 
     running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_recall, connectivity_precision, \
     num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -132,27 +117,23 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
 
             with torch.no_grad():
-                if args['models']['detr_or_faster_rcnn'] == 'detr':
-                    images = torch.stack(images).to(rank)
-                    image_feature, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images))
-                    src, mask = image_feature[-1].decompose()
-                    src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
-                    pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-                    image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
-                    image_feature = image_feature.permute(1, 2, 0)
-                    image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
+                images = torch.stack(images).to(rank)
+                image_feature, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images))
+                src, mask = image_feature[-1].decompose()
+                src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
+                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+                image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                image_feature = image_feature.permute(1, 2, 0)
+                image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
 
-                    images_aug = torch.stack(images_aug).to(rank)
-                    image_feature_aug, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images_aug))
-                    src, mask = image_feature_aug[-1].decompose()
-                    src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
-                    pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-                    image_feature_aug = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
-                    image_feature_aug = image_feature_aug.permute(1, 2, 0)
-                    image_feature_aug = image_feature_aug.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
-                else:   # faster-rcnn
-                    images = ImageList.from_tensors(images).to(rank)
-                    image_feature = faster_rcnn.module.backbone(images.tensor)['p5']
+                images_aug = torch.stack(images_aug).to(rank)
+                image_feature_aug, pos_embed = detr.module.backbone(nested_tensor_from_tensor_list(images_aug))
+                src, mask = image_feature_aug[-1].decompose()
+                src = detr.module.input_proj(src).flatten(2).permute(2, 0, 1)
+                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+                image_feature_aug = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+                image_feature_aug = image_feature_aug.permute(1, 2, 0)
+                image_feature_aug = image_feature_aug.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
                 del images, images_aug
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
@@ -211,11 +192,11 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     FIRST DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank, h_graph_aug, h_edge_aug)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank, h_graph_aug, h_edge_aug)
                         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
+                        relation, connectivity = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
                         super_relation = None
 
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
@@ -282,11 +263,11 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                     SECOND DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank, h_graph_aug, h_edge_aug)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank, h_edge_aug, h_graph_aug)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         hidden_cat2 = torch.cat((hidden2.unsqueeze(1), hidden_aug2.unsqueeze(1)), dim=1)
                     else:
-                        relation, connectivity = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
+                        relation, connectivity = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
                         super_relation = None
 
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr keep_in_batch are not connected
@@ -354,10 +335,7 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
                 hidden_cat_all = torch.cat(hidden_cat_accumulated, dim=0)
                 hidden_cat_labels_all = torch.cat(hidden_cat_labels_accumulated, dim=0)
 
-                # Calculate the contrastive loss with all hidden_cat and hidden_cat_labels
-                # print('hidden_cat_all', hidden_cat_all.shape, 'hidden_cat_labels_all', hidden_cat_labels_all.shape)
                 temp = criterion_contrast(rank, hidden_cat_all, hidden_cat_labels_all)
-                # print('loss_contrast', temp, 'loss_relationship', loss_relationship)
                 loss_contrast += 0.0 if torch.isnan(temp) else args['training']['lambda_contrast'] * temp
 
             running_loss_contrast += args['training']['lambda_contrast'] * loss_contrast
@@ -391,22 +369,19 @@ def train_local(gpu, args, train_subset, test_subset, faster_rcnn_cfg=None):
             running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_recall, connectivity_precision, \
                 num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-        if args['models']['hierarchical_pred']:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHeadHierModifiedContrast' + str(epoch) + '_' + str(rank) + '.pth')
-        else:
-            torch.save(edge_head.state_dict(), args['training']['checkpoint_path'] + 'EdgeHead' + str(epoch) + '_' + str(rank) + '.pth')
+        # if args['models']['hierarchical_pred']:
+        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif' + str(epoch) + '_' + str(rank) + '.pth')
+        # else:
+        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
-        if args['models']['detr_or_faster_rcnn'] == 'detr':
-            test_local(args, detr, edge_head, test_loader, test_record, epoch, rank)
-        else:
-            test_local(args, faster_rcnn, edge_head, test_loader, test_record, epoch, rank)
+        test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank)
 
     dist.destroy_process_group()  # clean up
     print('FINISHED TRAINING\n')
 
 
-def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank):
+def test_local(args, backbone, local_predictor, test_loader, test_record, epoch, rank):
     backbone.eval()
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
@@ -425,18 +400,14 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
             """
             images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
 
-            if args['models']['detr_or_faster_rcnn'] == 'detr':
-                images = torch.stack(images).to(rank)
-                image_feature, pos_embed = backbone.module.backbone(nested_tensor_from_tensor_list(images))
-                src, mask = image_feature[-1].decompose()
-                src = backbone.module.input_proj(src).flatten(2).permute(2, 0, 1)
-                pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
-                image_feature = backbone.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
-                image_feature = image_feature.permute(1, 2, 0)
-                image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
-            else:  # faster-rcnn
-                images = ImageList.from_tensors(images).to(rank)
-                image_feature = backbone.module.backbone(images.tensor)['p5']
+            images = torch.stack(images).to(rank)
+            image_feature, pos_embed = backbone.module.backbone(nested_tensor_from_tensor_list(images))
+            src, mask = image_feature[-1].decompose()
+            src = backbone.module.input_proj(src).flatten(2).permute(2, 0, 1)
+            pos_embed = pos_embed[-1].flatten(2).permute(2, 0, 1)
+            image_feature = backbone.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
+            image_feature = image_feature.permute(1, 2, 0)
+            image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
             del images
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
@@ -487,10 +458,10 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
                     FIRST DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = edge_head(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
+                        relation, connectivity = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
                         super_relation = None
 
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
@@ -500,6 +471,7 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
                     connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
                     connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
                     num_connected_pred += len(connected_pred)
+
                     if len(connected) > 0:
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
@@ -518,10 +490,10 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
                     SECOND DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = edge_head(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
+                        relation, connectivity = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
                         super_relation = None
 
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr keep_in_batch are not connected
@@ -531,6 +503,7 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
                     connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
                     connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
                     num_connected_pred += len(connected_pred)
+
                     if len(connected) > 0:
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
@@ -545,15 +518,11 @@ def test_local(args, backbone, edge_head, test_loader, test_record, epoch, rank)
                                                    cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
             """
-            EVALUATE AND PRINT CURRENT RESULTS
+            EVALUATE AND PRINT CURRENT RESULiccTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 if args['dataset']['dataset'] == 'vg':
-                    if batch_count + 1 == len(test_loader):
-                        recall, recall_k_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                        print("recall_k_per_class", recall_k_per_class)
-                    else:
-                        recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                    recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     if args['models']['hierarchical_pred']:
                         recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                         Recall_top3.clear_data()
