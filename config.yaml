@@ -43,7 +43,7 @@ models:
     add_transformer: True
     d_model: 512
     nhead: 8
-    num_layers: 1
+    num_layers: 3
     dim_feedforward: 1024
     dropout: 0.3
 training:

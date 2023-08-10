@@ -244,20 +244,14 @@ class TransformerEncoder(nn.Module):
             self.flat_head = nn.Linear(d_model, output_dim)
 
     def forward(self, src, src_key_padding_mask):
-        print('src1', src.shape)
         src = self.positional_encoding(src)
-        print('src2', src.shape)
         hidden = self.transformer_encoder(src, src_key_padding_mask=src_key_padding_mask)
-        print('hidden1', hidden.shape)
 
         hidden = torch.permute(hidden, (1, 0, 2))
-        print('hidden2', hidden.shape)
         hidden = hidden[~src_key_padding_mask]
-        print('hidden3', hidden.shape)
 
         if self.hierar:
             relation_1, relation_2, relation_3, super_relation = self.bayes_head(hidden)
-            print('relation_1', relation_1.shape)
             return relation_1, relation_2, relation_3, super_relation
         else:
             relation = self.flat_head(hidden)
