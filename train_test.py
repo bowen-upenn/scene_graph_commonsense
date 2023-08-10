@@ -368,6 +368,8 @@ def train_local(gpu, args, train_subset, test_subset):
 
                 temp = criterion_contrast(rank, hidden_cat_all, hidden_cat_labels_all)
                 loss_contrast += 0.0 if torch.isnan(temp) else args['training']['lambda_contrast'] * temp
+                print('loss_contrast', loss_contrast)
+
 
                 # use a transformer encoder network to fuse global information about all relation triplets in the scene
                 seq_lens = [len(sublist) for sublist in hidden_cat_accumulated]
@@ -396,20 +398,38 @@ def train_local(gpu, args, train_subset, test_subset):
                     super_relation_target[
                         torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric'] + args['models']['num_possessive'])] = 1
                     super_relation_target[super_relation_target >= args['models']['num_geometric'] + args['models']['num_possessive']] = 2
-                    loss_transformer += criterion_super_relationship(super_relation, super_relation_target)
+                    print('refined_super_relation', refined_super_relation.shape, 'super_relation_target', super_relation_target.shape)
+                    loss_transformer += criterion_super_relationship(refined_super_relation, super_relation_target)
+                    print('loss_transformer0', loss_transformer)
 
                     connected_1 = torch.nonzero(hidden_cat_labels_all < args['models']['num_geometric']).flatten()  # geometric
                     connected_2 = torch.nonzero(torch.logical_and(hidden_cat_labels_all >= args['models']['num_geometric'],
                                                                   hidden_cat_labels_all < args['models']['num_geometric'] + args['models']['num_possessive'])).flatten()  # possessive
                     connected_3 = torch.nonzero(hidden_cat_labels_all >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
+
+                    print('hidden_cat_labels_all', hidden_cat_labels_all)
+                    print('hidden_cat_labels_all[connected_1]', hidden_cat_labels_all[connected_1])
+                    print('hidden_cat_labels_all[connected_2]', hidden_cat_labels_all[connected_2] - args['models']['num_geometric'])
+                    print('hidden_cat_labels_all[connected_3]', hidden_cat_labels_all[connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+
                     if len(connected_1) > 0:
-                        loss_transformer += criterion_relationship_1(relation_1[connected_1], hidden_cat_labels_all[connected_1])
+                        print('relation_1[connected_1]', refined_relation_1[connected_1].shape, 'hidden_cat_labels_all[connected_1]', hidden_cat_labels_all[connected_1].shape)
+                        loss_transformer += criterion_relationship_1(refined_relation_1[connected_1], hidden_cat_labels_all[connected_1])
+                        print('loss_transformer1', loss_transformer)
                     if len(connected_2) > 0:
-                        loss_transformer += criterion_relationship_2(relation_2[connected_2], hidden_cat_labels_all[connected_2] - args['models']['num_geometric'])
+                        print('relation_2[connected_2]', refined_relation_2[connected_2].shape, 'hidden_cat_labels_all[connected_1]', hidden_cat_labels_all[connected_2].shape)
+                        loss_transformer += criterion_relationship_2(refined_relation_2[connected_2], hidden_cat_labels_all[connected_2]-args['models']['num_geometric'])
+                        print('loss_transformer2', loss_transformer)
                     if len(connected_3) > 0:
-                        loss_transformer += criterion_relationship_3(relation_3[connected_3], hidden_cat_labels_all - args['models']['num_geometric'] - args['models']['num_possessive'])
+                        print('relation_3[connected_3]', refined_relation_3[connected_3].shape, 'hidden_cat_labels_all[connected_3]', hidden_cat_labels_all[connected_3].shape)
+                        loss_transformer += criterion_relationship_3(refined_relation_3[connected_3], hidden_cat_labels_all[connected_3]-args['models']['num_geometric']-args['models']['num_possessive'])
+                        print('loss_transformer3', loss_transformer)
                 else:
-                    loss_transformer += criterion_relationship(relation, hidden_cat_labels_all)
+                    loss_transformer += criterion_relationship(refined_relation, hidden_cat_labels_all)
+
+                print('loss_transformer', loss_transformer)
+
+            print('done transformer!!!!!')
 
             running_loss_contrast += args['training']['lambda_contrast'] * loss_contrast
             running_loss_transformer += loss_transformer
@@ -440,7 +460,7 @@ def train_local(gpu, args, train_subset, test_subset):
                                      num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
 
-            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_recall, connectivity_precision, \
+            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_transformer, connectivity_precision, \
                 num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if args['models']['hierarchical_pred']:
