@@ -5,23 +5,21 @@ import torch.nn.functional as F
 import math
 
 
-class MotifHead(nn.Module):
+class BayesHead(nn.Module):
     """
     The prediction head with a hierarchical classification when the optional transformer encoder is used.
     """
     def __init__(self, input_dim=256, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
-        super(MotifHead, self).__init__()
+        super(BayesHead, self).__init__()
         self.fc3_1 = nn.Linear(2 * input_dim, num_geometric)
         self.fc3_2 = nn.Linear(2 * input_dim, num_possessive)
         self.fc3_3 = nn.Linear(2 * input_dim, num_semantic)
-        self.fc4 = nn.Linear(2 * input_dim, 1)
         self.fc5 = nn.Linear(2 * input_dim, 3)
         self.T1 = T1
         self.T2 = T2
         self.T3 = T3
 
     def forward(self, h):
-        connectivity = self.fc4(h)
         super_relation = F.log_softmax(self.fc5(h), dim=1)
 
         # By Bayes rule, log p(relation_n, super_n) = log p(relation_1 | super_1) + log p(super_1)
@@ -31,7 +29,7 @@ class MotifHead(nn.Module):
         relation_2 = F.log_softmax(relation_2 / self.T2, dim=1) + super_relation[:, 1].view(-1, 1)
         relation_3 = self.fc3_3(h)           # semantic
         relation_3 = F.log_softmax(relation_3 / self.T3, dim=1) + super_relation[:, 2].view(-1, 1)
-        return relation_1, relation_2, relation_3, super_relation, connectivity
+        return relation_1, relation_2, relation_3, super_relation
 
 
 class FlatMotif(nn.Module):
@@ -103,7 +101,8 @@ class HierMotif(nn.Module):
     """
     The local prediction module with a hierarchical classification.
     """
-    def __init__(self, args, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
+    def __init__(self, args, input_dim=128, feature_size=32, num_classes=150, num_super_classes=17, num_geometric=15,
+                 num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
         super(HierMotif, self).__init__()
         self.input_dim = input_dim
         self.num_classes = num_classes
@@ -171,17 +170,6 @@ class HierMotif(nn.Module):
             else:
                 hc = torch.cat((h, c1, c2), dim=1)
 
-        pred = self.dropout2(F.relu(self.fc2(hc)))
-        connectivity = self.fc4(pred)   # (batch_size, 1)
-        super_relation = F.log_softmax(self.fc5(pred), dim=1)
-
-        relation_1 = self.fc3_1(pred)   # geometric
-        relation_1 = F.log_softmax(relation_1 / self.T1, dim=1) + super_relation[:, 0].view(-1, 1)
-        relation_2 = self.fc3_2(pred)   # possessive
-        relation_2 = F.log_softmax(relation_2 / self.T2, dim=1) + super_relation[:, 1].view(-1, 1)
-        relation_3 = self.fc3_3(pred)   # semantic
-        relation_3 = F.log_softmax(relation_3 / self.T3, dim=1) + super_relation[:, 2].view(-1, 1)
-
         if h_graph_aug is not None:
             if h_graph_aug.shape[1] == 2 * self.input_dim + 1:
                 h_graph_aug = torch.tanh(self.conv1_1(h_graph_aug))
@@ -207,4 +195,70 @@ class HierMotif(nn.Module):
         else:
             pred_aug = None
 
+        pred = self.dropout2(F.relu(self.fc2(hc)))
+        connectivity = self.fc4(pred)   # (batch_size, 1)
+        super_relation = F.log_softmax(self.fc5(pred), dim=1)
+
+        relation_1 = self.fc3_1(pred)   # geometric
+        relation_1 = F.log_softmax(relation_1 / self.T1, dim=1) + super_relation[:, 0].view(-1, 1)
+        relation_2 = self.fc3_2(pred)   # possessive
+        relation_2 = F.log_softmax(relation_2 / self.T2, dim=1) + super_relation[:, 1].view(-1, 1)
+        relation_3 = self.fc3_3(pred)   # semantic
+        relation_3 = F.log_softmax(relation_3 / self.T3, dim=1) + super_relation[:, 2].view(-1, 1)
+
         return relation_1, relation_2, relation_3, super_relation, connectivity, pred, pred_aug
+
+
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=0.1)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        # if error "some elements of the input tensor and the written-to tensor refer to a single memory location", add requires_grad=False
+        self.register_parameter('pe', nn.Parameter(pe, requires_grad=False))
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
+
+class TransformerEncoder(nn.Module):
+    def __init__(self, d_model=512, nhead=8, num_layers=3, dim_feedforward=1024, dropout=0.3,
+                 num_geometric=15, num_possessive=11, num_semantic=24, output_dim=50, hierar=True):
+        super(TransformerEncoder, self).__init__()
+        self.positional_encoding = PositionalEncoding(d_model)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=False)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.hierar = hierar
+        if self.hierar:
+            self.bayes_head = BayesHead(d_model, num_geometric, num_possessive, num_semantic)
+        else:
+            self.flat_head = nn.Linear(d_model, output_dim)
+
+    def forward(self, src, src_key_padding_mask):
+        print('src1', src.shape)
+        src = self.positional_encoding(src)
+        print('src2', src.shape)
+        hidden = self.transformer_encoder(src, src_key_padding_mask=src_key_padding_mask)
+        print('hidden1', hidden.shape)
+
+        hidden = torch.permute(hidden, (1, 0, 2))
+        print('hidden2', hidden.shape)
+        hidden = hidden[~src_key_padding_mask]
+        print('hidden3', hidden.shape)
+
+        if self.hierar:
+            relation_1, relation_2, relation_3, super_relation = self.bayes_head(hidden)
+            print('relation_1', relation_1.shape)
+            return relation_1, relation_2, relation_3, super_relation
+        else:
+            relation = self.flat_head(hidden)
+            return relation

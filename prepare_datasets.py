@@ -37,8 +37,8 @@ test_subset_idx = torch.arange(len(test_dataset))[test_start:]
 test_subset = Subset(test_dataset, test_subset_idx)
 print('num of train, test:', len(train_subset), len(test_subset))
 
-train_loader = torch.utils.data.DataLoader(train_subset, batch_size=1, shuffle=False) #, collate_fn=collate_fn
-test_loader = torch.utils.data.DataLoader(test_subset,  batch_size=1, shuffle=False)
+train_loader = torch.utils.data.DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=collate_fn)
+test_loader = torch.utils.data.DataLoader(test_subset,  batch_size=1, shuffle=False, collate_fn=collate_fn)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 world_size = torch.cuda.device_count()

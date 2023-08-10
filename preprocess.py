@@ -10,13 +10,14 @@ from __future__ import unicode_literals
 import json
 import yaml
 import numpy as np
+import h5py
 from collections import Counter
 from dataset import *
 from dataset_utils import *
 
 
 # load hyper-parameters
-try: 
+try:
     with open ('config.yaml', 'r') as file:
         args = yaml.safe_load(file)
 except Exception as e:
@@ -26,6 +27,14 @@ N_class = args['models']['num_classes']  # keep the top 150 classes
 N_relation = args['models']['num_relations']  # keep the top 50 relations
 raw_data_dir = args['dataset']['raw_annot_dir']
 output_dir = raw_data_dir
+
+# Ensure an identical train-test split with the pretrained detr backbone and other works
+# using VG-SGG-with-attri.h5 from https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch/blob/master/DATASET.md
+roi_h5 = h5py.File('datasets/vg_scene_graph_annot/VG-SGG-with-attri.h5', 'r')
+data_split = roi_h5['split'][:]
+all_training_idx = np.where(data_split == 0)[0]
+all_testing_idx = np.where(data_split == 2)[0]
+assert len(all_training_idx) == 75651 and len(all_testing_idx) == 32422
 
 # ---------------------------------------------------------------------------- #
 # Load raw VG annotations and collect top-frequent synsets
@@ -42,6 +51,7 @@ with open(raw_data_dir + 'relationships.json') as f:
 # Clean raw dataset
 # ---------------------------------------------------------------------------- #
 
+# same pre-processing as in https://github.com/danfeiX/scene-graph-TF-release/blob/master/data_tools/vg_to_roidb.py
 sync_objects(raw_obj_data, raw_relation_data)
 obj_rel_cross_check(raw_obj_data, raw_relation_data)
 
@@ -194,32 +204,16 @@ print('Done building relationship annotations.', len(annotations), 'skip_count:'
 # Split into train and test
 # ---------------------------------------------------------------------------- #
 
-images_traintest = [img for img in images]
-total_num = len(images_traintest)
-test_begin_idx = int(args['dataset']['train_test_split'] * total_num)
-# Split: test
-images_test = images_traintest[test_begin_idx:]
-imgids_test = {img['id'] for img in images_test}
-# Split: train
-images_train = images_traintest[:test_begin_idx]
-imgids_train = {img['id'] for img in images_train}
-print('number of total, train, test images: {}, {}, {}'.format(
-    total_num, len(images_train), len(images_test)))
-
 # Save the dataset splits
-annotations_train = [
-    ann for ann in annotations
-    if ann['image_id'] in imgids_train]
-annotations_test = [
-    ann for ann in annotations
-    if ann['image_id'] in imgids_test]
+images_train = [images[i] for i in all_training_idx]
+images_test = [images[i] for i in all_testing_idx]
+print('len(images_train)', len(images_train), 'len(images_test)', len(images_test))
+assert len(images_train) == 75651 and len(images_test) == 32422
 
-instances_train = [
-    ann for ann in instances
-    if ann['image_id'] in imgids_train]
-instances_test = [
-    ann for ann in instances
-    if ann['image_id'] in imgids_test]
+annotations_train = [annotations[i] for i in all_training_idx]
+annotations_test = [annotations[i] for i in all_testing_idx]
+instances_train = [instances[i] for i in all_training_idx]
+instances_test = [instances[i] for i in all_testing_idx]
 
 # ---------------------------------------------------------------------------- #
 # Save to json file
