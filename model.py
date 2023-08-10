@@ -9,12 +9,12 @@ class BayesHead(nn.Module):
     """
     The prediction head with a hierarchical classification when the optional transformer encoder is used.
     """
-    def __init__(self, input_dim=256, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
+    def __init__(self, input_dim=512, num_geometric=15, num_possessive=11, num_semantic=24, T1=1, T2=1, T3=1):
         super(BayesHead, self).__init__()
-        self.fc3_1 = nn.Linear(2 * input_dim, num_geometric)
-        self.fc3_2 = nn.Linear(2 * input_dim, num_possessive)
-        self.fc3_3 = nn.Linear(2 * input_dim, num_semantic)
-        self.fc5 = nn.Linear(2 * input_dim, 3)
+        self.fc3_1 = nn.Linear(input_dim, num_geometric)
+        self.fc3_2 = nn.Linear(input_dim, num_possessive)
+        self.fc3_3 = nn.Linear(input_dim, num_semantic)
+        self.fc5 = nn.Linear(input_dim, 3)
         self.T1 = T1
         self.T2 = T2
         self.T3 = T3

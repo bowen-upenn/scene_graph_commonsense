@@ -385,10 +385,7 @@ def train_local(gpu, args, train_subset, test_subset):
                 if args['models']['hierarchical_pred']:
                     print('padded_hidden_cat_all', padded_hidden_cat_all.shape, 'src_key_padding_mask', src_key_padding_mask.shape)
                     refined_relation_1, refined_relation_2, refined_relation_3, refined_super_relation = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
-                    print('before relation_1', refined_relation_1.shape, 'relation_2', refined_relation_2.shape, 'relation_3', refined_relation_3.shape, 'super_relation', refined_super_relation.shape)
-                    refined_relation_1, refined_relation_2, refined_relation_3, refined_super_relation = refined_relation_1[not src_key_padding_mask], refined_relation_2[not src_key_padding_mask], \
-                                                                         refined_relation_3[not src_key_padding_mask], refined_super_relation[not src_key_padding_mask]
-                    print('after relation_1', refined_relation_1.shape, 'relation_2', refined_relation_2.shape, 'relation_3', refined_relation_3.shape, 'super_relation', refined_super_relation.shape)
+                    print('before relation', refined_relation_1.shape, 'relation_2', refined_relation_2.shape, 'relation_3', refined_relation_3.shape, 'super_relation', refined_super_relation.shape)
                 else:
                     refined_relation = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
                     refined_relation = refined_relation[not src_key_padding_mask]
