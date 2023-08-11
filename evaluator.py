@@ -14,6 +14,7 @@ class Evaluator_PC:
     """
     def __init__(self, args, num_classes, iou_thresh, top_k):
         self.args = args
+        self.hierar = args['models']['hierarchical_pred']
         self.top_k = top_k
         self.num_classes = num_classes
         self.iou_thresh = iou_thresh
@@ -94,7 +95,7 @@ class Evaluator_PC:
                    subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target):
 
         if self.relation_pred is None:
-            if super_relation_pred is None:     # flat relationship prediction
+            if not self.hierar:     # flat relationship prediction
                 self.which_in_batch = which_in_batch
                 self.connected_pred = torch.exp(connectivity)
                 self.confidence = connectivity + torch.max(relation_pred, dim=1)[0]
@@ -115,14 +116,17 @@ class Evaluator_PC:
             else:
                 self.which_in_batch = which_in_batch.repeat(3)
                 self.confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
-                                                torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
-                                                torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0]))
+                                                torch.max(relation_pred[:, self.args['models']['num_geometric']:
+                                                                           self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
+                                                torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
                 self.confidence += connectivity.repeat(3)
                 self.connected_pred = torch.exp(connectivity).repeat(3)
 
                 self.relation_pred = torch.hstack((torch.argmax(relation_pred[:, :self.args['models']['num_geometric']], dim=1),
-                                                   torch.argmax(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1) + self.args['models']['num_geometric'],
-                                                   torch.argmax(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1) + self.args['models']['num_geometric']+self.args['models']['num_possessive']))
+                                                   torch.argmax(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)
+                                                   + self.args['models']['num_geometric'],
+                                                   torch.argmax(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)
+                                                   + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
                 self.relation_target = relation_target.repeat(3)
 
                 self.subject_cat_pred = subject_cat_pred.repeat(3)
@@ -135,7 +139,7 @@ class Evaluator_PC:
                 self.subject_bbox_target = subject_bbox_target.repeat(3, 1)
                 self.object_bbox_target = object_bbox_target.repeat(3, 1)
         else:
-            if super_relation_pred is None:  # flat relationship prediction
+            if not self.hierar:     # flat relationship prediction
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
                 confidence = connectivity + torch.max(relation_pred, dim=1)[0]
                 # confidence = torch.max(relation_pred, dim=1)[0]
@@ -157,16 +161,19 @@ class Evaluator_PC:
             else:
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(3)))
                 confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
-                                           torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
-                                           torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0]))
+                                           torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']
+                                                                                                           + self.args['models']['num_possessive']], dim=1)[0],
+                                           torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
                 confidence += connectivity.repeat(3)
                 self.confidence = torch.hstack((self.confidence, confidence))
                 connectivity_pred = torch.exp(connectivity).repeat(3)
                 self.connected_pred = torch.hstack((self.connected_pred, connectivity_pred))
 
                 relation_pred_candid = torch.hstack((torch.argmax(relation_pred[:, :self.args['models']['num_geometric']], dim=1),
-                                                     torch.argmax(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1) + self.args['models']['num_geometric'],
-                                                     torch.argmax(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1) + self.args['models']['num_geometric']+self.args['models']['num_possessive']))
+                                                     torch.argmax(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)
+                                                     + self.args['models']['num_geometric'],
+                                                     torch.argmax(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)
+                                                     + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
                 self.relation_pred = torch.hstack((self.relation_pred, relation_pred_candid))
                 self.relation_target = torch.hstack((self.relation_target, relation_target.repeat(3)))
 
@@ -179,6 +186,19 @@ class Evaluator_PC:
                 self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat(3, 1)))
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat(3, 1)))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(3, 1)))
+
+    def global_refine(self, refined_relation, connected_indices_accumulated):
+        if not self.hierar:  # flat relationship prediction
+            refined_relation = torch.argmax(refined_relation, dim=1)
+            self.relation_pred[connected_indices_accumulated] = refined_relation
+        else:
+            refined_relation = torch.hstack((torch.argmax(refined_relation[:, :self.args['models']['num_geometric']], dim=1),
+                                             torch.argmax(refined_relation[:, self.args['models']['num_geometric']:self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)
+                                             + self.args['models']['num_geometric'],
+                                             torch.argmax(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)
+                                             + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
+            connected_indices_accumulated = connected_indices_accumulated.repeat(3)
+            self.relation_pred[connected_indices_accumulated] = refined_relation
 
     def compute(self, per_class=False):
         """
@@ -408,6 +428,9 @@ class Evaluator_PC_Top3:
             self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred))
             self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
             self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
+
+    def global_refine(self, refined_relation, connected_indices_accumulated):
+        self.relation_pred[connected_indices_accumulated] = refined_relation
 
     def compute(self, per_class=False):
         """
