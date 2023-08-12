@@ -14,8 +14,8 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 0.001
-    percent_test: 0.001
+    percent_train: 1 #0.001
+    percent_test: 1 #0.001
     dataset: 'vg' # vg, oiv6
 models:
     detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
@@ -43,16 +43,16 @@ models:
     add_transformer: True
     d_model: 512
     nhead: 8
-    num_layers: 3
-    dim_feedforward: 1024
+    num_layers: 1
+    dim_feedforward: 512
     dropout: 0.3
 training:
     run_mode: 'train'      # train or eval
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.00001
     weight_decay: 0.0001
-    batch_size: 16
-    num_epoch: 4
+    batch_size: 12
+    num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
     continue_train: False

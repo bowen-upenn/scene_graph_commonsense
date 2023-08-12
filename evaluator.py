@@ -39,8 +39,9 @@ class Evaluator_PC:
             self.num_conn_target_per_class_ap = torch.tensor([0.0 for i in range(self.num_classes)])
 
         self.which_in_batch = None
-        self.connected_pred = None
+        # self.connected_pred = None
         self.confidence = None
+        self.connectivity = None
         self.relation_pred = None
         self.relation_target = None
 
@@ -69,18 +70,14 @@ class Evaluator_PC:
     def iou_union(self, bbox_pred1, bbox_pred2, bbox_target1, bbox_target2):
         mask_pred1 = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_pred1[int(bbox_pred1[2]):int(bbox_pred1[3]), int(bbox_pred1[0]):int(bbox_pred1[1])] = 1
-        # mask_pred1[int(bbox_pred1[1]):int(bbox_pred1[3]), int(bbox_pred1[0]):int(bbox_pred1[2])] = 1
         mask_pred2 = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_pred2[int(bbox_pred2[2]):int(bbox_pred2[3]), int(bbox_pred2[0]):int(bbox_pred2[1])] = 1
-        # mask_pred2[int(bbox_pred2[1]):int(bbox_pred2[3]), int(bbox_pred2[0]):int(bbox_pred2[2])] = 1
         mask_pred = torch.logical_or(mask_pred1, mask_pred2)
 
         mask_target1 = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_target1[int(bbox_target1[2]):int(bbox_target1[3]), int(bbox_target1[0]):int(bbox_target1[1])] = 1
-        # mask_target1[int(bbox_target1[1]):int(bbox_target1[3]), int(bbox_target1[0]):int(bbox_target1[2])] = 1
         mask_target2 = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_target2[int(bbox_target2[2]):int(bbox_target2[3]), int(bbox_target2[0]):int(bbox_target2[1])] = 1
-        # mask_target2[int(bbox_target2[1]):int(bbox_target2[3]), int(bbox_target2[0]):int(bbox_target2[2])] = 1
         mask_target = torch.logical_or(mask_target1, mask_target2)
 
         intersect = torch.sum(torch.logical_and(mask_target, mask_pred))
@@ -97,8 +94,9 @@ class Evaluator_PC:
         if self.relation_pred is None:
             if not self.hierar:     # flat relationship prediction
                 self.which_in_batch = which_in_batch
-                self.connected_pred = torch.exp(connectivity)
-                self.confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                # self.connected_pred = torch.exp(connectivity)
+                self.connectivity = connectivity
+                self.confidence = torch.max(relation_pred, dim=1)[0]
                 # self.confidence = torch.max(relation_pred, dim=1)[0]
 
                 self.relation_pred = torch.argmax(relation_pred, dim=1)
@@ -119,8 +117,8 @@ class Evaluator_PC:
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']:
                                                                            self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
-                self.confidence += connectivity.repeat(3)
-                self.connected_pred = torch.exp(connectivity).repeat(3)
+                self.connectivity = connectivity.repeat(3)
+                # self.connected_pred = torch.exp(connectivity).repeat(3)
 
                 self.relation_pred = torch.hstack((torch.argmax(relation_pred[:, :self.args['models']['num_geometric']], dim=1),
                                                    torch.argmax(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)
@@ -141,10 +139,11 @@ class Evaluator_PC:
         else:
             if not self.hierar:     # flat relationship prediction
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
-                confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                # confidence = connectivity + torch.max(relation_pred, dim=1)[0]
                 # confidence = torch.max(relation_pred, dim=1)[0]
-                self.confidence = torch.hstack((self.confidence, confidence))
-                self.connected_pred = torch.hstack((self.connected_pred, torch.exp(connectivity)))
+                self.confidence = torch.hstack((self.confidence, torch.max(relation_pred, dim=1)[0]))
+                self.connectivity = torch.hstack((self.connectivity, connectivity))
+                # self.connected_pred = torch.hstack((self.connected_pred, torch.exp(connectivity)))
 
                 self.relation_pred = torch.hstack((self.relation_pred, torch.argmax(relation_pred, dim=1)))
                 self.relation_target = torch.hstack((self.relation_target, relation_target))
@@ -164,10 +163,11 @@ class Evaluator_PC:
                                            torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']
                                                                                                            + self.args['models']['num_possessive']], dim=1)[0],
                                            torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
-                confidence += connectivity.repeat(3)
+                # confidence += connectivity.repeat(3)
                 self.confidence = torch.hstack((self.confidence, confidence))
-                connectivity_pred = torch.exp(connectivity).repeat(3)
-                self.connected_pred = torch.hstack((self.connected_pred, connectivity_pred))
+                self.connectivity = torch.hstack((self.connectivity, connectivity.repeat(3)))
+                # connectivity_pred = torch.exp(connectivity).repeat(3)
+                # self.connected_pred = torch.hstack((self.connected_pred, connectivity_pred))
 
                 relation_pred_candid = torch.hstack((torch.argmax(relation_pred[:, :self.args['models']['num_geometric']], dim=1),
                                                      torch.argmax(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)
@@ -189,16 +189,22 @@ class Evaluator_PC:
 
     def global_refine(self, refined_relation, connected_indices_accumulated):
         if not self.hierar:  # flat relationship prediction
-            refined_relation = torch.argmax(refined_relation, dim=1)
-            self.relation_pred[connected_indices_accumulated] = refined_relation
+            self.relation_pred[connected_indices_accumulated] = torch.argmax(refined_relation, dim=1)
+            self.confidence[connected_indices_accumulated] = torch.max(refined_relation, dim=1)[0]
         else:
-            refined_relation = torch.hstack((torch.argmax(refined_relation[:, :self.args['models']['num_geometric']], dim=1),
+            connected_indices_accumulated = connected_indices_accumulated.repeat(3)
+            relation_pred = torch.hstack((torch.argmax(refined_relation[:, :self.args['models']['num_geometric']], dim=1),
                                              torch.argmax(refined_relation[:, self.args['models']['num_geometric']:self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)
                                              + self.args['models']['num_geometric'],
                                              torch.argmax(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)
                                              + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
-            connected_indices_accumulated = connected_indices_accumulated.repeat(3)
-            self.relation_pred[connected_indices_accumulated] = refined_relation
+            self.relation_pred[connected_indices_accumulated] = relation_pred
+
+            confidence = torch.hstack((torch.max(refined_relation[:, :self.args['models']['num_geometric']], dim=1)[0],
+                                       torch.max(refined_relation[:, self.args['models']['num_geometric']: self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
+                                       torch.max(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
+            self.confidence[connected_indices_accumulated] = confidence
+
 
     def compute(self, per_class=False):
         """
@@ -206,6 +212,8 @@ class Evaluator_PC:
         the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
         """
         recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs = None, None, None
+        self.confidence += self.connectivity
+
         for image in torch.unique(self.which_in_batch):  # image-wise
             curr_image = self.which_in_batch == image
             num_relation_pred = len(self.relation_pred[curr_image])
@@ -320,6 +328,7 @@ class Evaluator_PC:
     def clear_data(self):
         self.which_in_batch = None
         self.confidence = None
+        self.connectivity = None
         self.relation_pred = None
         self.relation_target = None
 
@@ -355,9 +364,8 @@ class Evaluator_PC_Top3:
         self.num_conn_target_per_class = torch.tensor([0.0 for i in range(self.num_classes)])
 
         self.which_in_batch = None
-        self.connected_pred = None
-
         self.confidence = None
+        self.connectivity = None
         self.relation_pred = None
         self.relation_target = None
         self.super_relation_pred = None
@@ -375,10 +383,8 @@ class Evaluator_PC_Top3:
     def iou(self, bbox_target, bbox_pred):
         mask_pred = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_pred[int(bbox_pred[2]):int(bbox_pred[3]), int(bbox_pred[0]):int(bbox_pred[1])] = 1
-        # mask_pred[int(bbox_pred[1]):int(bbox_pred[3]), int(bbox_pred[0]):int(bbox_pred[2])] = 1
         mask_target = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_target[int(bbox_target[2]):int(bbox_target[3]), int(bbox_target[0]):int(bbox_target[1])] = 1
-        # mask_target[int(bbox_target[1]):int(bbox_target[3]), int(bbox_target[0]):int(bbox_target[2])] = 1
         intersect = torch.sum(torch.logical_and(mask_target, mask_pred))
         union = torch.sum(torch.logical_or(mask_target, mask_pred))
         if union == 0:
@@ -392,9 +398,10 @@ class Evaluator_PC_Top3:
 
         if self.relation_pred is None:
             self.which_in_batch = which_in_batch
-            self.confidence = connectivity + torch.max(torch.vstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
-                                                                     torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
-                                                                     torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0])), dim=0)[0]  # in log space, [0] to take values
+            self.connectivity = connectivity
+            self.confidence = torch.max(torch.vstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
+                                                      torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
+                                                      torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0])), dim=0)[0]  # in log space, [0] to take values
             self.relation_pred = relation_pred
             self.relation_target = relation_target
             self.super_relation_pred = super_relation_pred
@@ -410,11 +417,13 @@ class Evaluator_PC_Top3:
             self.object_bbox_target = object_bbox_target
         else:
             self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
+            self.connectivity = torch.hstack((self.connectivity, connectivity))
 
-            confidence = connectivity + torch.max(torch.vstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
-                                                                torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
-                                                                torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0])), dim=0)[0]  # in log space, [0] to take values
+            confidence = torch.max(torch.vstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
+                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
+                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0])), dim=0)[0]  # in log space, [0] to take values
             self.confidence = torch.hstack((self.confidence, confidence))
+
             self.relation_pred = torch.vstack((self.relation_pred, relation_pred))
             self.relation_target = torch.hstack((self.relation_target, relation_target))
             self.super_relation_pred = torch.vstack((self.super_relation_pred, super_relation_pred))
@@ -430,13 +439,22 @@ class Evaluator_PC_Top3:
             self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
     def global_refine(self, refined_relation, connected_indices_accumulated):
-        self.relation_pred[connected_indices_accumulated] = refined_relation
+        # print('self.relation_pred', self.relation_pred.shape, 'connected_indices_accumulated', connected_indices_accumulated.shape)
+        # print('self.relation_pred[connected_indices_accumulated]', self.relation_pred[connected_indices_accumulated].shape, 'refined_relation', refined_relation.shape)
+        self.relation_pred[connected_indices_accumulated, :] = refined_relation
+
+        confidence = torch.max(torch.vstack((torch.max(refined_relation[:, :self.args['models']['num_geometric']], dim=1)[0],
+                                             torch.max(refined_relation[:, self.args['models']['num_geometric']:self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
+                                             torch.max(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0])), dim=0)[0]
+        self.confidence[connected_indices_accumulated] = confidence
 
     def compute(self, per_class=False):
         """
         A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,
         the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
         """
+        self.confidence += self.connectivity
+
         for image in torch.unique(self.which_in_batch):  # image-wise
             curr_image = self.which_in_batch == image
             num_relation_pred = len(self.relation_pred[curr_image])
@@ -465,11 +483,12 @@ class Evaluator_PC_Top3:
                         if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
                             if not found:
                                 relation_pred_1 = self.relation_pred[curr_image][keep_inds][j][:self.args['models']['num_geometric']]  # geometric
-                                relation_pred_2 = self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']]  # possessive
-                                relation_pred_3 = self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric']+self.args['models']['num_possessive']:]  # semantic
+                                relation_pred_2 = self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric']:self.args['models']['num_geometric']
+                                                                                                                                    + self.args['models']['num_possessive']]  # possessive
+                                relation_pred_3 = self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric'] + self.args['models']['num_possessive']:]  # semantic
                                 if self.relation_target[curr_image][i] == torch.argmax(relation_pred_1) \
                                         or self.relation_target[curr_image][i] == torch.argmax(relation_pred_2) + self.args['models']['num_geometric'] \
-                                        or self.relation_target[curr_image][i] == torch.argmax(relation_pred_3) + self.args['models']['num_geometric']+self.args['models']['num_possessive']:
+                                        or self.relation_target[curr_image][i] == torch.argmax(relation_pred_3) + self.args['models']['num_geometric'] + self.args['models']['num_possessive']:
                                     for k in self.top_k:
                                         if j >= max(k, num_target):
                                             continue
@@ -481,8 +500,10 @@ class Evaluator_PC_Top3:
                             if not found_top1:
                                 curr_super = torch.argmax(self.super_relation_pred[curr_image][keep_inds][j])
                                 relation_preds = [torch.argmax(self.relation_pred[curr_image][keep_inds][j][:self.args['models']['num_geometric']]),
-                                                  torch.argmax(self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']]) + self.args['models']['num_geometric'],
-                                                  torch.argmax(self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric']+self.args['models']['num_possessive']:]) + self.args['models']['num_geometric']+self.args['models']['num_possessive']]
+                                                  torch.argmax(self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric']:self.args['models']['num_geometric']
+                                                                                                            + self.args['models']['num_possessive']]) + self.args['models']['num_geometric'],
+                                                  torch.argmax(self.relation_pred[curr_image][keep_inds][j][self.args['models']['num_geometric'] + self.args['models']['num_possessive']:])
+                                                                                                            + self.args['models']['num_geometric'] + self.args['models']['num_possessive']]
                                 if self.relation_target[curr_image][i] == relation_preds[curr_super]:
                                     for k in self.top_k:
                                         if j >= max(k, num_target):
@@ -509,6 +530,7 @@ class Evaluator_PC_Top3:
         self.which_in_batch = None
         self.confidence = None
         self.relation_pred = None
+        self.connectivity = None
         self.relation_target = None
 
         self.subject_cat_pred = None

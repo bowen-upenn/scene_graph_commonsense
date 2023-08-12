@@ -115,11 +115,12 @@ def train_local(gpu, args, train_subset, test_subset):
 
     running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_transformer, connectivity_recall, connectivity_precision, \
     num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-    recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
+    recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None
+    # recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
-    if args['dataset']['dataset'] == 'vg':
-        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    # if args['dataset']['dataset'] == 'vg':
+    #     Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -271,9 +272,9 @@ def train_local(gpu, args, train_subset, test_subset):
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                        #                            cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
                     # print('loss_contrast', loss_contrast, 'loss_relationship', loss_relationship)
                     losses += loss_relationship + args['training']['lambda_connectivity'] * (
@@ -346,9 +347,9 @@ def train_local(gpu, args, train_subset, test_subset):
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                        #                            cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
                     # print('loss_contrast', loss_contrast, 'loss_relationship', loss_relationship)
                     losses += loss_relationship + args['training']['lambda_connectivity'] * (
@@ -413,8 +414,8 @@ def train_local(gpu, args, train_subset, test_subset):
                     # update the accumulated relation predictions
                     connected_indices_accumulated = torch.cat(connected_indices_accumulated)
                     Recall.global_refine(refined_relation, connected_indices_accumulated)
-                    if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        Recall_top3.global_refine(refined_relation, connected_indices_accumulated)
+                    # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                    #     Recall_top3.global_refine(refined_relation, connected_indices_accumulated)
                 # ---------------------------------------------------------------------------- #
 
             running_loss_contrast += args['training']['lambda_contrast'] * loss_contrast
@@ -430,11 +431,12 @@ def train_local(gpu, args, train_subset, test_subset):
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
             """
             if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
+                recall_top3 = None
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                    if args['models']['hierarchical_pred']:
-                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
-                        Recall_top3.clear_data()
+                    # if args['models']['hierarchical_pred']:
+                    #     recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                    #     Recall_top3.clear_data()
                 else:
                     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                     wmap_rel, wmap_phrase = Recall.compute_precision()
@@ -469,10 +471,11 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
     transformer_encoder.eval()
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
-    recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
+    # recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
+    recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
-    if args['dataset']['dataset'] == 'vg':
-        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    # if args['dataset']['dataset'] == 'vg':
+    #     Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Testing PC...')
     with torch.no_grad():
@@ -582,9 +585,9 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                        #                            cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
                     """
                     SECOND DIRECTION
@@ -624,9 +627,9 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                        #                            cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
             if not all(len(sublist) == 0 for sublist in hidden_cat_accumulated):
                 # ---------------------------------------------------------------------------- #
@@ -653,19 +656,20 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     # update the accumulated relation predictions
                     connected_indices_accumulated = torch.cat(connected_indices_accumulated)
                     Recall.global_refine(refined_relation, connected_indices_accumulated)
-                    if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        Recall_top3.global_refine(refined_relation, connected_indices_accumulated)
+                    # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                    #     Recall_top3.global_refine(refined_relation, connected_indices_accumulated)
                 # ---------------------------------------------------------------------------- #
 
             """
             EVALUATE AND PRINT CURRENT RESULTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                recall_top3 = None
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                    if args['models']['hierarchical_pred']:
-                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
-                        Recall_top3.clear_data()
+                    # if args['models']['hierarchical_pred']:
+                    #     recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                    #     Recall_top3.clear_data()
                 else:
                     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                     wmap_rel, wmap_phrase = Recall.compute_precision()
