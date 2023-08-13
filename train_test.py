@@ -431,7 +431,7 @@ def train_local(gpu, args, train_subset, test_subset):
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
             """
             if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                recall_top3 = None
+                recall_top3, mean_recall_top3 = None, None
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     # if args['models']['hierarchical_pred']:
@@ -567,9 +567,19 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     if len(connected) > 0:
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
+                    # connected_indices = torch.zeros(len(hidden), dtype=torch.bool).to(rank)
+                    # hidden = hidden[connected_pred]
+                    # connected_indices[connected_pred] = 1
+                    # connected_indices_accumulated.append(connected_indices)
+                    #
+                    # if len(hidden) > 0:
+                    #     hidden_labels = relations_target[graph_iter - 1][edge_iter][connected_pred]
+                    #     for index, batch_index in enumerate(keep_in_batch[connected_pred]):
+                    #         hidden_cat_accumulated[batch_index].append(hidden[index])
+                    #         hidden_cat_labels_accumulated[batch_index].append(hidden_labels[index])
                     connected_indices = torch.zeros(len(hidden), dtype=torch.bool).to(rank)
-                    hidden = hidden[connected_pred]
-                    connected_indices[connected_pred] = 1
+                    hidden = hidden[connected]
+                    connected_indices[connected] = 1
                     connected_indices_accumulated.append(connected_indices)
 
                     if len(hidden) > 0:
@@ -610,9 +620,19 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     if len(connected) > 0:
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
+                    # connected_indices = torch.zeros(len(hidden2), dtype=torch.bool).to(rank)
+                    # hidden2 = hidden2[connected_pred]
+                    # connected_indices[connected_pred] = 1
+                    # connected_indices_accumulated.append(connected_indices)
+                    #
+                    # if len(hidden2) > 0:
+                    #     hidden_labels2 = relations_target[graph_iter - 1][edge_iter][connected_pred]
+                    #     for index, batch_index in enumerate(keep_in_batch[connected_pred]):
+                    #         hidden_cat_accumulated[batch_index].append(hidden2[index])
+                    #         hidden_cat_labels_accumulated[batch_index].append(hidden_labels2[index])
                     connected_indices = torch.zeros(len(hidden2), dtype=torch.bool).to(rank)
-                    hidden2 = hidden2[connected_pred]
-                    connected_indices[connected_pred] = 1
+                    hidden2 = hidden2[connected]
+                    connected_indices[connected] = 1
                     connected_indices_accumulated.append(connected_indices)
 
                     if len(hidden2) > 0:
@@ -664,7 +684,7 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
             EVALUATE AND PRINT CURRENT RESULTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                recall_top3 = None
+                recall_top3, mean_recall_top3 = None, None
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     # if args['models']['hierarchical_pred']:

@@ -15,7 +15,7 @@ dataset:
     area_frac_thresh: 0.002
     train_test_split: 0.7
     percent_train: 1 #0.001
-    percent_test: 1 #0.001
+    percent_test: 0.01
     dataset: 'vg' # vg, oiv6
 models:
     detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
@@ -67,5 +67,5 @@ training:
     lambda_not_connected: 1
     print_freq: 100
     eval_freq: 100
-    print_freq_test: 50
+    print_freq_test: 20
     eval_freq_test: 1
