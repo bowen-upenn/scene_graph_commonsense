@@ -41,6 +41,7 @@ models:
     num_possessive: 11
     num_semantic: 24
     add_transformer: True
+    finetune_transformer: True
     d_model: 512
     nhead: 8
     num_layers: 1
@@ -51,11 +52,11 @@ training:
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.00001
     weight_decay: 0.0001
-    batch_size: 12
+    batch_size: 16
     num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
-    continue_train: False
+    continue_train: True
     start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
@@ -65,7 +66,7 @@ training:
     lambda_contrast: 1
     lambda_connectivity: 1
     lambda_not_connected: 1
-    print_freq: 100
-    eval_freq: 100
+    print_freq: 10
+    eval_freq: 10
     print_freq_test: 20
     eval_freq_test: 1

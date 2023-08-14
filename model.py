@@ -252,7 +252,7 @@ class TransformerEncoder(nn.Module):
 
         if self.hierar:
             relation_1, relation_2, relation_3, super_relation = self.bayes_head(hidden)
-            return relation_1, relation_2, relation_3, super_relation
+            return relation_1, relation_2, relation_3, super_relation, hidden
         else:
             relation = self.flat_head(hidden)
-            return relation
+            return relation, hidden
