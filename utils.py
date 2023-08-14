@@ -323,9 +323,10 @@ def record_train_results(args, record, rank, epoch, batch_count, original_lr, lr
         if args['models']['hierarchical_pred']:
             if recall_top3 is None:
                 if args['models']['finetune_transformer']:
-                    print('TRAIN, rank %d, epoch %d, batch %d, lr: %.6f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, loss (trans): %.4f.'
+                    print('TRAIN, rank %d, epoch %d, batch %d, lr: %.6f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, loss (con/trans): %.4f, %.4f.'
                           % (rank, epoch, batch_count, original_lr * lr_decay,
                              recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                             running_loss_contrast / (args['training']['print_freq'] * args['training']['batch_size']),
                              running_loss_transformer / (args['training']['print_freq'] * args['training']['batch_size'])))
                 else:
                     print('TRAIN, rank %d, epoch %d, batch %d, lr: %.8f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, loss (rel/con/trans): %.4f, %.4f, %.4f.'

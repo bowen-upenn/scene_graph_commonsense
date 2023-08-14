@@ -9,6 +9,7 @@ import os
 import math
 import torchvision
 from torchvision import transforms
+from transformers import get_linear_schedule_with_warmup
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -97,8 +98,11 @@ def train_local(gpu, args, train_subset, test_subset):
 
     if args['models']['add_transformer']:
         if args['models']['finetune_transformer']:
-            optimizer = optim.SGD([{'params': transformer_encoder.parameters(), 'initial_lr': args['training']['learning_rate']}],
-                                  lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
+            optimizer = optim.Adam([{'params': transformer_encoder.parameters(), 'initial_lr': args['training']['learning_rate']}],
+                                  lr=args['training']['learning_rate'], weight_decay=args['training']['weight_decay'])
+            num_training_steps = args['training']['num_epoch'] * len(train_loader)
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args['training']['warmup_percent'] * num_training_steps,
+                                                                     num_training_steps=num_training_steps, last_epoch=args['training']['start_epoch'] - 1)
             local_predictor.eval()
             transformer_encoder.train()
         else:
@@ -461,10 +465,12 @@ def train_local(gpu, args, train_subset, test_subset):
                     loss_contrast += 0.0 if torch.isnan(temp) else args['training']['lambda_contrast'] * temp
                     # ---------------------------------------------------------------------------- #
 
+                    if args['models']['finetune_transformer']:
+                        scheduler.step()
 
             running_loss_contrast += args['training']['lambda_contrast'] * loss_contrast
-            running_loss_transformer += loss_transformer
-            losses += loss_contrast + loss_transformer
+            running_loss_transformer += args['training']['lambda_transformer'] * loss_transformer
+            losses += args['training']['lambda_contrast'] * loss_contrast + args['training']['lambda_transformer'] * loss_transformer
             running_losses += losses.item()
 
             optimizer.zero_grad()

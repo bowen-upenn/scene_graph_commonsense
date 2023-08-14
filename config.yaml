@@ -50,9 +50,9 @@ models:
 training:
     run_mode: 'train'      # train or eval
     eval_mode: 'pc'        # pc sgc or sgd
-    learning_rate: 0.00001
+    learning_rate: 0.0001
     weight_decay: 0.0001
-    batch_size: 16
+    batch_size: 32
     num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
@@ -60,13 +60,15 @@ training:
     start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
+    warmup_percent: 0.1
     test_epoch: 2
     load_model: True
     lambda_sparsity: 0
     lambda_contrast: 1
-    lambda_connectivity: 1
+    lambda_connectivity: 0.5
+    lambda_transformer: 100
     lambda_not_connected: 1
-    print_freq: 10
-    eval_freq: 10
+    print_freq: 50
+    eval_freq: 50
     print_freq_test: 20
     eval_freq_test: 1
