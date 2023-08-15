@@ -60,12 +60,12 @@ training:
     start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
-    warmup_percent: 0.1
+    warmup_percent: 0.05
     test_epoch: 2
     load_model: True
     lambda_sparsity: 0
     lambda_contrast: 1
-    lambda_connectivity: 0.5
+    lambda_connectivity: 0.1
     lambda_transformer: 100
     lambda_not_connected: 1
     print_freq: 50

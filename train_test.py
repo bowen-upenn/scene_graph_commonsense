@@ -86,6 +86,10 @@ def train_local(gpu, args, train_subset, test_subset):
         if args['models']['hierarchical_pred']:
             if args['models']['finetune_transformer']:
                 local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+                transformer_encoder.module.bayes_head.fc3_1.load_state_dict(local_predictor.module.fc3_1.state_dict())
+                transformer_encoder.module.bayes_head.fc3_2.load_state_dict(local_predictor.module.fc3_2.state_dict())
+                transformer_encoder.module.bayes_head.fc3_3.load_state_dict(local_predictor.module.fc3_3.state_dict())
+                transformer_encoder.module.bayes_head.fc5.load_state_dict(local_predictor.module.fc5.state_dict())
                 print('Model', args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0.pth loaded successfully')
             else:
                 local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
@@ -142,8 +146,9 @@ def train_local(gpu, args, train_subset, test_subset):
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
         print('Start Training... EPOCH %d / %d\n' % (epoch, args['training']['num_epoch']))
-        if epoch == args['training']['scheduler_param1'] or epoch == args['training']['scheduler_param2']:  # lr scheduler
-            lr_decay *= 0.1
+        if not args['models']['finetune_transformer']:
+            if epoch == args['training']['scheduler_param1'] or epoch == args['training']['scheduler_param2']:  # lr scheduler
+                lr_decay *= 0.1
 
         for batch_count, data in enumerate(tqdm(train_loader), 0):
             """
@@ -493,7 +498,7 @@ def train_local(gpu, args, train_subset, test_subset):
                 Recall.clear_data()
 
             if (batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                record_train_results(args, record, rank, epoch, batch_count, original_lr, lr_decay, recall_top3, recall, mean_recall_top3, mean_recall,
+                record_train_results(args, record, rank, epoch, batch_count, optimizer.param_groups[0]['lr'], recall_top3, recall, mean_recall_top3, mean_recall,
                                      recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_transformer,
                                      connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
@@ -502,10 +507,12 @@ def train_local(gpu, args, train_subset, test_subset):
                 num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if args['models']['hierarchical_pred']:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif' + str(epoch) + '_' + str(rank) + '.pth')
+            if not args['models']['finetune_transformer']:
+                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif' + str(epoch) + '_' + str(rank) + '.pth')
             torch.save(transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'TransEncoder' + str(epoch) + '_' + str(rank) + '.pth')
         else:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif' + str(epoch) + '_' + str(rank) + '.pth')
+            if not args['models']['finetune_transformer']:
+                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif' + str(epoch) + '_' + str(rank) + '.pth')
             torch.save(transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'FlatTransEncoder' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
@@ -716,7 +723,7 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     src_key_padding_mask[i, length:] = 1
 
                 if args['models']['hierarchical_pred']:
-                    refined_relation_1, refined_relation_2, refined_relation_3, refined_super_relation = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
+                    refined_relation_1, refined_relation_2, refined_relation_3, refined_super_relation, _ = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
                     refined_relation = torch.cat((refined_relation_1, refined_relation_2, refined_relation_3), dim=1)
                 else:
                     refined_relation = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
