@@ -37,15 +37,15 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         with open(annotations) as f:
             self.annotations = json.load(f)
         self.image_transform = transforms.Compose([transforms.ToTensor(),
-                                                   transforms.Resize(size=600, max_size=1000)])
+                                                   transforms.Resize(size=600, max_size=1000, antialias=True)])
         self.image_transform_to_tensor = transforms.ToTensor()
         self.image_transform_s = transforms.Compose([transforms.ToTensor(),
-                                                     transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+                                                     transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']), antialias=True)])
         self.image_transform_s_jitter = transforms.Compose([transforms.ToTensor(),
                                                             transforms.RandomApply([
                                                                  transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
                                                             ], p=0.8),
-                                                            transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
+                                                            transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']), antialias=True)])
         self.image_transform_contrastive = TwoCropTransform(self.image_transform_s, self.image_transform_s_jitter)
         # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
         self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
