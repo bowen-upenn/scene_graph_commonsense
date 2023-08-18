@@ -9,7 +9,6 @@ import os
 import math
 import torchvision
 from torchvision import transforms
-from transformers import get_linear_schedule_with_warmup
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -63,17 +62,9 @@ def train_local(gpu, args, train_subset, test_subset):
                                         num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
                                         num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'],
                                         num_semantic=args['models']['num_semantic'])).to(rank)
-        if args['models']['add_transformer']:
-            transformer_encoder = DDP(TransformerEncoder(d_model=args['models']['d_model'], nhead=args['models']['nhead'], num_layers=args['models']['num_layers'],
-                                                         dim_feedforward=args['models']['dim_feedforward'], dropout=args['models']['dropout'], num_geometric=args['models']['num_geometric'],
-                                                         num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'], hierar=True)).to(rank)
     else:
         local_predictor = DDP(FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
                                         num_classes=args['models']['num_classes'])).to(rank)
-        if args['models']['add_transformer']:
-            transformer_encoder = DDP(TransformerEncoder(d_model=args['models']['d_model'], nhead=args['models']['nhead'], num_layers=args['models']['num_layers'],
-                                                         dim_feedforward=args['models']['dim_feedforward'], dropout=args['models']['dropout'],
-                                                         output_dim=args['models']['num_relations'], hierar=False)).to(rank)
 
     if args['models']['detr_or_faster_rcnn'] == 'detr':
         detr = DDP(build_detr101(args)).to(rank)
@@ -84,43 +75,15 @@ def train_local(gpu, args, train_subset, test_subset):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            if args['models']['finetune_transformer']:
-                local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
-                transformer_encoder.module.bayes_head.fc3_1.load_state_dict(local_predictor.module.fc3_1.state_dict())
-                transformer_encoder.module.bayes_head.fc3_2.load_state_dict(local_predictor.module.fc3_2.state_dict())
-                transformer_encoder.module.bayes_head.fc3_3.load_state_dict(local_predictor.module.fc3_3.state_dict())
-                transformer_encoder.module.bayes_head.fc5.load_state_dict(local_predictor.module.fc5.state_dict())
-                print('Model', args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0.pth loaded successfully')
-            else:
-                local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
-                if args['models']['add_transformer']:
-                    transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'TransEncoder' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
             local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
-            if args['models']['add_transformer'] and not args['models']['finetune_transformer']:
-                transformer_encoder.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatTransEncoder' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
-    if args['models']['add_transformer']:
-        if args['models']['finetune_transformer']:
-            optimizer = optim.Adam([{'params': transformer_encoder.parameters(), 'initial_lr': args['training']['learning_rate']}],
-                                  lr=args['training']['learning_rate'], weight_decay=args['training']['weight_decay'])
-            num_training_steps = args['training']['num_epoch'] * len(train_loader)
-            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args['training']['warmup_percent'] * num_training_steps,
-                                                                     num_training_steps=num_training_steps, last_epoch=args['training']['start_epoch'] - 1)
-            local_predictor.eval()
-            transformer_encoder.train()
-        else:
-            optimizer = optim.SGD([{'params': list(local_predictor.parameters()) + list(transformer_encoder.parameters()), 'initial_lr': args['training']['learning_rate']}],
-                                  lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
-            local_predictor.train()
-            transformer_encoder.train()
-    else:
-        optimizer = optim.SGD([{'params': local_predictor.parameters(), 'initial_lr': args['training']['learning_rate']}],
-                              lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
-        local_predictor.train()
+    optimizer = optim.SGD([{'params': local_predictor.parameters(), 'initial_lr': args['training']['learning_rate']}],
+                          lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
+    local_predictor.train()
 
     original_lr = optimizer.param_groups[0]["lr"]
-
     relation_count = get_num_each_class_reordered(args)
     class_weight = 1 - relation_count / torch.sum(relation_count)
 
@@ -134,21 +97,19 @@ def train_local(gpu, args, train_subset, test_subset):
     criterion_contrast = SupConLossHierar()
     criterion_connectivity = torch.nn.BCEWithLogitsLoss()
 
-    running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_transformer, connectivity_recall, connectivity_precision, \
-    num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-    recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None
-    # recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
+    running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_recall, connectivity_precision, \
+        num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
-    # if args['dataset']['dataset'] == 'vg':
-    #     Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    if args['dataset']['dataset'] == 'vg':
+        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
         print('Start Training... EPOCH %d / %d\n' % (epoch, args['training']['num_epoch']))
-        if not args['models']['finetune_transformer']:
-            if epoch == args['training']['scheduler_param1'] or epoch == args['training']['scheduler_param2']:  # lr scheduler
-                lr_decay *= 0.1
+        if epoch == args['training']['scheduler_param1'] or epoch == args['training']['scheduler_param2']:  # lr scheduler
+            lr_decay *= 0.1
 
         for batch_count, data in enumerate(tqdm(train_loader), 0):
             """
@@ -208,7 +169,7 @@ def train_local(gpu, args, train_subset, test_subset):
             hidden_cat_accumulated = [[] for _ in range(batch_size)]
             hidden_cat_labels_accumulated = [[] for _ in range(batch_size)]
             connected_indices_accumulated = []
-            losses, loss_connectivity, loss_relationship, loss_contrast, loss_transformer = 0.0, 0.0, 0.0, 0.0, 0.0
+            losses, loss_connectivity, loss_relationship, loss_contrast = 0.0, 0.0, 0.0, 0.0
 
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
@@ -234,13 +195,8 @@ def train_local(gpu, args, train_subset, test_subset):
                     FIRST DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        if args['models']['finetune_transformer']:
-                            with torch.no_grad():
-                                relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge,
-                                                                                                                                       rank, h_graph_aug, h_edge_aug)
-                        else:
-                            relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge,
-                                                                                                                                   rank, h_graph_aug, h_edge_aug)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge,
+                                                                                                                               rank, h_graph_aug, h_edge_aug)
                         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
@@ -249,9 +205,8 @@ def train_local(gpu, args, train_subset, test_subset):
 
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
                     num_not_connected += len(not_connected)
-                    if not args['models']['finetune_transformer']:
-                        temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
-                        loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
+                    temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
+                    loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
 
                     connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 1)[0]  # which data samples in curr keep_in_batch are connected
                     num_connected += len(connected)
@@ -265,30 +220,29 @@ def train_local(gpu, args, train_subset, test_subset):
                     connected_indices_accumulated.append(connected_indices)
 
                     if len(connected) > 0:
-                        if not args['models']['finetune_transformer']:
-                            temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
-                            loss_connectivity += 0.0 if torch.isnan(temp) else temp
-                            connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
+                        temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
+                        loss_connectivity += 0.0 if torch.isnan(temp) else temp
+                        connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
-                            if args['models']['hierarchical_pred']:
-                                super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
-                                super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-                                super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
-                                super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
-                                loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
+                        if args['models']['hierarchical_pred']:
+                            super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
+                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
+                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
+                            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
 
-                                connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
-                                connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
-                                                                              relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
-                                connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
-                                if len(connected_1) > 0:
-                                    loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
-                                if len(connected_2) > 0:
-                                    loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
-                                if len(connected_3) > 0:
-                                    loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-                            else:
-                                loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
+                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
+                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
+                                                                          relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
+                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
+                            if len(connected_1) > 0:
+                                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
+                            if len(connected_2) > 0:
+                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
+                            if len(connected_3) > 0:
+                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+                        else:
+                            loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
 
                         hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected]
                         for index, batch_index in enumerate(keep_in_batch[connected]):
@@ -302,29 +256,22 @@ def train_local(gpu, args, train_subset, test_subset):
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                        #                            cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                                   cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
-                    # print('loss_contrast', loss_contrast, 'loss_relationship', loss_relationship)
-                    if not args['models']['finetune_transformer']:
-                        losses += loss_relationship + args['training']['lambda_connectivity'] * (
-                                    loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        running_loss_connectivity += args['training']['lambda_connectivity'] * (
-                                    loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        running_loss_relationship += loss_relationship
+                    losses += loss_relationship + args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    running_loss_connectivity += args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    running_loss_relationship += loss_relationship
 
                     """
                     SECOND DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        if args['models']['finetune_transformer']:
-                            with torch.no_grad():
-                                relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph,
-                                                                                                                                         rank, h_edge_aug, h_graph_aug)
-                        else:
-                            relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph,
-                                                                                                                                     rank, h_edge_aug, h_graph_aug)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph,
+                                                                                                                                 rank, h_edge_aug, h_graph_aug)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         hidden_cat2 = torch.cat((hidden2.unsqueeze(1), hidden_aug2.unsqueeze(1)), dim=1)
                     else:
@@ -333,9 +280,8 @@ def train_local(gpu, args, train_subset, test_subset):
 
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr keep_in_batch are not connected
                     num_not_connected += len(not_connected)
-                    if not args['models']['finetune_transformer']:
-                        temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
-                        loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
+                    temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
+                    loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
 
                     connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 0)[0]  # which data samples in curr keep_in_batch are connected
                     num_connected += len(connected)
@@ -349,30 +295,29 @@ def train_local(gpu, args, train_subset, test_subset):
                     connected_indices_accumulated.append(connected_indices)
 
                     if len(connected) > 0:
-                        if not args['models']['finetune_transformer']:
-                            temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
-                            loss_connectivity += 0.0 if torch.isnan(temp) else temp
-                            connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
+                        temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
+                        loss_connectivity += 0.0 if torch.isnan(temp) else temp
+                        connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
-                            if args['models']['hierarchical_pred']:
-                                super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
-                                super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-                                super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
-                                super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
-                                loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
+                        if args['models']['hierarchical_pred']:
+                            super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
+                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
+                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
+                            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
 
-                                connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
-                                connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
-                                                                              relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
-                                connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
-                                if len(connected_1) > 0:
-                                    loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
-                                if len(connected_2) > 0:
-                                    loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
-                                if len(connected_3) > 0:
-                                    loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-                            else:
-                                loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
+                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
+                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
+                                                                          relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
+                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
+                            if len(connected_1) > 0:
+                                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
+                            if len(connected_2) > 0:
+                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
+                            if len(connected_3) > 0:
+                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+                        else:
+                            loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
 
                         hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected]
                         for index, batch_index in enumerate(keep_in_batch[connected]):
@@ -386,17 +331,15 @@ def train_local(gpu, args, train_subset, test_subset):
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                        #                            cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                                   cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
-                    # print('loss_contrast', loss_contrast, 'loss_relationship', loss_relationship)
-                    if not args['models']['finetune_transformer']:
-                        losses += loss_relationship + args['training']['lambda_connectivity'] * (
-                                    loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        running_loss_connectivity += args['training']['lambda_connectivity'] * (
-                                    loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
-                        running_loss_relationship += loss_relationship
+                    losses += loss_relationship + args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    running_loss_connectivity += args['training']['lambda_connectivity'] * (
+                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    running_loss_relationship += loss_relationship
 
 
             if not all(len(sublist) == 0 for sublist in hidden_cat_accumulated):
@@ -410,72 +353,8 @@ def train_local(gpu, args, train_subset, test_subset):
                 temp = criterion_contrast(rank, hidden_cat_all, hidden_cat_labels_all)
                 loss_contrast += 0.0 if torch.isnan(temp) else args['training']['lambda_contrast'] * temp
 
-                # ---------------------------------------------------------------------------- #
-                if args['models']['add_transformer']:
-                    # use a transformer encoder network to fuse global information about all relation triplets in the scene
-                    seq_lens = [len(sublist) for sublist in hidden_cat_accumulated]
-                    max_length = max(seq_lens)
-                    padded_hidden_cat_all = torch.stack([torch.cat([sublist[:, 0, :], torch.zeros(max_length - len(sublist), args['models']['d_model']).to(rank)], dim=0)
-                                                         for sublist in hidden_cat_accumulated])
-                    padded_hidden_cat_all = torch.permute(padded_hidden_cat_all, (1, 0, 2))  # (S, N, E)
-                    src_key_padding_mask = torch.zeros((padded_hidden_cat_all.shape[1], padded_hidden_cat_all.shape[0]), dtype=torch.bool).to(rank)  # (N, S)
-                    for i, length in enumerate(seq_lens):
-                        src_key_padding_mask[i, length:] = 1
-
-                    if args['models']['hierarchical_pred']:
-                        refined_relation_1, refined_relation_2, refined_relation_3, refined_super_relation, refined_hidden = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
-                        refined_relation = torch.cat((refined_relation_1, refined_relation_2, refined_relation_3), dim=1)
-                    else:
-                        refined_relation = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
-                        refined_relation = refined_relation[not src_key_padding_mask]
-
-                    if args['models']['hierarchical_pred']:
-                        super_relation_target = hidden_cat_labels_all.clone()
-                        super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-                        super_relation_target[
-                            torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric'] + args['models']['num_possessive'])] = 1
-                        super_relation_target[super_relation_target >= args['models']['num_geometric'] + args['models']['num_possessive']] = 2
-                        loss_transformer += criterion_super_relationship(refined_super_relation, super_relation_target)
-
-                        connected_1 = torch.nonzero(hidden_cat_labels_all < args['models']['num_geometric']).flatten()  # geometric
-                        connected_2 = torch.nonzero(torch.logical_and(hidden_cat_labels_all >= args['models']['num_geometric'],
-                                                                      hidden_cat_labels_all < args['models']['num_geometric'] + args['models']['num_possessive'])).flatten()  # possessive
-                        connected_3 = torch.nonzero(hidden_cat_labels_all >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
-
-                        if len(connected_1) > 0:
-                            loss_transformer += criterion_relationship_1(refined_relation_1[connected_1], hidden_cat_labels_all[connected_1])
-                        if len(connected_2) > 0:
-                            loss_transformer += criterion_relationship_2(refined_relation_2[connected_2], hidden_cat_labels_all[connected_2]-args['models']['num_geometric'])
-                        if len(connected_3) > 0:
-                            loss_transformer += criterion_relationship_3(refined_relation_3[connected_3], hidden_cat_labels_all[connected_3]-args['models']['num_geometric']-args['models']['num_possessive'])
-                    else:
-                        loss_transformer += criterion_relationship(refined_relation, hidden_cat_labels_all)
-
-                    if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                        # update the accumulated relation predictions
-                        Recall.global_refine(refined_relation, torch.cat(connected_indices_accumulated))
-                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        #     Recall_top3.global_refine(refined_relation, connected_indices_accumulated)
-                    # ---------------------------------------------------------------------------- #
-
-                    # add contrastive loss to the last hidden layer of transformer encoder as well
-                    padded_hidden_cat_all2 = torch.stack([torch.cat([sublist[:, 1, :], torch.zeros(max_length - len(sublist), args['models']['d_model']).to(rank)], dim=0)
-                                                         for sublist in hidden_cat_accumulated])
-                    padded_hidden_cat_all2 = torch.permute(padded_hidden_cat_all2, (1, 0, 2))  # (S, N, E)
-                    _, _, _, _, refined_hidden2 = transformer_encoder(padded_hidden_cat_all2, src_key_padding_mask)
-
-                    refined_hidden2 = torch.cat((refined_hidden.unsqueeze(1), refined_hidden2.unsqueeze(1)), dim=1)
-
-                    temp = criterion_contrast(rank, refined_hidden2, hidden_cat_labels_all)
-                    loss_contrast += 0.0 if torch.isnan(temp) else args['training']['lambda_contrast'] * temp
-                    # ---------------------------------------------------------------------------- #
-
-                    if args['models']['finetune_transformer']:
-                        scheduler.step()
-
             running_loss_contrast += args['training']['lambda_contrast'] * loss_contrast
-            running_loss_transformer += args['training']['lambda_transformer'] * loss_transformer
-            losses += args['training']['lambda_contrast'] * loss_contrast + args['training']['lambda_transformer'] * loss_transformer
+            losses += args['training']['lambda_contrast'] * loss_contrast
             running_losses += losses.item()
 
             optimizer.zero_grad()
@@ -489,9 +368,9 @@ def train_local(gpu, args, train_subset, test_subset):
                 recall_top3, mean_recall_top3 = None, None
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                    # if args['models']['hierarchical_pred']:
-                    #     recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
-                    #     Recall_top3.clear_data()
+                    if args['models']['hierarchical_pred']:
+                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                        Recall_top3.clear_data()
                 else:
                     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                     wmap_rel, wmap_phrase = Recall.compute_precision()
@@ -499,51 +378,42 @@ def train_local(gpu, args, train_subset, test_subset):
 
             if (batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                 record_train_results(args, record, rank, epoch, batch_count, optimizer.param_groups[0]['lr'], recall_top3, recall, mean_recall_top3, mean_recall,
-                                     recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_transformer,
+                                     recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity,
                                      connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
 
-            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_transformer, connectivity_precision, \
-                num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_precision, \
+                num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if args['models']['hierarchical_pred']:
-            if not args['models']['finetune_transformer']:
-                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif' + str(epoch) + '_' + str(rank) + '.pth')
-            torch.save(transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'TransEncoder' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif' + str(epoch) + '_' + str(rank) + '.pth')
         else:
-            if not args['models']['finetune_transformer']:
-                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif' + str(epoch) + '_' + str(rank) + '.pth')
-            torch.save(transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'FlatTransEncoder' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
-        test_local(args, detr, local_predictor, transformer_encoder, test_loader, test_record, epoch, rank)
+        test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank)
 
     dist.destroy_process_group()  # clean up
     print('FINISHED TRAINING\n')
 
 
-def test_local(args, backbone, local_predictor, transformer_encoder, test_loader, test_record, epoch, rank):
+def test_local(args, backbone, local_predictor, test_loader, test_record, epoch, rank):
     backbone.eval()
     local_predictor.eval()
-    transformer_encoder.eval()
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
-    # recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
     recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
-    # if args['dataset']['dataset'] == 'vg':
-    #     Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    if args['dataset']['dataset'] == 'vg':
+        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Testing PC...')
     with torch.no_grad():
         for batch_count, data in enumerate(tqdm(test_loader), 0):
-            # if epoch < 2 and batch_count > 100:
-            #     break
             """
             PREPARE INPUT DATA
             """
             images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
-            batch_size = len(images)
 
             images = torch.stack(images).to(rank)
             image_feature, pos_embed = backbone.module.backbone(nested_tensor_from_tensor_list(images))
@@ -582,10 +452,6 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
             """
             FORWARD PASS THROUGH THE LOCAL PREDICTOR
             """
-            hidden_cat_accumulated = [[] for _ in range(batch_size)]
-            hidden_cat_labels_accumulated = [[] for _ in range(batch_size)]
-            connected_indices_accumulated = []
-
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
                 keep_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1)
@@ -624,27 +490,6 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     if len(connected) > 0:
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
-                    # connected_indices = torch.zeros(len(hidden), dtype=torch.bool).to(rank)
-                    # hidden = hidden[connected_pred]
-                    # connected_indices[connected_pred] = 1
-                    # connected_indices_accumulated.append(connected_indices)
-                    #
-                    # if len(hidden) > 0:
-                    #     hidden_labels = relations_target[graph_iter - 1][edge_iter][connected_pred]
-                    #     for index, batch_index in enumerate(keep_in_batch[connected_pred]):
-                    #         hidden_cat_accumulated[batch_index].append(hidden[index])
-                    #         hidden_cat_labels_accumulated[batch_index].append(hidden_labels[index])
-                    connected_indices = torch.zeros(len(hidden), dtype=torch.bool).to(rank)
-                    hidden = hidden[connected]
-                    connected_indices[connected] = 1
-                    connected_indices_accumulated.append(connected_indices)
-
-                    if len(hidden) > 0:
-                        hidden_labels = relations_target[graph_iter - 1][edge_iter][connected]
-                        for index, batch_index in enumerate(keep_in_batch[connected]):
-                            hidden_cat_accumulated[batch_index].append(hidden[index])
-                            hidden_cat_labels_accumulated[batch_index].append(hidden_labels[index])
-
                     # evaluate recall@k scores
                     relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
                     relations_target_directed[not_connected] = -1
@@ -652,9 +497,9 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                        #                            cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                                   cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
                     """
                     SECOND DIRECTION
@@ -677,65 +522,15 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                     if len(connected) > 0:
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
-                    # connected_indices = torch.zeros(len(hidden2), dtype=torch.bool).to(rank)
-                    # hidden2 = hidden2[connected_pred]
-                    # connected_indices[connected_pred] = 1
-                    # connected_indices_accumulated.append(connected_indices)
-                    #
-                    # if len(hidden2) > 0:
-                    #     hidden_labels2 = relations_target[graph_iter - 1][edge_iter][connected_pred]
-                    #     for index, batch_index in enumerate(keep_in_batch[connected_pred]):
-                    #         hidden_cat_accumulated[batch_index].append(hidden2[index])
-                    #         hidden_cat_labels_accumulated[batch_index].append(hidden_labels2[index])
-                    connected_indices = torch.zeros(len(hidden2), dtype=torch.bool).to(rank)
-                    hidden2 = hidden2[connected]
-                    connected_indices[connected] = 1
-                    connected_indices_accumulated.append(connected_indices)
-
-                    if len(hidden2) > 0:
-                        hidden_labels2 = relations_target[graph_iter - 1][edge_iter][connected]
-                        for index, batch_index in enumerate(keep_in_batch[connected]):
-                            hidden_cat_accumulated[batch_index].append(hidden2[index])
-                            hidden_cat_labels_accumulated[batch_index].append(hidden_labels2[index])
-
                     relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
                     relations_target_directed[not_connected] = -1
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-                        # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                        #     Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                        #                            cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
-
-            if not all(len(sublist) == 0 for sublist in hidden_cat_accumulated):
-                # ---------------------------------------------------------------------------- #
-                # use a transformer encoder network to fuse global information about all relation triplets in the scene
-                hidden_cat_accumulated = [torch.stack(sublist) for sublist in hidden_cat_accumulated if len(sublist) > 0]
-
-                seq_lens = [len(sublist) for sublist in hidden_cat_accumulated]
-                max_length = max(seq_lens)
-                padded_hidden_cat_all = torch.stack([torch.cat([sublist, torch.zeros(max_length - len(sublist), args['models']['d_model']).to(rank)], dim=0)
-                                                     for sublist in hidden_cat_accumulated])
-                padded_hidden_cat_all = torch.permute(padded_hidden_cat_all, (1, 0, 2))  # (S, N, E)
-                src_key_padding_mask = torch.zeros((padded_hidden_cat_all.shape[1], padded_hidden_cat_all.shape[0]), dtype=torch.bool).to(rank)  # (N, S)
-                for i, length in enumerate(seq_lens):
-                    src_key_padding_mask[i, length:] = 1
-
-                if args['models']['hierarchical_pred']:
-                    refined_relation_1, refined_relation_2, refined_relation_3, refined_super_relation, _ = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
-                    refined_relation = torch.cat((refined_relation_1, refined_relation_2, refined_relation_3), dim=1)
-                else:
-                    refined_relation = transformer_encoder(padded_hidden_cat_all, src_key_padding_mask)
-                    refined_relation = refined_relation[not src_key_padding_mask]
-
-                if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                    # update the accumulated relation predictions
-                    connected_indices_accumulated = torch.cat(connected_indices_accumulated)
-                    Recall.global_refine(refined_relation, connected_indices_accumulated)
-                    # if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                    #     Recall_top3.global_refine(refined_relation, connected_indices_accumulated)
-                # ---------------------------------------------------------------------------- #
+                        if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
+                            Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                                   cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
 
             """
             EVALUATE AND PRINT CURRENT RESULTS
@@ -744,9 +539,9 @@ def test_local(args, backbone, local_predictor, transformer_encoder, test_loader
                 recall_top3, mean_recall_top3 = None, None
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                    # if args['models']['hierarchical_pred']:
-                    #     recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
-                    #     Recall_top3.clear_data()
+                    if args['models']['hierarchical_pred']:
+                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                        Recall_top3.clear_data()
                 else:
                     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                     wmap_rel, wmap_phrase = Recall.compute_precision()
