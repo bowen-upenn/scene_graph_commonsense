@@ -1,7 +1,9 @@
 ## Visual Genome Dataset
 
 ### Step 1
-Download the annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html and put them under the datasets/vg directory.
+Download the annotations and images from the Visual Genome website http://visualgenome.org/api/v0/api_home.html and
+download VG-SGG-with-attri.h5 file from https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch/blob/master/DATASET.md.
+Put them under the datasets/vg directory.
 
 	- datasets
 	  - vg
@@ -18,6 +20,7 @@ Download the annotations and images from the Visual Genome website http://visual
 		- 2417985.jpg
 		- 2417973.jpg
 		- ...
+      - VG-SGG-with-attri.h5
 
 ### Step 2 
 Execute ```./preprocess.py``` to pre-process the dataset annotations, and the following two files will be saved to the datasets/vg/annottions directory.
@@ -90,6 +93,7 @@ https://drive.google.com/file/d/1c5U-TG6hVPyjD6rdD6hgmp72HCq4mkXU/view?usp=shari
 		- 2417985.jpg
 		- 2417973.jpg
 		- ...
+       - VG-SGG-with-attri.h5
 	  - vg_scene_graph_annot
 	    - VG_100K
 	      - 2377357_annotations.pkl
