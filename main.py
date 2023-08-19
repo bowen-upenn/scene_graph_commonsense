@@ -33,16 +33,11 @@ if __name__ == "__main__":
     cmd_args = parser.parse_args()
 
     # Override args from config.yaml with command-line arguments if provided
-    if cmd_args.run_mode is not None:
-        args['training']['run_mode'] = cmd_args.run_mode
-    if cmd_args.eval_mode is not None:
-        args['training']['eval_mode'] = cmd_args.eval_mode
-    if cmd_args.continue_train is not None:
-        args['training']['continue_train'] = cmd_args.continue_train
-    if cmd_args.start_epoch is not None:
-        args['training']['start_epoch'] = cmd_args.start_epoch
-    if cmd_args.start_epoch is not None:
-        args['models']['hierarchical_pred'] = cmd_args.hierarchical_pred
+    args['training']['run_mode'] = cmd_args.run_mode if cmd_args.run_mode is not None else args['training']['run_mode']
+    args['training']['eval_mode'] = cmd_args.eval_mode if cmd_args.eval_mode is not None else args['training']['eval_mode']
+    args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
+    args['training']['start_epoch'] = cmd_args.start_epoch if cmd_args.start_epoch is not None else args['training']['start_epoch']
+    args['models']['hierarchical_pred'] = cmd_args.hierar if cmd_args.hierar is not None else args['models']['hierarchical_pred']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world_size = torch.cuda.device_count()
