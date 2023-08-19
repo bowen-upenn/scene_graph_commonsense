@@ -43,12 +43,12 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
     detr.eval()
     local_predictor.eval()
 
-    if args['models']['hierarchical_pred']:
-        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
-    else:
-        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
-    renamed_state_dict = remove_ddp_module_in_weights(saved_state_dict)
-    local_predictor.load_state_dict(renamed_state_dict)
+    # if args['models']['hierarchical_pred']:
+    #     saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
+    # else:
+    #     saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
+    # renamed_state_dict = remove_ddp_module_in_weights(saved_state_dict)
+    # local_predictor.load_state_dict(renamed_state_dict)
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None

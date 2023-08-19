@@ -7,6 +7,7 @@ import yaml
 import os
 import json
 import torch.multiprocessing as mp
+import argparse
 
 from dataset import VisualGenomeDataset, OpenImageV6Dataset
 from train_test import train_local
@@ -21,6 +22,27 @@ if __name__ == "__main__":
             args = yaml.safe_load(file)
     except Exception as e:
         print('Error reading the config file')
+
+    # Command-line argument parsing
+    parser = argparse.ArgumentParser(description='PyTorch project command line arguments')
+    parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, caption)')
+    parser.add_argument('--eval_mode', type=str, default=None, help='Override eval_mode (pc, sgc, sgd)')
+    parser.add_argument('--continue_train', type=bool, default=None, help='Override continue_train (True/False)')
+    parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
+    parser.add_argument('--hierar', type=bool, default=None, help='Override hierarchical_pred value')
+    cmd_args = parser.parse_args()
+
+    # Override args from config.yaml with command-line arguments if provided
+    if cmd_args.run_mode is not None:
+        args['training']['run_mode'] = cmd_args.run_mode
+    if cmd_args.eval_mode is not None:
+        args['training']['eval_mode'] = cmd_args.eval_mode
+    if cmd_args.continue_train is not None:
+        args['training']['continue_train'] = cmd_args.continue_train
+    if cmd_args.start_epoch is not None:
+        args['training']['start_epoch'] = cmd_args.start_epoch
+    if cmd_args.start_epoch is not None:
+        args['models']['hierarchical_pred'] = cmd_args.hierarchical_pred
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world_size = torch.cuda.device_count()

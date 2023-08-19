@@ -56,7 +56,7 @@ class FlatMotif(nn.Module):
         self.fc3 = nn.Linear(512, output_dim)
         self.fc4 = nn.Linear(512, 1)
 
-    def forward(self, h_graph, h_edge, c1, c2, s1, s2, rank, one_hot=True):
+    def forward(self, h_graph, h_edge, c1, c2, s1, s2, rank, h_graph_aug=None, h_edge_aug=None, one_hot=True):
         h_graph = torch.tanh(self.conv1_1(h_graph))
         h_edge = torch.tanh(self.conv1_2(h_edge))
         h = torch.cat((h_graph, h_edge), dim=1)   # (batch_size, 256, 32, 32)
@@ -91,10 +91,31 @@ class FlatMotif(nn.Module):
             else:
                 hc = torch.cat((h, c1, c2), dim=1)
 
+        if h_graph_aug is not None:
+            h_graph_aug = torch.tanh(self.conv1_1(h_graph_aug))
+            h_edge_aug = torch.tanh(self.conv1_2(h_edge_aug))
+
+            h_aug = torch.cat((h_graph_aug, h_edge_aug), dim=1)  # (batch_size, 256, 32, 32)
+            h_aug = F.relu(self.conv2_1(h_aug))  # (batch_size, 512, 32, 32)
+            h_aug = self.maxpool(h_aug)  # (batch_size, 512, 16, 16)
+            h_aug = F.relu(self.conv3_1(h_aug))  # (batch_size, 1024,16, 16)
+            h_aug = self.maxpool(h_aug)  # (batch_size, 1024, 8,  8)
+
+            h_aug = torch.reshape(h_aug, (h_aug.shape[0], -1))
+            h_aug = self.dropout1(F.relu(self.fc1(h_aug)))
+
+            if s1 is not None:
+                hc_aug = torch.cat((h_aug, c1, c2, sc1.to(rank), sc2.to(rank)), dim=1)
+            else:
+                hc_aug = torch.cat((h_aug, c1, c2), dim=1)
+            pred_aug = self.dropout2(F.relu(self.fc2(hc_aug)))
+        else:
+            pred_aug = None
+
         pred = self.dropout2(F.relu(self.fc2(hc)))
         relation = self.fc3(pred)       # (batch_size, 50)
         connectivity = self.fc4(pred)   # (batch_size, 1)
-        return relation, connectivity
+        return relation, connectivity, pred, pred_aug
 
 
 class HierMotif(nn.Module):
