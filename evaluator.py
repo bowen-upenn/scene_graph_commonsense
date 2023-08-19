@@ -241,6 +241,43 @@ class Evaluator_PC:
         return top_k_predictions
 
 
+    def get_unique_top_k_predictions(self, top_k):
+        """
+        Returns the top k most confident predictions for each image in the format: (subject_id, relation_id, object_id).
+        Ensures that one subject-object or object-subject pair appears only once in the predictions.
+        """
+        top_k_predictions = []
+        dict_relation_names = relation_by_super_class_int2str()
+        dict_object_names = object_class_int2str()
+
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            curr_predictions = []
+            seen_pairs = set()
+
+            for ind in sorted_inds:
+                subject_id = self.subject_cat_pred[curr_image][ind].item()
+                relation_id = self.relation_pred[curr_image][ind].item()
+                object_id = self.object_cat_pred[curr_image][ind].item()
+
+                # Check if the pair (or its reverse) has been added to the predictions
+                if (subject_id, object_id) not in seen_pairs and (object_id, subject_id) not in seen_pairs:
+                    curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
+                    seen_pairs.add((subject_id, object_id))
+                    seen_pairs.add((object_id, subject_id))
+
+                # Stop when we have k predictions
+                if len(curr_predictions) == top_k:
+                    break
+
+            top_k_predictions.append(curr_predictions)
+
+        return top_k_predictions
+
+
     def compute(self, per_class=False):
         """
         A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,

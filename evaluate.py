@@ -57,12 +57,12 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
-    print('Start Testing PC...')
+    print('Start Inference...')
     with torch.no_grad():
         """
         PREPARE INPUT DATA
         """
-        image, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = test_dataset.load_one_image(file_name, idx=file_idx, return_annot=True)
+        image, image_path, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = test_dataset.load_one_image(file_name, idx=file_idx, return_annot=True)
 
         image = torch.stack(image).to(rank)
         image_feature, pos_embed = detr.backbone(nested_tensor_from_tensor_list(image))
@@ -72,7 +72,6 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
         image_feature = detr.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
         image_feature = image_feature.permute(1, 2, 0)
         image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
-
 
         categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
         if super_categories[0] is not None:
@@ -90,7 +89,6 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
         """
         PREPARE TARGETS
         """
-
         relations_target = []
         direction_target = []
         num_graph_iter = torch.as_tensor([len(mask) for mask in masks]) - 1
@@ -189,11 +187,12 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
         else:
             recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
 
-        top_k_predictions = Recall.get_top_k_predictions(top_k=10)
+        top_k_predictions = Recall.get_unique_top_k_predictions(top_k=5)
         Recall.clear_data()
 
     print('FINISHED INFERENCE PC\n')
-    return top_k_predictions
+    sgg_results = {'image_path': image_path, 'top_k_predictions': top_k_predictions}
+    return sgg_results
 
 
 def eval_pc(gpu, args, test_subset):

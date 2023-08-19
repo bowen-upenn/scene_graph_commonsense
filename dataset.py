@@ -113,7 +113,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         # only return the image for inference
         if not return_annot:
             if file_name is not None:
-                image = cv2.imread(file_name)
+                image_path = file_name
+                image = cv2.imread(image_path)
             else:
                 image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
                 image = cv2.imread(image_path)
@@ -170,7 +171,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             # print('categories', categories)
             # print('triplets', triplets)
 
-            return (images,), (image_depth,), (categories,), (super_categories,), (bbox,), (relationships,), (subj_or_obj,)
+            return (images,), (image_path,), (image_depth,), (categories,), (super_categories,), (bbox,), (relationships,), (subj_or_obj,)
 
     def __len__(self):
         return len(self.annotations['images'])
