@@ -3,7 +3,9 @@ import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 import math
+
 from utils import get_weight_oiv6
+from dataset_utils import relation_by_super_class_int2str, object_class_int2str
 
 
 class Evaluator_PC:
@@ -55,6 +57,7 @@ class Evaluator_PC:
         self.subject_bbox_target = None
         self.object_bbox_target = None
 
+
     def iou(self, bbox_target, bbox_pred):
         mask_pred = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_pred[int(bbox_pred[2]):int(bbox_pred[3]), int(bbox_pred[0]):int(bbox_pred[1])] = 1
@@ -66,6 +69,7 @@ class Evaluator_PC:
             return 0
         else:
             return float(intersect) / float(union)
+
 
     def iou_union(self, bbox_pred1, bbox_pred2, bbox_target1, bbox_target2):
         mask_pred1 = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
@@ -86,6 +90,7 @@ class Evaluator_PC:
             return 0
         else:
             return float(intersect) / float(union)
+
 
     def accumulate(self, which_in_batch, relation_pred, relation_target, super_relation_pred, connectivity,
                    subject_cat_pred, object_cat_pred, subject_cat_target, object_cat_target,
@@ -187,6 +192,7 @@ class Evaluator_PC:
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat(3, 1)))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(3, 1)))
 
+
     def global_refine(self, refined_relation, connected_indices_accumulated):
         if not self.hierar:  # flat relationship prediction
             self.relation_pred[connected_indices_accumulated] = torch.argmax(refined_relation, dim=1)
@@ -204,6 +210,35 @@ class Evaluator_PC:
                                        torch.max(refined_relation[:, self.args['models']['num_geometric']: self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
                                        torch.max(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
             self.confidence[connected_indices_accumulated] = confidence
+
+
+    def get_top_k_predictions(self, top_k):
+        """
+        Returns the top k most confident predictions for each image in the format: (subject_id, relation_id, object_id).
+        """
+        top_k_predictions = []
+        dict_relation_names = relation_by_super_class_int2str()
+        dict_object_names = object_class_int2str()
+
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            # Select the top k predictions
+            this_k = min(top_k, len(self.relation_pred[curr_image]))
+            keep_inds = sorted_inds[:this_k]
+
+            curr_predictions = []
+            for ind in keep_inds:
+                subject_id = self.subject_cat_pred[curr_image][ind].item()
+                relation_id = self.relation_pred[curr_image][ind].item()
+                object_id = self.object_cat_pred[curr_image][ind].item()
+                curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
+
+            top_k_predictions.append(curr_predictions)
+
+        return top_k_predictions
 
 
     def compute(self, per_class=False):

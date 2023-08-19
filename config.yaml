@@ -14,9 +14,10 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 1 #0.001
-    percent_test: 1 #0.001
+    percent_train: 0.001
+    percent_test: 0.001
     dataset: 'vg' # vg, oiv6
+    return_annot: True
 models:
     detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
     detr101_key_after: 'datasets/vg_scene_graph_annot/detr101_key_after.txt'
@@ -41,7 +42,7 @@ models:
     num_possessive: 11
     num_semantic: 24
 training:
-    run_mode: 'eval'      # train or eval
+    run_mode: 'caption'      # train, eval, caption
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.0001
     weight_decay: 0.0001

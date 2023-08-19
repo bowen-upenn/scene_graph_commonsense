@@ -161,6 +161,16 @@ def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
     return NestedTensor(tensor, mask)
 
 
+def remove_ddp_module_in_weights(saved_state_dict):
+    # Handle key renaming for matching
+    renamed_state_dict = {}
+    for k, v in saved_state_dict.items():
+        # Remove 'module.' prefix if it exists
+        k = k.replace('module.', '')
+        renamed_state_dict[k] = v
+    return renamed_state_dict
+
+
 def get_num_each_class():  # number of training data in total for each relationship class
     return torch.tensor([712432, 277943, 251756, 146339, 136099, 96589, 66425, 47342, 42722,
                          41363, 22596, 18643, 15457, 14185, 13715, 10191, 9903, 9894, 9317, 9145, 8856,

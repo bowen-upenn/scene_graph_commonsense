@@ -54,7 +54,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         """
         Dataloader Outputs:
             image: an image in the Visual Genome dataset (to predict bounding boxes and labels in DETR-101)
-            image_s: an image in the Visual Genome dataset resized to a square shape (to generate a uniform-sized image features)
             image_depth: the estimated image depth map
             categories: categories of all objects in the image
             super_categories: super-categories of all objects in the image
@@ -109,6 +108,69 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return images, image2, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
         else:
             return images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+
+    def load_one_image(self, file_name=None, idx=None, return_annot=False):
+        # only return the image for inference
+        if not return_annot:
+            if file_name is not None:
+                image = cv2.imread(file_name)
+            else:
+                image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
+                image = cv2.imread(image_path)
+
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image = 255 * self.image_transform_s(image)
+            image = self.image_norm(image)
+            return image
+
+        # return the image and image annotations
+        else:
+            if id is not None:
+                annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
+                annot_path = os.path.join(self.annot_dir, annot_name)
+            else:
+                annot_path = os.path.join(self.annot_dir, file_name)
+            try:
+                curr_annot = torch.load(annot_path)
+            except:
+                return None
+
+            image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
+            images = cv2.imread(image_path)
+
+            images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
+            images = 255 * self.image_transform_s(images)
+            images = self.image_norm(images)
+
+            image_depth = curr_annot['image_depth']
+            categories = curr_annot['categories']
+            super_categories = curr_annot['super_categories']
+            if categories.shape[0] <= 1:
+                return None
+            bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
+
+            subj_or_obj = curr_annot['subj_or_obj']
+            relationships = curr_annot['relationships']
+            relationships_reordered = []
+            rel_reorder_dict = relation_class_freq2scat()
+            for rel in relationships:
+                rel[rel == 12] = 4      # wearing <- wears
+                relationships_reordered.append(rel_reorder_dict[rel])
+            relationships = relationships_reordered
+
+            # # reformulate relation annots for a single image in a more efficient way
+            # triplets = []
+            # for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
+            #     for j, (rel, so) in enumerate(zip(rels, sos)):
+            #         if so == 1:  # if subject
+            #             triplets.append([categories[i + 1].item(), rel.item(), categories[j].item()])
+            #         elif so == 0:  # if object
+            #             triplets.append([categories[j].item(), rel.item(), categories[i + 1].item()])
+
+            # print('categories', categories)
+            # print('triplets', triplets)
+
+            return (images,), (image_depth,), (categories,), (super_categories,), (bbox,), (relationships,), (subj_or_obj,)
 
     def __len__(self):
         return len(self.annotations['images'])

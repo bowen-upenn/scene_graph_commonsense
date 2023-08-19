@@ -11,6 +11,7 @@ import torch.multiprocessing as mp
 from dataset import VisualGenomeDataset, OpenImageV6Dataset
 from train_test import train_local
 from evaluate import eval_pc, eval_sgc, eval_sgd
+from downstream_tasks import image_captioning
 
 if __name__ == "__main__":
     print('Torch', torch.__version__, 'Torchvision', torchvision.__version__)
@@ -78,5 +79,9 @@ if __name__ == "__main__":
             mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset))
         else:
             print('Invalid arguments or not implemented.')
+    elif args['training']['run_mode'] == 'caption':
+        # inference(device, world_size, args, test_dataset, file_idx=0)
+        # args['training']['eval_freq_test'] = 1
+        image_captioning(device, world_size, args, test_dataset)
     else:
         print('Invalid arguments.')
