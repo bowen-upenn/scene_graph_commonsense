@@ -361,7 +361,7 @@ def train_local(gpu, args, train_subset, test_subset):
                 Recall.clear_data()
 
             if (batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                record_train_results(args, record, rank, epoch, batch_count, original_lr * lr_decay, optimizer.param_groups[0]['lr'],
+                record_train_results(args, record, rank, epoch, batch_count, original_lr * lr_decay,
                                      recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                      running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity,
                                      connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)

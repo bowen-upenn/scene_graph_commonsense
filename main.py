@@ -24,7 +24,7 @@ if __name__ == "__main__":
         print('Error reading the config file')
 
     # Command-line argument parsing
-    parser = argparse.ArgumentParser(description='PyTorch project command line arguments')
+    parser = argparse.ArgumentParser(description='Command line arguments')
     parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, caption)')
     parser.add_argument('--eval_mode', type=str, default=None, help='Override eval_mode (pc, sgc, sgd)')
     parser.add_argument('--continue_train', type=bool, default=None, help='Override continue_train (True/False)')
