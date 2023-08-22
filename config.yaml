@@ -35,7 +35,7 @@ models:
     faster_rcnn_hidden_dim: 2048
     use_depth: True
     depth_model_type: 'DPT_Large'
-    hierarchical_pred: False
+    hierarchical_pred: True
     topk_cat: 2
     nms: 0.5
     num_geometric: 15
