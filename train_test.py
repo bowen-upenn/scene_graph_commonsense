@@ -371,9 +371,9 @@ def train_local(gpu, args, train_subset, test_subset):
                 num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if args['models']['hierarchical_pred']:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotifNew' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif' + str(epoch) + '_' + str(rank) + '.pth')
         else:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotifNew' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank)
