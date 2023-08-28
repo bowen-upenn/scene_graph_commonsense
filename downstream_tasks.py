@@ -17,7 +17,7 @@ def image_captioning(device, world_size, args, test_dataset):
     assert world_size == 1
 
     # load prediction results from scene graph
-    sgg_results = inference(device, args, test_dataset, file_idx=0) #2
+    sgg_results = inference(device, args, test_dataset, top_k=5, file_idx=0) #2
     image_path = sgg_results['image_path'][0]
     top_k_predictions = sgg_results['top_k_predictions'][0]
 

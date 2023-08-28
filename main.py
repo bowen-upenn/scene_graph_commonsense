@@ -13,7 +13,7 @@ from dataset import VisualGenomeDataset, OpenImageV6Dataset
 from train_test import train_local
 from evaluate import eval_pc, eval_sgc, eval_sgd
 from downstream_tasks import image_captioning
-from query_large_model import eval_open_flamingo
+from graph_refine import query_clip
 
 if __name__ == "__main__":
     print('Torch', torch.__version__, 'Torchvision', torchvision.__version__)
@@ -101,7 +101,7 @@ if __name__ == "__main__":
         # inference(device, world_size, args, test_dataset, file_idx=0)
         # args['training']['eval_freq_test'] = 1
         image_captioning(device, world_size, args, test_dataset)
-    elif args['training']['run_mode'] == 'question':
-        eval_open_flamingo(device, world_size, args, test_dataset)
+    elif args['training']['run_mode'] == 'clip':
+        mp.spawn(query_clip, nprocs=world_size, args=(args, test_subset))
     else:
         print('Invalid arguments.')

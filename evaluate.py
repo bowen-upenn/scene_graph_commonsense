@@ -24,7 +24,7 @@ def setup(rank, world_size):
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
-def inference(rank, args, test_dataset, file_name=None, file_idx=None):
+def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
     """
     This function inference the module on predicate classification tasks for a single image.
     :param rank: current gpu index
@@ -43,12 +43,12 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
     detr.eval()
     local_predictor.eval()
 
-    # if args['models']['hierarchical_pred']:
-    #     saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
-    # else:
-    #     saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
-    # renamed_state_dict = remove_ddp_module_in_weights(saved_state_dict)
-    # local_predictor.load_state_dict(renamed_state_dict)
+    if args['models']['hierarchical_pred']:
+        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
+    else:
+        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
+    renamed_state_dict = remove_ddp_module_in_weights(saved_state_dict)
+    local_predictor.load_state_dict(renamed_state_dict)
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
@@ -187,7 +187,7 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
         else:
             recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
 
-        top_k_predictions = Recall.get_unique_top_k_predictions(top_k=5)
+        top_k_predictions = Recall.get_unique_top_k_predictions(top_k=top_k)
         Recall.clear_data()
 
     print('FINISHED INFERENCE PC\n')
@@ -195,7 +195,7 @@ def inference(rank, args, test_dataset, file_name=None, file_idx=None):
     return sgg_results
 
 
-def eval_pc(gpu, args, test_subset):
+def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
     """
     This function evaluates the module on predicate classification tasks.
     :param gpu: current gpu index
@@ -204,11 +204,15 @@ def eval_pc(gpu, args, test_subset):
     """
     rank = gpu
     world_size = torch.cuda.device_count()
-    setup(rank, world_size)
-    print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
+    if return_sgg_results:
+        # this function will be called within another function mp spawned
+        test_loader = test_subset
+    else:
+        setup(rank, world_size)
+        print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
 
-    test_sampler = torch.utils.data.distributed.DistributedSampler(test_subset, num_replicas=world_size, rank=rank)
-    test_loader = torch.utils.data.DataLoader(test_subset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=test_sampler)
+        test_sampler = torch.utils.data.distributed.DistributedSampler(test_subset, num_replicas=world_size, rank=rank)
+        test_loader = torch.utils.data.DataLoader(test_subset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=test_sampler)
     print("Finished loading the datasets...")
 
     start = []
@@ -262,7 +266,9 @@ def eval_pc(gpu, args, test_subset):
             image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
             image_feature = image_feature.permute(1, 2, 0)
             image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
-            del images
+
+            if not return_sgg_results:
+                del images
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:
@@ -381,13 +387,21 @@ def eval_pc(gpu, args, test_subset):
                 else:
                     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                     wmap_rel, wmap_phrase = Recall.compute_precision()
+
+                if return_sgg_results:
+                    top_k_predictions = Recall.get_unique_top_k_predictions(top_k=top_k)
+                    if return_sgg_results:
+                        sgg_results = {'images': images, 'top_k_predictions': top_k_predictions}
+                        yield sgg_results
+
                 Recall.clear_data()
 
             if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                     connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
 
-    dist.destroy_process_group()  # clean up
+    if not return_sgg_results:
+        dist.destroy_process_group()  # clean up
     print('FINISHED TESTING PC\n')
 
 
