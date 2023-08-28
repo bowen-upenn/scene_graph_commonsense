@@ -42,7 +42,7 @@ models:
     num_possessive: 11
     num_semantic: 24
 training:
-    run_mode: 'eval'      # train, eval, caption
+    run_mode: 'question'      # train, eval, caption, question
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.00001
     weight_decay: 0.0001
