@@ -254,7 +254,10 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
             PREPARE INPUT DATA
             """
             try:
-                images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
+                if return_sgg_results:
+                    images, images_raw, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
+                else:
+                    images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
             except:
                 continue
 
@@ -266,9 +269,7 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
             image_feature = detr.module.transformer.encoder(src, src_key_padding_mask=mask.flatten(1), pos=pos_embed)
             image_feature = image_feature.permute(1, 2, 0)
             image_feature = image_feature.view(-1, args['models']['num_img_feature'], args['models']['feature_size'], args['models']['feature_size'])
-
-            if not return_sgg_results:
-                del images
+            del images
 
             categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
             if super_categories[0] is not None:
@@ -389,9 +390,9 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
                     wmap_rel, wmap_phrase = Recall.compute_precision()
 
                 if return_sgg_results:
-                    top_k_predictions = Recall.get_unique_top_k_predictions(top_k=top_k)
+                    top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=top_k)
                     if return_sgg_results:
-                        sgg_results = {'images': images, 'top_k_predictions': top_k_predictions}
+                        sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs}
                         yield sgg_results
 
                 Recall.clear_data()
@@ -399,6 +400,8 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
             if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                     connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+
+            break
 
     if not return_sgg_results:
         dist.destroy_process_group()  # clean up
