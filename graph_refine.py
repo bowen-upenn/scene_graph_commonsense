@@ -102,6 +102,12 @@ def colored_text(text, color_code):
     return f"\033[{color_code}m{text}\033[0m"
 
 
+def save_png(image, save_name="image.png"):
+    image = image.mul(255).cpu().byte().numpy()  # convert to 8-bit integer values
+    image = Image.fromarray(image.transpose(1, 2, 0))  # transpose dimensions for RGB order
+    image.save(save_name)
+
+
 def extract_words_from_edge(phrase, all_relation_labels):
     # iterate through the phrase to extract the parts
     for i in range(len(phrase)):
@@ -114,7 +120,40 @@ def extract_words_from_edge(phrase, all_relation_labels):
     return subject, relation, object
 
 
-def forward_clip(model, processor, image, edge):
+def crop_image(image, edge, args, crop=True):
+    # crop out the subject and object from the image
+    width, height = image.shape[1], image.shape[2]
+    subject_bbox = torch.tensor(edge[0]) / args['models']['feature_size']
+    object_bbox = torch.tensor(edge[2]) / args['models']['feature_size']
+    subject_bbox[:2] *= height
+    subject_bbox[2:] *= width
+    object_bbox[:2] *= height
+    object_bbox[2:] *= width
+    # print('image', image.shape, 'subject_bbox', subject_bbox, 'object_bbox', object_bbox)
+
+    # create the union bounding box
+    union_bbox = torch.zeros(image.shape[1:], dtype=torch.bool)
+    union_bbox[int(subject_bbox[2]):int(subject_bbox[3]), int(subject_bbox[0]):int(subject_bbox[1])] = 1
+    union_bbox[int(object_bbox[2]):int(object_bbox[3]), int(object_bbox[0]):int(object_bbox[1])] = 1
+
+    if crop:
+        # find the minimum rectangular bounding box around the union bounding box
+        nonzero_indices = torch.nonzero(union_bbox)
+        min_row = nonzero_indices[:, 0].min()
+        max_row = nonzero_indices[:, 0].max()
+        min_col = nonzero_indices[:, 1].min()
+        max_col = nonzero_indices[:, 1].max()
+
+        # crop the image using the minimum rectangular bounding box
+        cropped_image = image[:, min_row:max_row + 1, min_col:max_col + 1]
+
+        # print('Cropped Image:', cropped_image.shape)
+        return cropped_image
+    else:
+        return image * union_bbox
+
+
+def forward_clip(model, processor, image, edge, rank, args):
     # prepare text labels from the relation dictionary
     labels = list(relation_by_super_class_int2str().values())
 
@@ -124,8 +163,12 @@ def forward_clip(model, processor, image, edge):
 
     queries = [f"a photo of a {subject} {label} {object}" for label in labels]
 
+    # crop out the subject and object from the image
+    cropped_image = crop_image(image, edge, args)
+    save_png(cropped_image, "cropped_image.png")
+
     # inference CLIP
-    inputs = processor(text=queries, images=image, return_tensors="pt", padding=True)
+    inputs = processor(text=queries, images=image, return_tensors="pt", padding=True).to(rank)
     outputs = model(**inputs)
     logits_per_image = outputs.logits_per_image  # image-text similarity score
     probs = logits_per_image.softmax(dim=1)  # label probabilities
@@ -134,17 +177,17 @@ def forward_clip(model, processor, image, edge):
     top_label_idx = probs.argmax().item()
     top_label_str = relation_by_super_class_int2str()[top_label_idx]
 
+    # show the results
     light_blue_code = 94
     light_pink_code = 95
     text_blue_colored = colored_text(top_label_str, light_blue_code)
     text_pink_colored = colored_text(relation, light_pink_code)
-
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def bfs_explore(image, graph):
+def bfs_explore(image, graph, rank, args):
     # initialize CLIP
-    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(rank)
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
     # get the node with the highest degree
@@ -185,7 +228,7 @@ def bfs_explore(image, graph):
                         print(f"Edge for next neighbor: {neighbor_edge}")
 
                         # query CLIP on the current neighbor edge
-                        forward_clip(model, processor, image, neighbor_edge)
+                        forward_clip(model, processor, image, neighbor_edge, rank, args)
 
                         queue.append((neighbor_node, level + 1))
 
@@ -202,7 +245,7 @@ def bfs_explore(image, graph):
         queue.append((new_start_node, 0))
 
 
-def process_sgg_results(rank, sgg_results):
+def process_sgg_results(rank, args, sgg_results):
     top_k_predictions = sgg_results['top_k_predictions']
     print('top_k_predictions', top_k_predictions[0])
     top_k_image_graphs = sgg_results['top_k_image_graphs']
@@ -216,25 +259,9 @@ def process_sgg_results(rank, sgg_results):
             subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
             graph.add_edge(subject_bbox, object_bbox, relation_id, string)
 
-        bfs_explore(images[batch_idx], graph)
+        bfs_explore(images[batch_idx], graph, rank, args)
 
         image_graphs.append(graph)
-
-        # image = images[0].mul(255).cpu().byte().numpy()  # convert to 8-bit integer values
-        # image = Image.fromarray(image.transpose(1, 2, 0))  # transpose dimensions for RGB order
-        # image.save("image.png")
-        #
-        # print('adj_list', graph.adj_list, '\n')
-        #
-        # curr_edge = (( 8., 23., 10., 20.), 11., ( 4., 31.,  4., 29.))
-        # neighbors = graph.get_edge_neighbors(curr_edge, hops=1)
-        # print("1-hop neighbors:", neighbors, '\n')
-        #
-        # neighbors_2_hop = graph.get_edge_neighbors(curr_edge, hops=2)
-        # print("2-hop neighbors:", neighbors_2_hop)
-        #
-        # degrees = graph.get_node_degrees()
-        # print('degrees', degrees)
 
         break
 
@@ -257,7 +284,7 @@ def query_clip(gpu, args, test_dataset):
     # iterate through the generator to receive results
     for batch_idx, batch_sgg_results in enumerate(sgg_results):
         print('batch_idx', batch_idx)
-        image_graphs = process_sgg_results(rank, batch_sgg_results)
+        image_graphs = process_sgg_results(rank, args, batch_sgg_results)
 
     dist.destroy_process_group()  # clean up
 
