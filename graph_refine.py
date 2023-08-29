@@ -156,40 +156,51 @@ def bfs_explore(image, graph):
     queue = deque([(start_node, 0)])  # the second element in the tuple is used to keep track of levels
     visited = set()
 
-    while queue:
-        # dequeue the next node to visit
-        current_node, level = queue.popleft()
+    while True:
+        while queue:
+            # dequeue the next node to visit
+            current_node, level = queue.popleft()
 
-        # if the node hasn't been visited yet
-        if current_node not in visited:
-            print(f"Visiting node: {current_node} at level {level}")
+            # if the node hasn't been visited yet
+            if current_node not in visited:
+                print(f"Visiting node: {current_node} at level {level}")
 
-            # mark the node as visited
-            visited.add(current_node)
+                # mark the node as visited
+                visited.add(current_node)
 
-            # get all the neighboring edges for the current node
-            neighbor_edges = graph.adj_list[current_node]
+                # get all the neighboring edges for the current node
+                neighbor_edges = graph.adj_list[current_node]
 
-            # create a mapping from neighbor_node to neighbor_edge
-            neighbor_to_edge_map = {edge[2] if edge[2] != current_node else edge[0]: edge for edge in neighbor_edges}
+                # create a mapping from neighbor_node to neighbor_edge
+                neighbor_to_edge_map = {edge[2] if edge[2] != current_node else edge[0]: edge for edge in neighbor_edges}
 
-            # extract neighbor nodes and sort them by their degree
-            neighbor_nodes = [edge[2] if edge[2] != current_node else edge[0] for edge in neighbor_edges]  # the neighbor node could be either the subject or the object
-            neighbor_nodes = sorted(neighbor_nodes, key=lambda x: node_degrees.get(x, 0), reverse=True)
-            print('neighbor_nodes', neighbor_nodes)
+                # extract neighbor nodes and sort them by their degree
+                neighbor_nodes = [edge[2] if edge[2] != current_node else edge[0] for edge in neighbor_edges]  # the neighbor node could be either the subject or the object
+                neighbor_nodes = sorted(neighbor_nodes, key=lambda x: node_degrees.get(x, 0), reverse=True)
+                print('neighbor_nodes', neighbor_nodes)
 
-            # add neighbors to the queue for future exploration
-            for neighbor_node in neighbor_nodes:
-                if neighbor_node not in visited:
-                    neighbor_edge = neighbor_to_edge_map[neighbor_node]
-                    print(f"Edge for next neighbor: {neighbor_edge}")
+                # add neighbors to the queue for future exploration
+                for neighbor_node in neighbor_nodes:
+                    if neighbor_node not in visited:
+                        neighbor_edge = neighbor_to_edge_map[neighbor_node]
+                        print(f"Edge for next neighbor: {neighbor_edge}")
 
-                    # query CLIP on the current neighbor edge
-                    forward_clip(model, processor, image, neighbor_edge)
+                        # query CLIP on the current neighbor edge
+                        forward_clip(model, processor, image, neighbor_edge)
 
-                    queue.append((neighbor_node, level + 1))
+                        queue.append((neighbor_node, level + 1))
 
-    print("Finished BFS.")
+        print("Finished BFS for current connected component.")
+
+        # check if there are any unvisited nodes
+        unvisited_nodes = set(node_degrees.keys()) - visited
+        if not unvisited_nodes:
+            break  # all nodes have been visited, exit the loop
+
+        # start a new BFS from the unvisited node with the highest degree
+        new_start_node = max(unvisited_nodes, key=lambda x: node_degrees.get(x, 0))
+        print(f"Starting new BFS from node: {new_start_node}")
+        queue.append((new_start_node, 0))
 
 
 def process_sgg_results(rank, sgg_results):
