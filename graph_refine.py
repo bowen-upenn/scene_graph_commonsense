@@ -177,7 +177,6 @@ def bfs_explore(image, graph):
                 # extract neighbor nodes and sort them by their degree
                 neighbor_nodes = [edge[2] if edge[2] != current_node else edge[0] for edge in neighbor_edges]  # the neighbor node could be either the subject or the object
                 neighbor_nodes = sorted(neighbor_nodes, key=lambda x: node_degrees.get(x, 0), reverse=True)
-                print('neighbor_nodes', neighbor_nodes)
 
                 # add neighbors to the queue for future exploration
                 for neighbor_node in neighbor_nodes:
@@ -190,7 +189,7 @@ def bfs_explore(image, graph):
 
                         queue.append((neighbor_node, level + 1))
 
-        print("Finished BFS for current connected component.")
+        print("Finished BFS for current connected component.\n")
 
         # check if there are any unvisited nodes
         unvisited_nodes = set(node_degrees.keys()) - visited
