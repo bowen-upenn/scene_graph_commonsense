@@ -4,9 +4,13 @@ from PIL import Image
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
+import transformers
+from transformers import CLIPProcessor, CLIPModel
+from collections import deque
 
 from evaluate import inference, eval_pc
 from utils import *
+from dataset_utils import relation_by_super_class_int2str
 
 
 def setup(rank, world_size):
@@ -21,11 +25,21 @@ class ImageGraph:
         self.adj_list = {}
         # edge to nodes mapping
         self.edge_node_map = {}
+        # store all nodes and their degree
+        self.nodes = []
+        self.edges = []
 
     def add_edge(self, subject_bbox, object_bbox, relation_id, string):
         subject_bbox, object_bbox = tuple(subject_bbox), tuple(object_bbox)
         edge = (subject_bbox, relation_id, object_bbox, string)
         edge_wo_string = (subject_bbox, relation_id, object_bbox)
+
+        if edge not in self.edges:
+            self.edges.append(edge_wo_string)
+        if subject_bbox not in self.nodes:
+            self.nodes.append(subject_bbox)
+        if object_bbox not in self.nodes:
+            self.nodes.append(object_bbox)
 
         print('subject_bbox', subject_bbox)
         print('object_bbox', object_bbox)
@@ -78,10 +92,104 @@ class ImageGraph:
 
         else:
             assert hops == 1 or hops == 2, "Not implemented"
-            return
 
-    def get_nodes_from_edge(self, edge):
-        return self.edge_node_map.get(edge, (None, None))
+    def get_node_degrees(self):
+        degrees = {node: len(self.adj_list[node]) for node in self.adj_list}
+        return degrees
+
+
+def colored_text(text, color_code):
+    return f"\033[{color_code}m{text}\033[0m"
+
+
+def extract_words_from_edge(phrase, all_relation_labels):
+    # iterate through the phrase to extract the parts
+    for i in range(len(phrase)):
+        if phrase[i] in all_relation_labels:
+            relation = phrase[i]
+            subject = " ".join(phrase[:i])
+            object = " ".join(phrase[i + 1:])
+            break  # exit loop once the relation is found
+
+    return subject, relation, object
+
+
+def forward_clip(model, processor, image, edge):
+    # prepare text labels from the relation dictionary
+    labels = list(relation_by_super_class_int2str().values())
+
+    # extract current subject and object from the edge
+    phrase = edge[-1].split()
+    subject, relation, object = extract_words_from_edge(phrase, labels)
+
+    queries = [f"a photo of a {subject} {label} {object}" for label in labels]
+
+    # inference CLIP
+    inputs = processor(text=queries, images=image, return_tensors="pt", padding=True)
+    outputs = model(**inputs)
+    logits_per_image = outputs.logits_per_image  # image-text similarity score
+    probs = logits_per_image.softmax(dim=1)  # label probabilities
+
+    # get top predicted label
+    top_label_idx = probs.argmax().item()
+    top_label_str = relation_by_super_class_int2str()[top_label_idx]
+
+    light_blue_code = 94
+    light_pink_code = 95
+    text_blue_colored = colored_text(top_label_str, light_blue_code)
+    text_pink_colored = colored_text(relation, light_pink_code)
+
+    print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
+
+
+def bfs_explore(image, graph):
+    # initialize CLIP
+    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+    # get the node with the highest degree
+    node_degrees = graph.get_node_degrees()
+    print('node_degrees', node_degrees)
+    start_node = max(node_degrees, key=node_degrees.get)
+
+    # initialize queue and visited set for BFS
+    queue = deque([(start_node, 0)])  # the second element in the tuple is used to keep track of levels
+    visited = set()
+
+    while queue:
+        # dequeue the next node to visit
+        current_node, level = queue.popleft()
+
+        # if the node hasn't been visited yet
+        if current_node not in visited:
+            print(f"Visiting node: {current_node} at level {level}")
+
+            # mark the node as visited
+            visited.add(current_node)
+
+            # get all the neighboring edges for the current node
+            neighbor_edges = graph.adj_list[current_node]
+
+            # create a mapping from neighbor_node to neighbor_edge
+            neighbor_to_edge_map = {edge[2] if edge[2] != current_node else edge[0]: edge for edge in neighbor_edges}
+
+            # extract neighbor nodes and sort them by their degree
+            neighbor_nodes = [edge[2] if edge[2] != current_node else edge[0] for edge in neighbor_edges]  # the neighbor node could be either the subject or the object
+            neighbor_nodes = sorted(neighbor_nodes, key=lambda x: node_degrees.get(x, 0), reverse=True)
+            print('neighbor_nodes', neighbor_nodes)
+
+            # add neighbors to the queue for future exploration
+            for neighbor_node in neighbor_nodes:
+                if neighbor_node not in visited:
+                    neighbor_edge = neighbor_to_edge_map[neighbor_node]
+                    print(f"Edge for next neighbor: {neighbor_edge}")
+
+                    # query CLIP on the current neighbor edge
+                    forward_clip(model, processor, image, neighbor_edge)
+
+                    queue.append((neighbor_node, level + 1))
+
+    print("Finished BFS.")
 
 
 def process_sgg_results(rank, sgg_results):
@@ -91,33 +199,32 @@ def process_sgg_results(rank, sgg_results):
     images = sgg_results['images']
 
     image_graphs = []
-    for curr_strings, curr_image in zip(top_k_predictions, top_k_image_graphs):
+    for batch_idx, (curr_strings, curr_image) in enumerate(zip(top_k_predictions, top_k_image_graphs)):
         graph = ImageGraph()
 
         for string, triplet in zip(curr_strings, curr_image):
             subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
-            # print('subject_bbox, relation_id, object_bbox', subject_bbox, relation_id, object_bbox)
             graph.add_edge(subject_bbox, object_bbox, relation_id, string)
+
+        bfs_explore(images[batch_idx], graph)
 
         image_graphs.append(graph)
 
-        image = images[0].mul(255).cpu().byte().numpy()  # convert to 8-bit integer values
-        image = Image.fromarray(image.transpose(1, 2, 0))  # transpose dimensions for RGB order
-        image.save("image.png")
-
-        print('adj_list', graph.adj_list)
-        print('edge_node_map', graph.edge_node_map, '\n')
-
-        curr_edge = (( 8., 23., 10., 20.), 11., ( 4., 31.,  4., 29.))
-        neighbors = graph.get_edge_neighbors(curr_edge, hops=1)
-        print("1-hop neighbors:", neighbors, '\n')
-
-        neighbors_2_hop = graph.get_edge_neighbors(curr_edge, hops=2)
-        print("2-hop neighbors:", neighbors_2_hop)
-
-        # another_node = ( 4., 31.,  4., 29.)
-        # nodes_from_edge = graph.get_nodes_from_edge((curr_node, 11, another_node))
-        # print("Nodes connected by edge:", nodes_from_edge)
+        # image = images[0].mul(255).cpu().byte().numpy()  # convert to 8-bit integer values
+        # image = Image.fromarray(image.transpose(1, 2, 0))  # transpose dimensions for RGB order
+        # image.save("image.png")
+        #
+        # print('adj_list', graph.adj_list, '\n')
+        #
+        # curr_edge = (( 8., 23., 10., 20.), 11., ( 4., 31.,  4., 29.))
+        # neighbors = graph.get_edge_neighbors(curr_edge, hops=1)
+        # print("1-hop neighbors:", neighbors, '\n')
+        #
+        # neighbors_2_hop = graph.get_edge_neighbors(curr_edge, hops=2)
+        # print("2-hop neighbors:", neighbors_2_hop)
+        #
+        # degrees = graph.get_node_degrees()
+        # print('degrees', degrees)
 
         break
 
