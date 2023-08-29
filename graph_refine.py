@@ -156,12 +156,21 @@ def crop_image(image, edge, args, crop=True):
 def forward_clip(model, processor, image, edge, rank, args):
     # prepare text labels from the relation dictionary
     labels = list(relation_by_super_class_int2str().values())
+    labels_geometric = labels[:args['models']['num_geometric']]
+    labels_possessive = labels[args['models']['num_geometric']:args['models']['num_geometric']+args['models']['num_possessive']]
+    labels_semantic = labels[-args['models']['num_semantic']:]
 
     # extract current subject and object from the edge
     phrase = edge[-1].split()
     subject, relation, object = extract_words_from_edge(phrase, labels)
 
-    queries = [f"a photo of a {subject} {label} {object}" for label in labels]
+    # assume the relation super-category has a high accuracy
+    if relation in labels_geometric:
+        queries = [f"a photo of a {subject} {label} {object}" for label in labels_geometric]
+    elif relation in labels_possessive:
+        queries = [f"a photo of a {subject} {label} {object}" for label in labels_possessive]
+    else:
+        queries = [f"a photo of a {subject} {label} {object}" for label in labels_semantic]
 
     # crop out the subject and object from the image
     cropped_image = crop_image(image, edge, args)
