@@ -197,11 +197,11 @@ def clip_zero_shot(model, processor, image, edge, rank, args, based_on_hierar=Tr
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def train_graph(model, tokenizer, processor, image, subject_node, object_node, subject_neighbor_edges, object_neighbor_edges, rank, args):
+def train_graph(model, tokenizer, processor, image, subject_node, object_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args):
     neighbor_phrases = []
     neighbor_text_embeds = []
 
-    all_neighbor_edges = subject_neighbor_edges + object_neighbor_edges
+    all_neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
 
     # collect all neighbors of the current edge
     for neighbor_edge in all_neighbor_edges:
@@ -262,16 +262,19 @@ def bfs_explore(image, graph, rank, args):
                 # add neighbors to the queue for future exploration
                 for neighbor_node in neighbor_nodes:
                     if neighbor_node not in visited:
-                        neighbor_edge = neighbor_to_edge_map[neighbor_node]
-                        print(f"Edge for next neighbor: {neighbor_edge}")
+                        current_edge = neighbor_to_edge_map[neighbor_node]
+                        print(f"Visiting edge: {current_edge}")
 
                         if args['training']['run_mode'] == 'clip_zs':
                             # query CLIP on the current neighbor edge in zero shot
-                            clip_zero_shot(model, processor, image, neighbor_edge, rank, args)
+                            clip_zero_shot(model, processor, image, current_edge, rank, args)
                         else:
                             # train the model to predict relations from neighbors and image features
+                            subject_neighbor_edges = neighbor_edges
+                            subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
                             object_neighbor_edges = graph.adj_list[neighbor_node]
-                            train_graph(model, tokenizer, processor, image, current_node, neighbor_node, neighbor_edges, object_neighbor_edges, rank, args)
+                            object_neighbor_edges.remove(current_edge)     # do not include the current edge redundantly
+                            train_graph(model, tokenizer, processor, image, current_node, neighbor_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args)
 
                         queue.append((neighbor_node, level + 1))
 
