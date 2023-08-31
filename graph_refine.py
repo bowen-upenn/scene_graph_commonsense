@@ -5,7 +5,7 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import transformers
-from transformers import CLIPProcessor, CLIPModel
+from transformers import CLIPProcessor, CLIPModel, AutoTokenizer
 from collections import deque
 
 from evaluate import inference, eval_pc
@@ -153,7 +153,7 @@ def crop_image(image, edge, args, crop=True):
         return image * union_bbox
 
 
-def forward_clip(model, processor, image, edge, rank, args):
+def clip_zero_shot(model, processor, image, edge, rank, args, based_on_hierar=True):
     # prepare text labels from the relation dictionary
     labels = list(relation_by_super_class_int2str().values())
     labels_geometric = labels[:args['models']['num_geometric']]
@@ -164,13 +164,16 @@ def forward_clip(model, processor, image, edge, rank, args):
     phrase = edge[-1].split()
     subject, relation, object = extract_words_from_edge(phrase, labels)
 
-    # assume the relation super-category has a high accuracy
-    if relation in labels_geometric:
-        queries = [f"a photo of a {subject} {label} {object}" for label in labels_geometric]
-    elif relation in labels_possessive:
-        queries = [f"a photo of a {subject} {label} {object}" for label in labels_possessive]
+    if based_on_hierar:
+        # assume the relation super-category has a high accuracy
+        if relation in labels_geometric:
+            queries = [f"a photo of a {subject} {label} {object}" for label in labels_geometric]
+        elif relation in labels_possessive:
+            queries = [f"a photo of a {subject} {label} {object}" for label in labels_possessive]
+        else:
+            queries = [f"a photo of a {subject} {label} {object}" for label in labels_semantic]
     else:
-        queries = [f"a photo of a {subject} {label} {object}" for label in labels_semantic]
+        queries = [f"a photo of a {subject} {label} {object}" for label in labels]
 
     # crop out the subject and object from the image
     cropped_image = crop_image(image, edge, args)
@@ -194,10 +197,36 @@ def forward_clip(model, processor, image, edge, rank, args):
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
+def train_graph(model, tokenizer, processor, image, subject_node, object_node, subject_neighbor_edges, object_neighbor_edges, rank, args):
+    neighbor_phrases = []
+    neighbor_text_embeds = []
+
+    all_neighbor_edges = subject_neighbor_edges + object_neighbor_edges
+
+    # collect all neighbors of the current edge
+    for neighbor_edge in all_neighbor_edges:
+        phrase = neighbor_edge[-1]  # assume neighbor edges are the ground truths
+        neighbor_phrases.append(phrase)
+
+        inputs = tokenizer([f"a photo of a {phrase}"], padding=False, return_tensors="pt").to(rank)
+        text_embed = model.get_text_features(**inputs)
+        neighbor_text_embeds.append(text_embed)
+
+    neighbor_text_embeds = torch.stack(neighbor_text_embeds)
+    print('neighbor_phrases', neighbor_phrases)
+    print('neighbor_text_embeds', neighbor_text_embeds.shape)
+
+    # collect image embedding
+    inputs = processor(images=image, return_tensors="pt").to(rank)
+    image_embed = model.get_image_features(**inputs)
+    print('image_embed', image_embed.shape)
+
+
 def bfs_explore(image, graph, rank, args):
     # initialize CLIP
     model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(rank)
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
     # get the node with the highest degree
     node_degrees = graph.get_node_degrees()
@@ -236,8 +265,13 @@ def bfs_explore(image, graph, rank, args):
                         neighbor_edge = neighbor_to_edge_map[neighbor_node]
                         print(f"Edge for next neighbor: {neighbor_edge}")
 
-                        # query CLIP on the current neighbor edge
-                        forward_clip(model, processor, image, neighbor_edge, rank, args)
+                        if args['training']['run_mode'] == 'clip_zs':
+                            # query CLIP on the current neighbor edge in zero shot
+                            clip_zero_shot(model, processor, image, neighbor_edge, rank, args)
+                        else:
+                            # train the model to predict relations from neighbors and image features
+                            object_neighbor_edges = graph.adj_list[neighbor_node]
+                            train_graph(model, tokenizer, processor, image, current_node, neighbor_node, neighbor_edges, object_neighbor_edges, rank, args)
 
                         queue.append((neighbor_node, level + 1))
 
@@ -267,6 +301,7 @@ def process_sgg_results(rank, args, sgg_results):
         for string, triplet in zip(curr_strings, curr_image):
             subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
             graph.add_edge(subject_bbox, object_bbox, relation_id, string)
+        print('graph.adj_list', graph.adj_list)
 
         bfs_explore(images[batch_idx], graph, rank, args)
 

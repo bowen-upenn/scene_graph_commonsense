@@ -98,10 +98,8 @@ if __name__ == "__main__":
         else:
             print('Invalid arguments or not implemented.')
     elif args['training']['run_mode'] == 'caption':
-        # inference(device, world_size, args, test_dataset, file_idx=0)
-        # args['training']['eval_freq_test'] = 1
         image_captioning(device, world_size, args, test_dataset)
-    elif args['training']['run_mode'] == 'clip':
+    elif args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
         mp.spawn(query_clip, nprocs=world_size, args=(args, test_subset))
     else:
         print('Invalid arguments.')

@@ -83,7 +83,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             image2 = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
             image2 = 255 * self.image_transform(image2)[[2, 1, 0]]  # BGR
             image2 = self.image_norm(image2)
-        elif self.args['training']['run_mode'] == 'clip':
+        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train':
             del images_aug
             image2 = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
             image2 = self.image_transform_to_tensor(image2)
@@ -109,7 +109,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         relationships = relationships_reordered
 
         if (self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc') \
-                or self.args['training']['run_mode'] == 'clip':
+                or (self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train'):
             return images, image2, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
         else:
             return images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
