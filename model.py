@@ -277,3 +277,39 @@ class TransformerEncoder(nn.Module):
         else:
             relation = self.flat_head(hidden)
             return relation, hidden
+
+
+class SimpleSelfAttention(torch.nn.Module):
+    def __init__(self, hidden_dim):
+        super(SimpleSelfAttention, self).__init__()
+        self.query_weight = torch.nn.Parameter(torch.randn(hidden_dim, hidden_dim))
+        self.key_weight = torch.nn.Parameter(torch.randn(hidden_dim, hidden_dim))
+        self.value_weight = torch.nn.Parameter(torch.randn(hidden_dim, hidden_dim))
+
+        # Initialize positional embeddings
+        self.positional_encoding = PositionalEncoding(hidden_dim)
+
+        # Initialize special embedding for the first element
+        self.first_element_embedding = torch.nn.Parameter(torch.randn(1, 1, hidden_dim))
+
+    def forward(self, x):
+        # Adding positional embeddings
+        x = self.positional_encoding(x)
+
+        # Adding special first-element embedding
+        x[0] = x[0] + self.first_element_embedding
+
+        # x shape: [seq_len, 1, hidden_dim]
+        query = torch.matmul(x, self.query_weight)
+        key = torch.matmul(x, self.key_weight)
+        value = torch.matmul(x, self.value_weight)
+
+        # Attention Score Calculation, shape: [seq_len, seq_len]
+        attention_score = torch.matmul(query, key.transpose(-2, -1))
+        attention_score = attention_score / (self.query_weight.shape[0] ** 0.5)
+        attention_score = F.softmax(attention_score, dim=-1)
+
+        # Output Calculation, shape: [seq_len, 1, hidden_dim]
+        output = torch.matmul(attention_score, value)
+
+        return output

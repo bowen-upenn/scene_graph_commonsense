@@ -11,6 +11,7 @@ from collections import deque
 from evaluate import inference, eval_pc
 from utils import *
 from dataset_utils import relation_by_super_class_int2str
+from model import SimpleSelfAttention
 
 
 def setup(rank, world_size):
@@ -197,7 +198,7 @@ def clip_zero_shot(model, processor, image, edge, rank, args, based_on_hierar=Tr
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def train_graph(model, tokenizer, processor, image, subject_node, object_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args):
+def train_graph(model, attention_layer, tokenizer, processor, image, subject_node, object_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args):
     neighbor_phrases = []
     neighbor_text_embeds = []
 
@@ -216,10 +217,15 @@ def train_graph(model, tokenizer, processor, image, subject_node, object_node, c
     print('neighbor_phrases', neighbor_phrases)
     print('neighbor_text_embeds', neighbor_text_embeds.shape)
 
+    # feed neighbor_text_embeds to a self-attention layer to get learnable weights
+    neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank))
+    print('neighbor_text_embeds_2', neighbor_text_embeds.shape)
+
     # collect image embedding
     inputs = processor(images=image, return_tensors="pt").to(rank)
     image_embed = model.get_image_features(**inputs)
     print('image_embed', image_embed.shape)
+
 
 
 def bfs_explore(image, graph, rank, args):
@@ -227,6 +233,8 @@ def bfs_explore(image, graph, rank, args):
     model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(rank)
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+    if args['training']['run_mode'] == 'clip_train':
+        attention_layer = SimpleSelfAttention(hidden_dim=model.text_embed_dim).to(rank)
 
     # get the node with the highest degree
     node_degrees = graph.get_node_degrees()
@@ -274,7 +282,7 @@ def bfs_explore(image, graph, rank, args):
                             subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
                             object_neighbor_edges = graph.adj_list[neighbor_node]
                             object_neighbor_edges.remove(current_edge)     # do not include the current edge redundantly
-                            train_graph(model, tokenizer, processor, image, current_node, neighbor_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args)
+                            train_graph(model, attention_layer, tokenizer, processor, image, current_node, neighbor_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args)
 
                         queue.append((neighbor_node, level + 1))
 
@@ -296,14 +304,17 @@ def process_sgg_results(rank, args, sgg_results):
     print('top_k_predictions', top_k_predictions[0])
     top_k_image_graphs = sgg_results['top_k_image_graphs']
     images = sgg_results['images']
+    target_triplets = sgg_results['target_triplets']
 
     image_graphs = []
-    for batch_idx, (curr_strings, curr_image) in enumerate(zip(top_k_predictions, top_k_image_graphs)):
+    for batch_idx, (curr_strings, curr_image, curr_target_triplet) in enumerate(zip(top_k_predictions, top_k_image_graphs, target_triplets)):
         graph = ImageGraph()
 
         for string, triplet in zip(curr_strings, curr_image):
             subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
             graph.add_edge(subject_bbox, object_bbox, relation_id, string)
+
+        print('curr_target_triplet', curr_target_triplet)
         print('graph.adj_list', graph.adj_list)
 
         bfs_explore(images[batch_idx], graph, rank, args)
@@ -326,7 +337,7 @@ def query_clip(gpu, args, test_dataset):
     print("Finished loading the datasets...")
 
     # receive current SGG predictions from a baseline model
-    sgg_results = eval_pc(rank, args, test_loader, return_sgg_results=True, top_k=5)
+    sgg_results = eval_pc(rank, args, test_loader, top_k=5)
 
     # iterate through the generator to receive results
     for batch_idx, batch_sgg_results in enumerate(sgg_results):

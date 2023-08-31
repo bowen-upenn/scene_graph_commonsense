@@ -195,7 +195,7 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
     return sgg_results
 
 
-def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
+def eval_pc(gpu, args, test_subset, top_k=5):
     """
     This function evaluates the module on predicate classification tasks.
     :param gpu: current gpu index
@@ -204,7 +204,7 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
     """
     rank = gpu
     world_size = torch.cuda.device_count()
-    if return_sgg_results:
+    if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
         # this function will be called within another function mp spawned
         test_loader = test_subset
     else:
@@ -254,8 +254,8 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
             PREPARE INPUT DATA
             """
             try:
-                if return_sgg_results:
-                    images, images_raw, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
+                if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
+                    images, images_raw, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, triplets = data
                 else:
                     images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
             except:
@@ -389,11 +389,10 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
                     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                     wmap_rel, wmap_phrase = Recall.compute_precision()
 
-                if return_sgg_results:
+                if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
                     top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=top_k)
-                    if return_sgg_results:
-                        sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs}
-                        yield sgg_results
+                    sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets}
+                    yield sgg_results
 
                 Recall.clear_data()
 
@@ -403,7 +402,7 @@ def eval_pc(gpu, args, test_subset, return_sgg_results=False, top_k=5):
 
             break
 
-    if not return_sgg_results:
+    if not (args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'):
         dist.destroy_process_group()  # clean up
     print('FINISHED TESTING PC\n')
 
