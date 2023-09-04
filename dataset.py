@@ -75,6 +75,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
         images = cv2.imread(image_path)
+        width, height = images.shape[0], images.shape[1]
 
         images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
         images = 255 * self.image_transform_contrastive(images)
@@ -117,11 +118,18 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             triplets = []
             for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
                 for j, (rel, so) in enumerate(zip(rels, sos)):
+                    bbox_sub = bbox[i + 1].clone() / self.args['models']['feature_size']
+                    bbox_obj = bbox[j].clone() / self.args['models']['feature_size']
+                    bbox_sub[:2] *= height
+                    bbox_sub[2:] *= width
+                    bbox_obj[:2] *= height
+                    bbox_obj[2:] *= width
+
                     if so == 1:  # if subject
-                        triplets.append([bbox[i + 1], bbox[j],
+                        triplets.append([bbox_sub, bbox_obj,
                                          self.dict_object_names[categories[i + 1].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[j].item()]])
                     elif so == 0:  # if object
-                        triplets.append([bbox[j], bbox[i + 1],
+                        triplets.append([bbox_obj, bbox_sub,
                                          self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]])
 
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':

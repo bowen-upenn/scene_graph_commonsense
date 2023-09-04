@@ -7,11 +7,15 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import transformers
 from transformers import CLIPProcessor, CLIPModel, AutoTokenizer
 from collections import deque
+import torch.optim as optim
 
 from evaluate import inference, eval_pc
 from utils import *
 from dataset_utils import relation_by_super_class_int2str
-from model import SimpleSelfAttention
+from model import SimpleSelfAttention, RelationshipRefiner
+
+
+all_labels = list(relation_by_super_class_int2str().values())
 
 
 def setup(rank, world_size):
@@ -109,6 +113,27 @@ def save_png(image, save_name="image.png"):
     image.save(save_name)
 
 
+def print_layers_in_optimizer(optimizer, attention_layer, relationship_refiner):
+    # Collect all parameters into a list
+    all_params = []
+    for param_group in optimizer.param_groups:
+        params = param_group['params']
+        all_params.extend(params)
+
+    # Create a dictionary to map parameters to layer names
+    param_to_layer = {}
+    for name, param in attention_layer.module.named_parameters():
+        param_to_layer[param] = f'attention_layer.{name}'
+    for name, param in relationship_refiner.module.named_parameters():
+        param_to_layer[param] = f'relationship_refiner.{name}'
+
+    # Extract and print the parameters along with layer names
+    print("Parameters to be backpropagated:")
+    for param in all_params:
+        layer_name = param_to_layer[param]
+        print(f"Layer: {layer_name}, Size: {param.size()}, Requires Grad: {param.requires_grad}")
+
+
 def extract_words_from_edge(phrase, all_relation_labels):
     # iterate through the phrase to extract the parts
     for i in range(len(phrase)):
@@ -154,16 +179,15 @@ def crop_image(image, edge, args, crop=True):
         return image * union_bbox
 
 
-def clip_zero_shot(model, processor, image, edge, rank, args, based_on_hierar=True):
+def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hierar=True):
     # prepare text labels from the relation dictionary
-    labels = list(relation_by_super_class_int2str().values())
-    labels_geometric = labels[:args['models']['num_geometric']]
-    labels_possessive = labels[args['models']['num_geometric']:args['models']['num_geometric']+args['models']['num_possessive']]
-    labels_semantic = labels[-args['models']['num_semantic']:]
+    labels_geometric = all_labels[:args['models']['num_geometric']]
+    labels_possessive = all_labels[args['models']['num_geometric']:args['models']['num_geometric']+args['models']['num_possessive']]
+    labels_semantic = all_labels[-args['models']['num_semantic']:]
 
     # extract current subject and object from the edge
     phrase = edge[-1].split()
-    subject, relation, object = extract_words_from_edge(phrase, labels)
+    subject, relation, object = extract_words_from_edge(phrase, all_labels)
 
     if based_on_hierar:
         # assume the relation super-category has a high accuracy
@@ -174,7 +198,7 @@ def clip_zero_shot(model, processor, image, edge, rank, args, based_on_hierar=Tr
         else:
             queries = [f"a photo of a {subject} {label} {object}" for label in labels_semantic]
     else:
-        queries = [f"a photo of a {subject} {label} {object}" for label in labels]
+        queries = [f"a photo of a {subject} {label} {object}" for label in all_labels]
 
     # crop out the subject and object from the image
     cropped_image = crop_image(image, edge, args)
@@ -182,7 +206,7 @@ def clip_zero_shot(model, processor, image, edge, rank, args, based_on_hierar=Tr
 
     # inference CLIP
     inputs = processor(text=queries, images=image, return_tensors="pt", padding=True).to(rank)
-    outputs = model(**inputs)
+    outputs = clip_model(**inputs)
     logits_per_image = outputs.logits_per_image  # image-text similarity score
     probs = logits_per_image.softmax(dim=1)  # label probabilities
 
@@ -198,10 +222,53 @@ def clip_zero_shot(model, processor, image, edge, rank, args, based_on_hierar=Tr
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def train_graph(model, attention_layer, tokenizer, processor, image, subject_node, object_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args):
+def eval_refined_output(predicted_txt_embed, current_edge):
+    # extract current subject and object from the edge
+    phrase = current_edge.split()
+    subject, relation, object = extract_words_from_edge(phrase, all_labels)
+    queries = [f"a photo of a {subject} {label} {object}" for label in all_labels]
+
+    # collect text_embeds for all possible labels
+    inputs = tokenizer(queries, padding=False, return_tensors="pt").to(rank)
+    all_possible_embeds = clip_model.get_text_features(**inputs)
+    all_possible_embeds = F.normalize(all_possible_embeds, p=2, dim=-1)
+    print('all_possible_embeds', all_possible_embeds.shape)
+
+    predicted_txt_embed = F.normalize(predicted_txt_embed, p=2, dim=-1)  # normalize the predicted embedding
+    print('predicted_txt_embed', predicted_txt_embed.shape)
+
+    # compute cosine similarity between predicted embedding and all query embeddings
+    cos_sim = torch.mm(predicted_txt_embed, all_possible_embeds.t())
+    print('cos_sim 1', cos_sim.shape)
+    cos_sim = cos_sim.squeeze(0)  # remove batch dimension
+    print('cos_sim 2', cos_sim.shape)
+
+    # find the query with the highest similarity
+    _, max_index = cos_sim.max(dim=0)
+    most_probable_query = all_labels[max_index]
+
+    # show the results
+    light_blue_code = 94
+    light_pink_code = 95
+    text_blue_colored = colored_text(most_probable_query, light_blue_code)
+    text_pink_colored = colored_text(relation, light_pink_code)
+    print(f"Predicted label: '{text_blue_colored}', Target label: '{text_pink_colored}'")
+
+
+def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
+                subject_neighbor_edges, object_neighbor_edges, rank, args):
+    # # freeze the pretrained layers to retain the knowledge.
+    # for param in clip_model.parameters():
+    #     param.requires_grad = False
+
+    # collect image embedding
+    inputs = processor(images=image, return_tensors="pt").to(rank)
+    image_embed = clip_model.module.get_image_features(**inputs)
+    print('image_embed', image_embed.shape)
+
+    # accumulate all neighbor edges
     neighbor_phrases = []
     neighbor_text_embeds = []
-
     all_neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
 
     # collect all neighbors of the current edge
@@ -210,31 +277,57 @@ def train_graph(model, attention_layer, tokenizer, processor, image, subject_nod
         neighbor_phrases.append(phrase)
 
         inputs = tokenizer([f"a photo of a {phrase}"], padding=False, return_tensors="pt").to(rank)
-        text_embed = model.get_text_features(**inputs)
+        text_embed = clip_model.module.get_text_features(**inputs)
         neighbor_text_embeds.append(text_embed)
 
     neighbor_text_embeds = torch.stack(neighbor_text_embeds)
     print('neighbor_phrases', neighbor_phrases)
-    print('neighbor_text_embeds', neighbor_text_embeds.shape)
+    print('neighbor_text_embeds', neighbor_text_embeds.shape, neighbor_text_embeds.requires_grad)
 
     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
-    neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank))
-    print('neighbor_text_embeds_2', neighbor_text_embeds.shape)
+    weighted_neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach())
+    print('weighted_neighbor_text_embeds', weighted_neighbor_text_embeds.shape, weighted_neighbor_text_embeds.requires_grad)
 
-    # collect image embedding
-    inputs = processor(images=image, return_tensors="pt").to(rank)
-    image_embed = model.get_image_features(**inputs)
-    print('image_embed', image_embed.shape)
+    # fuse all neighbor_text_embeds after the attention layer
+    weighted_neighbor_text_embeds = torch.sum(weighted_neighbor_text_embeds, dim=0)
+
+    # extract current subject and object to condition the relation prediction
+    current_edge = current_edge[-1].split()
+    subject, relation, object = extract_words_from_edge(current_edge, all_labels)
+    query = [f"a photo of a {subject} and {object}"]
+    inputs = tokenizer(query, padding=False, return_tensors="pt").to(rank)
+    query_txt_embed = clip_model.module.get_text_features(**inputs)
+
+    # forward to the learnable layers
+    print('before relationship_refiner', image_embed.requires_grad, weighted_neighbor_text_embeds.requires_grad, query_txt_embed.requires_grad)
+    predicted_txt_embed = relationship_refiner(image_embed.detach(), weighted_neighbor_text_embeds, query_txt_embed.detach())
+    print('predicted_txt_embed', predicted_txt_embed.shape, predicted_txt_embed.requires_grad)
+    return predicted_txt_embed
 
 
-
-def bfs_explore(image, graph, rank, args):
+def bfs_explore(image, graph, batch_idx, data_len, rank, args):
     # initialize CLIP
-    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(rank)
+    clip_model = DDP(CLIPModel.from_pretrained("openai/clip-vit-base-patch32")).to(rank)
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+
     if args['training']['run_mode'] == 'clip_train':
-        attention_layer = SimpleSelfAttention(hidden_dim=model.text_embed_dim).to(rank)
+        attention_layer = DDP(SimpleSelfAttention(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+        attention_layer.train()
+        relationship_refiner = DDP(RelationshipRefiner(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+        relationship_refiner.train()
+
+        optimizer = optim.Adam([
+            {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
+            {'params': relationship_refiner.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']}
+        ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
+        criterion = nn.MSELoss()
+        print_layers_in_optimizer(optimizer, attention_layer, relationship_refiner)
+
+        # the gradient accumulation process begins by zeroing out gradients at the start of each epoch.
+        grad_acc_counter = 0
+        accumulation_steps = 16
+        optimizer.zero_grad()
 
     # get the node with the highest degree
     node_degrees = graph.get_node_degrees()
@@ -275,14 +368,35 @@ def bfs_explore(image, graph, rank, args):
 
                         if args['training']['run_mode'] == 'clip_zs':
                             # query CLIP on the current neighbor edge in zero shot
-                            clip_zero_shot(model, processor, image, current_edge, rank, args)
+                            clip_zero_shot(clip_model, processor, image, current_edge, rank, args)
                         else:
                             # train the model to predict relations from neighbors and image features
                             subject_neighbor_edges = neighbor_edges
                             subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
                             object_neighbor_edges = graph.adj_list[neighbor_node]
                             object_neighbor_edges.remove(current_edge)     # do not include the current edge redundantly
-                            train_graph(model, attention_layer, tokenizer, processor, image, current_node, neighbor_node, current_edge, subject_neighbor_edges, object_neighbor_edges, rank, args)
+                            predicted_txt_embed = train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
+                                                              subject_neighbor_edges, object_neighbor_edges, rank, args)
+                            grad_acc_counter += 1
+
+                            # prepare learning target
+                            subject, relation, object = extract_words_from_edge(current_edge[-1].split(), all_labels)
+                            target = [f"a photo of a {subject} {relation} {object}"]
+                            inputs = tokenizer(target, padding=False, return_tensors="pt").to(rank)
+                            target_txt_embed = clip_model.module.get_text_features(**inputs)
+
+                            # back-propagate
+                            print('predicted_txt_embed', predicted_txt_embed.shape, predicted_txt_embed.requires_grad, 'target_txt_embed', target_txt_embed.shape, target_txt_embed.requires_grad)
+                            loss = criterion(predicted_txt_embed, target_txt_embed)
+                            loss.backward()
+
+                            if grad_acc_counter % accumulation_steps == 0:  # Only step optimizer every `accumulation_steps`
+                                optimizer.step()
+                                optimizer.zero_grad()  # Ensure we clear gradients after an update
+
+                            # if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
+                            #     print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
+                            #     eval_refined_output(predicted_txt_embed, current_edge)
 
                         queue.append((neighbor_node, level + 1))
 
@@ -299,7 +413,7 @@ def bfs_explore(image, graph, rank, args):
         queue.append((new_start_node, 0))
 
 
-def process_sgg_results(rank, args, sgg_results):
+def process_sgg_results(rank, args, sgg_results, data_len):
     top_k_predictions = sgg_results['top_k_predictions']
     print('top_k_predictions', top_k_predictions[0])
     top_k_image_graphs = sgg_results['top_k_image_graphs']
@@ -317,7 +431,7 @@ def process_sgg_results(rank, args, sgg_results):
         print('curr_target_triplet', curr_target_triplet)
         print('graph.adj_list', graph.adj_list)
 
-        bfs_explore(images[batch_idx], graph, rank, args)
+        bfs_explore(images[batch_idx], graph, batch_idx, data_len, rank, args)
 
         image_graphs.append(graph)
 
@@ -326,23 +440,25 @@ def process_sgg_results(rank, args, sgg_results):
     return image_graphs
 
 
-def query_clip(gpu, args, test_dataset):
+def query_clip(gpu, args, train_dataset, test_dataset):
     rank = gpu
     world_size = torch.cuda.device_count()
     setup(rank, world_size)
     print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
 
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=train_sampler)
     test_sampler = torch.utils.data.distributed.DistributedSampler(test_dataset, num_replicas=world_size, rank=rank)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=test_sampler)
     print("Finished loading the datasets...")
 
     # receive current SGG predictions from a baseline model
-    sgg_results = eval_pc(rank, args, test_loader, top_k=5)
+    sgg_results = eval_pc(rank, args, train_loader, top_k=5)
 
     # iterate through the generator to receive results
     for batch_idx, batch_sgg_results in enumerate(sgg_results):
         print('batch_idx', batch_idx)
-        image_graphs = process_sgg_results(rank, args, batch_sgg_results)
+        image_graphs = process_sgg_results(rank, args, batch_sgg_results, data_len=len(train_loader))
 
     dist.destroy_process_group()  # clean up
 
