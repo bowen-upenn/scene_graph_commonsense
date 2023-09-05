@@ -222,15 +222,14 @@ def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hier
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def eval_refined_output(predicted_txt_embed, current_edge):
+def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, phrase, rank):
     # extract current subject and object from the edge
-    phrase = current_edge.split()
     subject, relation, object = extract_words_from_edge(phrase, all_labels)
     queries = [f"a photo of a {subject} {label} {object}" for label in all_labels]
 
     # collect text_embeds for all possible labels
-    inputs = tokenizer(queries, padding=False, return_tensors="pt").to(rank)
-    all_possible_embeds = clip_model.get_text_features(**inputs)
+    inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
+    all_possible_embeds = clip_model.module.get_text_features(**inputs)
     all_possible_embeds = F.normalize(all_possible_embeds, p=2, dim=-1)
     print('all_possible_embeds', all_possible_embeds.shape)
 
@@ -257,10 +256,6 @@ def eval_refined_output(predicted_txt_embed, current_edge):
 
 def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
                 subject_neighbor_edges, object_neighbor_edges, rank, args):
-    # # freeze the pretrained layers to retain the knowledge.
-    # for param in clip_model.parameters():
-    #     param.requires_grad = False
-
     # collect image embedding
     inputs = processor(images=image, return_tensors="pt").to(rank)
     image_embed = clip_model.module.get_image_features(**inputs)
@@ -322,7 +317,6 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
             {'params': relationship_refiner.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']}
         ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
         criterion = nn.MSELoss()
-        print_layers_in_optimizer(optimizer, attention_layer, relationship_refiner)
 
         # the gradient accumulation process begins by zeroing out gradients at the start of each epoch.
         grad_acc_counter = 0
@@ -372,9 +366,11 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
                         else:
                             # train the model to predict relations from neighbors and image features
                             subject_neighbor_edges = neighbor_edges
-                            subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
+                            print('subject_neighbor_edges', subject_neighbor_edges)
                             object_neighbor_edges = graph.adj_list[neighbor_node]
-                            object_neighbor_edges.remove(current_edge)     # do not include the current edge redundantly
+                            print('object_neighbor_edges', object_neighbor_edges)
+                            subject_neighbor_edges.remove(current_edge)    # do not include the current edge redundantly
+                            object_neighbor_edges.remove(current_edge)
                             predicted_txt_embed = train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
                                                               subject_neighbor_edges, object_neighbor_edges, rank, args)
                             grad_acc_counter += 1
@@ -394,9 +390,9 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
                                 optimizer.step()
                                 optimizer.zero_grad()  # Ensure we clear gradients after an update
 
-                            # if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
-                            #     print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
-                            #     eval_refined_output(predicted_txt_embed, current_edge)
+                            if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
+                                print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
+                                eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge[-1].split(), rank)
 
                         queue.append((neighbor_node, level + 1))
 
@@ -429,7 +425,7 @@ def process_sgg_results(rank, args, sgg_results, data_len):
             graph.add_edge(subject_bbox, object_bbox, relation_id, string)
 
         print('curr_target_triplet', curr_target_triplet)
-        print('graph.adj_list', graph.adj_list)
+        # print('graph.adj_list', graph.adj_list)
 
         bfs_explore(images[batch_idx], graph, batch_idx, data_len, rank, args)
 
