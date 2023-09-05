@@ -8,6 +8,7 @@ import transformers
 from transformers import CLIPProcessor, CLIPModel, AutoTokenizer
 from collections import deque
 import torch.optim as optim
+import torch.nn.functional as F
 
 from evaluate import inference, eval_pc
 from utils import *
@@ -33,6 +34,7 @@ class ImageGraph:
         # store all nodes and their degree
         self.nodes = []
         self.edges = []
+        self.confidence = []    # only record new confidence after refinement
 
     def add_edge(self, subject_bbox, object_bbox, relation_id, string):
         subject_bbox, object_bbox = tuple(subject_bbox), tuple(object_bbox)
@@ -41,6 +43,7 @@ class ImageGraph:
 
         if edge not in self.edges:
             self.edges.append(edge)
+            self.confidence.append(-1)
         if subject_bbox not in self.nodes:
             self.nodes.append(subject_bbox)
         if object_bbox not in self.nodes:
@@ -132,6 +135,13 @@ def print_layers_in_optimizer(optimizer, attention_layer, relationship_refiner):
     for param in all_params:
         layer_name = param_to_layer[param]
         print(f"Layer: {layer_name}, Size: {param.size()}, Requires Grad: {param.requires_grad}")
+
+
+def extract_updated_edges(graph, rank):
+    # initialize a torch tensor for updated relations
+    relation_pred = torch.tensor([graph.edges[i][1] for i in range(len(graph.edges))]).to(rank)
+    confidence = torch.tensor([graph.confidence[i][1] for i in range(len(graph.confidence))]).to(rank)
+    return relation_pred, confidence
 
 
 def extract_words_from_edge(phrase, all_relation_labels):
@@ -237,11 +247,12 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, r
     predicted_txt_embed = F.normalize(predicted_txt_embed, p=2, dim=-1)  # normalize the predicted embedding
 
     # compute cosine similarity between predicted embedding and all query embeddings
-    cos_sim = torch.mm(predicted_txt_embed, all_possible_embeds.t())
-    cos_sim = cos_sim.squeeze(0)  # remove batch dimension
+    CosSim = nn.CosineSimilarity(dim=1)    #torch.mm(predicted_txt_embed, all_possible_embeds.t())
+    cos_sim = CosSim(predicted_txt_embed, all_possible_embeds)
+    cos_sim = F.softmax(cos_sim)  # remove batch dimension
 
     # find the query with the highest similarity
-    _, max_index = cos_sim.max(dim=0)
+    max_val, max_index = cos_sim.max(dim=0)
     most_probable_query = all_labels[max_index]
 
     # show the results
@@ -249,7 +260,7 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, r
     light_pink_code = 95
     text_blue_colored = colored_text(most_probable_query, light_blue_code)
     text_pink_colored = colored_text(relation, light_pink_code)
-    print(f"Predicted label: '{text_blue_colored}', Target label: '{text_pink_colored}'")
+    print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Target label: '{text_pink_colored}'")
 
     # return the updated edge
     updated_phrase = subject + ' ' + most_probable_query + ' ' + object
@@ -257,7 +268,7 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, r
     dark_blue_code = 34
     text_blue_colored = colored_text(updated_edge, dark_blue_code)
     print('updated_edge', text_blue_colored, '\n')
-    return updated_edge
+    return updated_edge, max_val
 
 
 def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
@@ -388,7 +399,7 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
                             predicted_txt_embed = train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
                                                               subject_neighbor_edges, object_neighbor_edges, rank, args)
 
-                            updated_edge = eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank)
+                            updated_edge, confidence = eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank)
 
                             # prepare learning target
                             curr_subject_bbox = current_edge[0]
@@ -427,6 +438,7 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
                                     break
                             if index_to_update is not None:
                                 graph.edges[index_to_update] = updated_edge
+                                graph.confidence[index_to_update] = confidence
 
                         queue.append((neighbor_node, level + 1))
 
