@@ -193,25 +193,6 @@ class Evaluator_PC:
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(3, 1)))
 
 
-    # def global_refine(self, refined_relation, connected_indices_accumulated):
-    #     if not self.hierar:  # flat relationship prediction
-    #         self.relation_pred[connected_indices_accumulated] = torch.argmax(refined_relation, dim=1)
-    #         self.confidence[connected_indices_accumulated] = torch.max(refined_relation, dim=1)[0]
-    #     else:
-    #         connected_indices_accumulated = connected_indices_accumulated.repeat(3)
-    #         relation_pred = torch.hstack((torch.argmax(refined_relation[:, :self.args['models']['num_geometric']], dim=1),
-    #                                          torch.argmax(refined_relation[:, self.args['models']['num_geometric']:self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)
-    #                                          + self.args['models']['num_geometric'],
-    #                                          torch.argmax(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)
-    #                                          + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
-    #         self.relation_pred[connected_indices_accumulated] = relation_pred
-    #
-    #         confidence = torch.hstack((torch.max(refined_relation[:, :self.args['models']['num_geometric']], dim=1)[0],
-    #                                    torch.max(refined_relation[:, self.args['models']['num_geometric']: self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
-    #                                    torch.max(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
-    #         self.confidence[connected_indices_accumulated] = confidence
-
-
     def get_top_k_predictions(self, top_k):
         """
         Returns the top k most confident predictions for each image in the format: (subject_id, relation_id, object_id).
@@ -238,11 +219,15 @@ class Evaluator_PC:
                 relation_id = self.relation_pred[curr_image][ind].item()
                 object_id = self.object_cat_pred[curr_image][ind].item()
 
-                subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu().tolist()
-                object_bbox = self.object_bbox_pred[curr_image][ind].cpu().tolist()
+                subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu()# / self.args['models']['feature_size']
+                object_bbox = self.object_bbox_pred[curr_image][ind].cpu()# / self.args['models']['feature_size']
+                # subject_bbox[:2] *= height
+                # subject_bbox[2:] *= width
+                # object_bbox[:2] *= height
+                # object_bbox[2:] *= width
 
                 curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
-                curr_image_graph.append([subject_bbox, relation_id, object_bbox])
+                curr_image_graph.append([subject_bbox.tolist(), relation_id, object_bbox.tolist()])
 
             top_k_predictions.append(curr_predictions)
             top_k_image_graphs.append(curr_image_graph)
@@ -285,6 +270,67 @@ class Evaluator_PC:
             top_k_predictions.append(curr_predictions)
 
         return top_k_predictions
+
+
+    def global_refine(self, relation_pred, confidence, batch_idx, top_k):
+        """
+        For the batch_idx image in the batch, update the relation_pred and confidence of its top_k predictions.
+        Because we calculate the confidence scores in a different way in global graphical refine, we only use new confidence scores
+        to reorder the new top_k predictions, without actually
+        """
+        if not self.hierar:
+            # find the top k predictions to be updated
+            image = torch.unique(self.which_in_batch)[batch_idx]
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            # select the top k predictions
+            this_k = min(top_k, len(self.relation_pred[curr_image]))
+            keep_inds = sorted_inds[:this_k]
+            # print('keep_inds', keep_inds.shape, keep_inds)
+            # print('self.relation_pred[curr_image][keep_inds]', self.relation_pred[curr_image][keep_inds].shape, 'relation_pred', relation_pred.shape)
+
+            # assign new relation predictions
+            self.relation_pred[curr_image][keep_inds] = relation_pred
+
+            # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
+            reorder_topk_inds = torch.argsort(confidence, descending=True)
+
+            self.relation_pred[curr_image][keep_inds] = self.relation_pred[curr_image][keep_inds][reorder_topk_inds]
+            self.relation_target[curr_image][keep_inds] = self.relation_target[curr_image][keep_inds][reorder_topk_inds]
+            self.confidence[curr_image][keep_inds] = self.confidence[curr_image][keep_inds][reorder_topk_inds]
+            self.connectivity[curr_image][keep_inds] = self.connectivity[curr_image][keep_inds][reorder_topk_inds]
+
+            self.subject_cat_pred[curr_image][keep_inds] = self.subject_cat_pred[curr_image][keep_inds][reorder_topk_inds]
+            self.object_cat_pred[curr_image][keep_inds] = self.object_cat_pred[curr_image][keep_inds][reorder_topk_inds]
+            self.subject_cat_target[curr_image][keep_inds] = self.subject_cat_target[curr_image][keep_inds][reorder_topk_inds]
+            self.object_cat_target[curr_image][keep_inds] = self.object_cat_target[curr_image][keep_inds][reorder_topk_inds]
+            self.subject_bbox_pred[curr_image][keep_inds] = self.subject_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
+            self.object_bbox_pred[curr_image][keep_inds] = self.object_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
+            self.subject_bbox_target[curr_image][keep_inds] = self.subject_bbox_target[curr_image][keep_inds][reorder_topk_inds]
+            self.object_bbox_target[curr_image][keep_inds] = self.object_bbox_target[curr_image][keep_inds][reorder_topk_inds]
+
+        else:
+            assert False, "Not Implemented"
+
+    # def global_refine(self, refined_relation, connected_indices_accumulated):
+    #     if not self.hierar:  # flat relationship prediction
+    #         self.relation_pred[connected_indices_accumulated] = torch.argmax(refined_relation, dim=1)
+    #         self.confidence[connected_indices_accumulated] = torch.max(refined_relation, dim=1)[0]
+    #     else:
+    #         connected_indices_accumulated = connected_indices_accumulated.repeat(3)
+    #         relation_pred = torch.hstack((torch.argmax(refined_relation[:, :self.args['models']['num_geometric']], dim=1),
+    #                                          torch.argmax(refined_relation[:, self.args['models']['num_geometric']:self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)
+    #                                          + self.args['models']['num_geometric'],
+    #                                          torch.argmax(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)
+    #                                          + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
+    #         self.relation_pred[connected_indices_accumulated] = relation_pred
+    #
+    #         confidence = torch.hstack((torch.max(refined_relation[:, :self.args['models']['num_geometric']], dim=1)[0],
+    #                                    torch.max(refined_relation[:, self.args['models']['num_geometric']: self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
+    #                                    torch.max(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
+    #         self.confidence[connected_indices_accumulated] = confidence
 
 
     def compute(self, per_class=False):

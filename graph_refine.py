@@ -36,7 +36,7 @@ class ImageGraph:
         self.edges = []
         self.confidence = []    # only record new confidence after refinement
 
-    def add_edge(self, subject_bbox, object_bbox, relation_id, string):
+    def add_edge(self, subject_bbox, object_bbox, relation_id, string, verbose=False):
         subject_bbox, object_bbox = tuple(subject_bbox), tuple(object_bbox)
         edge = (subject_bbox, relation_id, object_bbox, string)
         edge_wo_string = (subject_bbox, relation_id, object_bbox)
@@ -49,9 +49,10 @@ class ImageGraph:
         if object_bbox not in self.nodes:
             self.nodes.append(object_bbox)
 
-        print('subject_bbox', subject_bbox)
-        print('object_bbox', object_bbox)
-        print('edge', edge, '\n')
+        if verbose:
+            print('subject_bbox', subject_bbox)
+            print('object_bbox', object_bbox)
+            print('edge', edge, '\n')
 
         # Check if the node is already present, otherwise initialize with an empty list
         if subject_bbox not in self.adj_list:
@@ -140,7 +141,7 @@ def print_layers_in_optimizer(optimizer, attention_layer, relationship_refiner):
 def extract_updated_edges(graph, rank):
     # initialize a torch tensor for updated relations
     relation_pred = torch.tensor([graph.edges[i][1] for i in range(len(graph.edges))]).to(rank)
-    confidence = torch.tensor([graph.confidence[i][1] for i in range(len(graph.confidence))]).to(rank)
+    confidence = torch.tensor([graph.confidence[i] for i in range(len(graph.confidence))]).to(rank)
 
     # TODO: update relation_pred and confidence in Recall
     return relation_pred, confidence
@@ -234,7 +235,7 @@ def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hier
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, rank):
+def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, rank, verbose=False):
     # extract current subject and object from the edge
     phrase = curr_edge[-1].split()
     subject, relation, object = extract_words_from_edge(phrase, all_labels)
@@ -258,34 +259,38 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, r
     most_probable_query = all_labels[max_index]
 
     # show the results
-    light_blue_code = 94
-    light_pink_code = 95
-    text_blue_colored = colored_text(most_probable_query, light_blue_code)
-    text_pink_colored = colored_text(relation, light_pink_code)
-    print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Target label: '{text_pink_colored}'")
+    if verbose:
+        light_blue_code = 94
+        light_pink_code = 95
+        text_blue_colored = colored_text(most_probable_query, light_blue_code)
+        text_pink_colored = colored_text(relation, light_pink_code)
+        print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Target label: '{text_pink_colored}'")
 
     # return the updated edge
     updated_phrase = subject + ' ' + most_probable_query + ' ' + object
     updated_edge = (curr_edge[0], max_index.item(), curr_edge[2], updated_phrase)
-    dark_blue_code = 34
-    text_blue_colored = colored_text(updated_edge, dark_blue_code)
-    print('updated_edge', text_blue_colored, '\n')
+    if verbose:
+        dark_blue_code = 34
+        text_blue_colored = colored_text(updated_edge, dark_blue_code)
+        print('updated_edge', text_blue_colored, '\n')
     return updated_edge, max_val
 
 
 def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
-                subject_neighbor_edges, object_neighbor_edges, rank, args):
+                subject_neighbor_edges, object_neighbor_edges, rank, args, verbose=False):
     # collect image embedding
     inputs = processor(images=image, return_tensors="pt").to(rank)
     with torch.no_grad():
         image_embed = clip_model.module.get_image_features(**inputs)
-    print('image_embed', image_embed.shape)
+    if verbose:
+        print('image_embed', image_embed.shape)
 
     # accumulate all neighbor edges
     neighbor_phrases = []
     neighbor_text_embeds = []
     all_neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
-    print('current neighbor edges', all_neighbor_edges)
+    if verbose:
+        print('current neighbor edges', all_neighbor_edges)
     # TODO use ground-truth neighbor edges when possible in training
 
     # collect all neighbors of the current edge
@@ -299,7 +304,8 @@ def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, pr
         neighbor_text_embeds.append(text_embed)
 
     neighbor_text_embeds = torch.stack(neighbor_text_embeds)
-    print('neighbor_text_embeds', neighbor_text_embeds.shape)
+    if verbose:
+        print('neighbor_text_embeds', neighbor_text_embeds.shape)
 
     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
     neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach())
@@ -320,7 +326,7 @@ def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, pr
     return predicted_txt_embed
 
 
-def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
+def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args, verbose=False):
     # initialize CLIP
     clip_model = DDP(CLIPModel.from_pretrained("openai/clip-vit-base-patch32")).to(rank)
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
@@ -345,7 +351,8 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
 
     # get the node with the highest degree
     node_degrees = graph.get_node_degrees()
-    print('node_degrees', node_degrees, '\n')
+    if verbose:
+        print('node_degrees', node_degrees, '\n')
     start_node = max(node_degrees, key=node_degrees.get)
 
     # initialize queue and visited set for BFS
@@ -360,9 +367,10 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
 
             # if the node hasn't been visited yet
             if current_node not in visited_nodes:
-                deep_green_code = 32
-                text_green_colored = colored_text(current_node, deep_green_code)
-                print(f"Visiting node: {text_green_colored} at level {level}")
+                if verbose:
+                    deep_green_code = 32
+                    text_green_colored = colored_text(current_node, deep_green_code)
+                    print(f"Visiting node: {text_green_colored} at level {level}")
 
                 # mark the node as visited
                 visited_nodes.add(current_node)
@@ -381,9 +389,10 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
                 for neighbor_node in neighbor_nodes:
                     current_edge = neighbor_to_edge_map[neighbor_node]
                     if current_edge not in visited_edges:
-                        light_green_code = 92
-                        text_green_colored = colored_text(current_edge, light_green_code)
-                        print(f"Visiting edge: {text_green_colored}")
+                        if verbose:
+                            light_green_code = 92
+                            text_green_colored = colored_text(current_edge, light_green_code)
+                            print(f"Visiting edge: {text_green_colored}")
 
                         # mark the edge as visited
                         visited_edges.add(current_edge)
@@ -400,9 +409,9 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
 
                             # forward pass
                             predicted_txt_embed = train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
-                                                              subject_neighbor_edges, object_neighbor_edges, rank, args)
+                                                              subject_neighbor_edges, object_neighbor_edges, rank, args, verbose=verbose)
 
-                            updated_edge, confidence = eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank)
+                            updated_edge, confidence = eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank, verbose=verbose)
 
                             # prepare learning target
                             curr_subject_bbox = current_edge[0]
@@ -460,9 +469,10 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
     return graph
 
 
-def process_sgg_results(rank, args, sgg_results, data_len):
+def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False):
     top_k_predictions = sgg_results['top_k_predictions']
-    print('top_k_predictions', top_k_predictions[0])
+    if verbose:
+        print('top_k_predictions', top_k_predictions[0])
     top_k_image_graphs = sgg_results['top_k_image_graphs']
     images = sgg_results['images']
     target_triplets = sgg_results['target_triplets']
@@ -473,15 +483,19 @@ def process_sgg_results(rank, args, sgg_results, data_len):
 
         for string, triplet in zip(curr_strings, curr_image):
             subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
-            graph.add_edge(subject_bbox, object_bbox, relation_id, string)
+            graph.add_edge(subject_bbox, object_bbox, relation_id, string, verbose=verbose)
 
-        dark_orange_code = 33
-        text_orange_colored = colored_text(curr_target_triplet, dark_orange_code)
-        print(f"curr_target_triplet edge: {text_orange_colored}")
-        # print('graph.adj_list', graph.adj_list)
+        if verbose:
+            save_png(images[batch_idx], "curr_image.png")
 
-        updated_graph = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args)
-        # Recall.
+        if verbose:
+            dark_orange_code = 33
+            text_orange_colored = colored_text(curr_target_triplet, dark_orange_code)
+            print(f"curr_target_triplet edge: {text_orange_colored}")
+
+        updated_graph = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args, verbose=verbose)
+        relation_pred, confidence = extract_updated_edges(updated_graph, rank)
+        Recall.global_refine(relation_pred, confidence, batch_idx, top_k)
 
         break
 
@@ -499,15 +513,13 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     print("Finished loading the datasets...")
 
     # receive current SGG predictions from a baseline model
-    sgg_results = eval_pc(rank, args, train_loader, top_k=5)
+    sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
 
     # iterate through the generator to receive results
     for batch_idx, batch_sgg_results in enumerate(sgg_results):
-        print('batch_idx', batch_idx)
-        process_sgg_results(rank, args, batch_sgg_results, data_len=len(train_loader))
-
-        # # send updated predicates back to eval_pc after the yield
-        # sgg_results.send(updated_graphs)
+        if args['training']['verbose_global_refine']:
+            print('batch_idx', batch_idx)
+        process_sgg_results(rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
     dist.destroy_process_group()  # clean up
 

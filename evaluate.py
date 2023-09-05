@@ -195,7 +195,7 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
     return sgg_results
 
 
-def eval_pc(gpu, args, test_subset, top_k=5):
+def eval_pc(gpu, args, test_subset, topk_global_refine=5):
     """
     This function evaluates the module on predicate classification tasks.
     :param gpu: current gpu index
@@ -373,10 +373,10 @@ def eval_pc(gpu, args, test_subset, top_k=5):
 
                 if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_subset)):
                     Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                      cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                                      cat_edge, cat_graph, cat_edge, cat_graph, bbox_edge, bbox_graph, bbox_edge, bbox_graph)
                     if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
                         Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                               cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                                               cat_edge, cat_graph, cat_edge, cat_graph, bbox_edge, bbox_graph, bbox_edge, bbox_graph)
 
         """
         EVALUATE AND PRINT CURRENT RESULTS
@@ -392,17 +392,24 @@ def eval_pc(gpu, args, test_subset, top_k=5):
                 wmap_rel, wmap_phrase = Recall.compute_precision()
 
             if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
-                top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=top_k)
+                top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
                 sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall}
                 yield sgg_results
-                # updated_predictions = (yield sgg_results)   # yield and receive data from caller
-                # print('updated_predictions', updated_predictions)
-
-            Recall.clear_data()
 
         if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
             record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                 connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+
+        if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+            # evaluate again after global refinement
+            if args['training']['run_mode'] == 'clip_train':
+                recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                    record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                        connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=True)
+
+            # clean up the evaluator
+            Recall.clear_data()
 
         break
 

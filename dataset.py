@@ -118,8 +118,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             triplets = []
             for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
                 for j, (rel, so) in enumerate(zip(rels, sos)):
-                    bbox_sub = bbox[i + 1]#.clone() / self.args['models']['feature_size']
-                    bbox_obj = bbox[j]#.clone()# / self.args['models']['feature_size']
+                    bbox_sub = bbox[i + 1].clone()# / self.args['models']['feature_size']
+                    bbox_obj = bbox[j].clone()# / self.args['models']['feature_size']
                     # bbox_sub[:2] *= height
                     # bbox_sub[2:] *= width
                     # bbox_obj[:2] *= height
