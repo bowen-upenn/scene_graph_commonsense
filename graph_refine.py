@@ -40,7 +40,7 @@ class ImageGraph:
         edge_wo_string = (subject_bbox, relation_id, object_bbox)
 
         if edge not in self.edges:
-            self.edges.append(edge_wo_string)
+            self.edges.append(edge)
         if subject_bbox not in self.nodes:
             self.nodes.append(subject_bbox)
         if object_bbox not in self.nodes:
@@ -222,8 +222,9 @@ def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hier
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, phrase, rank):
+def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, rank):
     # extract current subject and object from the edge
+    phrase = curr_edge[-1].split()
     subject, relation, object = extract_words_from_edge(phrase, all_labels)
     queries = [f"a photo of a {subject} {label} {object}" for label in all_labels]
 
@@ -248,7 +249,15 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, phrase, rank
     light_pink_code = 95
     text_blue_colored = colored_text(most_probable_query, light_blue_code)
     text_pink_colored = colored_text(relation, light_pink_code)
-    print(f"Predicted label: '{text_blue_colored}', Target label: '{text_pink_colored}'\n")
+    print(f"Predicted label: '{text_blue_colored}', Target label: '{text_pink_colored}'")
+
+    # return the updated edge
+    updated_phrase = subject + ' ' + most_probable_query + ' ' + object
+    updated_edge = (curr_edge[0], max_index.item(), curr_edge[2], updated_phrase)
+    dark_blue_code = 34
+    text_blue_colored = colored_text(updated_edge, dark_blue_code)
+    print('updated_edge', text_blue_colored, '\n')
+    return updated_edge
 
 
 def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
@@ -379,6 +388,8 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
                             predicted_txt_embed = train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
                                                               subject_neighbor_edges, object_neighbor_edges, rank, args)
 
+                            updated_edge = eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank)
+
                             # prepare learning target
                             curr_subject_bbox = current_edge[0]
                             curr_object_bbox = current_edge[2]
@@ -405,10 +416,17 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
 
                                     if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
                                         print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
-                                        eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge[-1].split(), rank)
-
                                     # break the target matching loop
                                     break
+
+                            # update self.edges in the graph using predicted_txt_embed
+                            index_to_update = None
+                            for index, stored_edge in enumerate(graph.edges):
+                                if stored_edge == current_edge:
+                                    index_to_update = index
+                                    break
+                            if index_to_update is not None:
+                                graph.edges[index_to_update] = updated_edge
 
                         queue.append((neighbor_node, level + 1))
 
@@ -424,6 +442,8 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
         print(f"Starting new BFS from node: {new_start_node}")
         queue.append((new_start_node, 0))
 
+    return graph
+
 
 def process_sgg_results(rank, args, sgg_results, data_len):
     top_k_predictions = sgg_results['top_k_predictions']
@@ -431,8 +451,8 @@ def process_sgg_results(rank, args, sgg_results, data_len):
     top_k_image_graphs = sgg_results['top_k_image_graphs']
     images = sgg_results['images']
     target_triplets = sgg_results['target_triplets']
+    Recall = sgg_results['Recall']
 
-    image_graphs = []
     for batch_idx, (curr_strings, curr_image, curr_target_triplet) in enumerate(zip(top_k_predictions, top_k_image_graphs, target_triplets)):
         graph = ImageGraph()
 
@@ -445,12 +465,10 @@ def process_sgg_results(rank, args, sgg_results, data_len):
         print(f"curr_target_triplet edge: {text_orange_colored}")
         # print('graph.adj_list', graph.adj_list)
 
-        bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args)
-        image_graphs.append(graph)
+        updated_graph = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args)
+        # Recall.
 
         break
-
-    return image_graphs
 
 
 def query_clip(gpu, args, train_dataset, test_dataset):
@@ -471,7 +489,10 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # iterate through the generator to receive results
     for batch_idx, batch_sgg_results in enumerate(sgg_results):
         print('batch_idx', batch_idx)
-        image_graphs = process_sgg_results(rank, args, batch_sgg_results, data_len=len(train_loader))
+        process_sgg_results(rank, args, batch_sgg_results, data_len=len(train_loader))
+
+        # # send updated predicates back to eval_pc after the yield
+        # sgg_results.send(updated_graphs)
 
     dist.destroy_process_group()  # clean up
 

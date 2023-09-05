@@ -323,7 +323,7 @@ def eval_pc(gpu, args, test_subset, top_k=5):
                         relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
+                        relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank)
                         super_relation = None
 
                 not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr which_in_batch are not connected
@@ -355,7 +355,7 @@ def eval_pc(gpu, args, test_subset, top_k=5):
                         relation_1, relation_2, relation_3, super_relation, connectivity, _, _= local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
+                        relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank)
                         super_relation = None
 
                 not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr which_in_batch are not connected
@@ -393,8 +393,10 @@ def eval_pc(gpu, args, test_subset, top_k=5):
 
             if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
                 top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=top_k)
-                sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets}
+                sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall}
                 yield sgg_results
+                # updated_predictions = (yield sgg_results)   # yield and receive data from caller
+                # print('updated_predictions', updated_predictions)
 
             Recall.clear_data()
 
