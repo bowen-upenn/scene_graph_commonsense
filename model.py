@@ -303,11 +303,16 @@ class RelationshipRefiner(nn.Module):
         self.rel_tokens = nn.Parameter(torch.rand(1, hidden_dim), requires_grad=True)
 
     def forward(self, img_embed, neighbor_txt_embed, query_embed):
+        # build skip connection
+        init_pred = neighbor_txt_embed[0].unsqueeze(0)
+
         hidden = self.rel_tokens + query_embed
         hidden = torch.cat((hidden, img_embed, neighbor_txt_embed), dim=-1)
         hidden = F.relu(self.fc1(hidden))
         hidden = self.dropout(hidden)
-        hidden = F.relu(self.fc2(hidden))
+
+        hidden = init_pred + self.fc2(hidden)   # skip connection
+
         return hidden
 
 

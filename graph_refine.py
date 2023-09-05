@@ -248,7 +248,7 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, phrase, rank
     light_pink_code = 95
     text_blue_colored = colored_text(most_probable_query, light_blue_code)
     text_pink_colored = colored_text(relation, light_pink_code)
-    print(f"Predicted label: '{text_blue_colored}', Target label: '{text_pink_colored}'")
+    print(f"Predicted label: '{text_blue_colored}', Target label: '{text_pink_colored}'\n")
 
 
 def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
@@ -263,6 +263,7 @@ def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, pr
     neighbor_phrases = []
     neighbor_text_embeds = []
     all_neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
+    print('current neighbor edges', all_neighbor_edges)
 
     # collect all neighbors of the current edge
     for neighbor_edge in all_neighbor_edges:
@@ -296,7 +297,7 @@ def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, pr
     return predicted_txt_embed
 
 
-def bfs_explore(image, graph, batch_idx, data_len, rank, args):
+def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args):
     # initialize CLIP
     clip_model = DDP(CLIPModel.from_pretrained("openai/clip-vit-base-patch32")).to(rank)
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
@@ -321,7 +322,7 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
 
     # get the node with the highest degree
     node_degrees = graph.get_node_degrees()
-    print('node_degrees', node_degrees)
+    print('node_degrees', node_degrees, '\n')
     start_node = max(node_degrees, key=node_degrees.get)
 
     # initialize queue and visited set for BFS
@@ -370,33 +371,44 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
                         else:
                             # train the model to predict relations from neighbors and image features
                             subject_neighbor_edges = list(neighbor_edges)   # use the list constructor to create a new list with the elements of the original list
-                            # print('subject_neighbor_edges', subject_neighbor_edges)
                             object_neighbor_edges = list(graph.adj_list[neighbor_node])
-                            # print('object_neighbor_edges', object_neighbor_edges)
                             subject_neighbor_edges.remove(current_edge)    # do not include the current edge redundantly
                             object_neighbor_edges.remove(current_edge)
+
+                            # forward pass
                             predicted_txt_embed = train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
                                                               subject_neighbor_edges, object_neighbor_edges, rank, args)
-                            grad_acc_counter += 1
 
                             # prepare learning target
-                            subject, relation, object = extract_words_from_edge(current_edge[-1].split(), all_labels)
-                            target = [f"a photo of a {subject} {relation} {object}"]
-                            inputs = tokenizer(target, padding=False, return_tensors="pt").to(rank)
-                            with torch.no_grad():
-                                target_txt_embed = clip_model.module.get_text_features(**inputs)
+                            curr_subject_bbox = current_edge[0]
+                            curr_object_bbox = current_edge[2]
+                            for target in target_triplets:
+                                target_subject_bbox = target[0]
+                                target_object_bbox = target[1]
 
-                            # back-propagate
-                            loss = criterion(predicted_txt_embed, target_txt_embed)
-                            loss.backward()
+                                # when the current prediction is about the current target
+                                if iou(target_subject_bbox, curr_subject_bbox) >= 0.5 and iou(target_object_bbox, curr_object_bbox) >= 0.5:
+                                    target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
+                                    target = [f"a photo of a {target_subject} {target_relation} {target_object}"]
+                                    inputs = tokenizer(target, padding=False, return_tensors="pt").to(rank)
+                                    with torch.no_grad():
+                                        target_txt_embed = clip_model.module.get_text_features(**inputs)
 
-                            if grad_acc_counter % accumulation_steps == 0:  # Only step optimizer every `accumulation_steps`
-                                optimizer.step()
-                                optimizer.zero_grad()  # Ensure we clear gradients after an update
+                                    # back-propagate
+                                    grad_acc_counter += 1
+                                    loss = criterion(predicted_txt_embed, target_txt_embed)
+                                    loss.backward()
 
-                            if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
-                                print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
-                                eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge[-1].split(), rank)
+                                    if grad_acc_counter % accumulation_steps == 0:  # Only step optimizer every `accumulation_steps`
+                                        optimizer.step()
+                                        optimizer.zero_grad()  # Ensure we clear gradients after an update
+
+                                    if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
+                                        print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
+                                        eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge[-1].split(), rank)
+
+                                    # break the target matching loop
+                                    break
 
                         queue.append((neighbor_node, level + 1))
 
@@ -428,11 +440,12 @@ def process_sgg_results(rank, args, sgg_results, data_len):
             subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
             graph.add_edge(subject_bbox, object_bbox, relation_id, string)
 
-        print('curr_target_triplet', curr_target_triplet)
+        dark_orange_code = 33
+        text_orange_colored = colored_text(curr_target_triplet, dark_orange_code)
+        print(f"curr_target_triplet edge: {text_orange_colored}")
         # print('graph.adj_list', graph.adj_list)
 
-        bfs_explore(images[batch_idx], graph, batch_idx, data_len, rank, args)
-
+        bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args)
         image_graphs.append(graph)
 
         break
