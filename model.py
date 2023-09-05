@@ -279,46 +279,6 @@ class TransformerEncoder(nn.Module):
             return relation, hidden
 
 
-# class SimpleSelfAttention(torch.nn.Module):
-#     def __init__(self, hidden_dim):
-#         super(SimpleSelfAttention, self).__init__()
-#         self.query_weight = torch.nn.Parameter(torch.randn(hidden_dim, hidden_dim), requires_grad=True)
-#         self.key_weight = torch.nn.Parameter(torch.randn(hidden_dim, hidden_dim), requires_grad=True)
-#         self.value_weight = torch.nn.Parameter(torch.randn(hidden_dim, hidden_dim), requires_grad=True)
-#
-#         # Initialize positional embeddings
-#         self.positional_encoding = PositionalEncoding(hidden_dim)
-#
-#         # # Initialize special embedding for the first element
-#         # self.first_element_embedding = torch.nn.Parameter(torch.randn(1, 1, hidden_dim), requires_grad=False)
-#
-#     def forward(self, x):
-#         # Adding positional embeddings
-#         print('x1', x.requires_grad)
-#         x = self.positional_encoding(x)
-#         print('x2', x.requires_grad)
-#
-#         # # Adding special first-element embedding
-#         # print('x3', x.requires_grad, x.shape, self.first_element_embedding.shape, (torch.eye(x.size(0))[:, 0].view(-1, 1, 1)).shape, (torch.eye(x.size(0))[:, 0].view(-1, 1, 1)))
-#         # x = x + self.first_element_embedding * (torch.eye(x.size(0))[:, 0].view(-1, 1, 1))
-#
-#         # x shape: [seq_len, 1, hidden_dim]
-#         query = torch.matmul(x, self.query_weight)
-#         key = torch.matmul(x, self.key_weight)
-#         value = torch.matmul(x, self.value_weight)
-#         print('x', x.requires_grad, 'self.query_weight', self.query_weight.requires_grad, 'value', value.requires_grad)
-#
-#         # Attention Score Calculation, shape: [seq_len, seq_len]
-#         attention_score = torch.matmul(query, key.transpose(-2, -1))
-#         attention_score = attention_score / (self.query_weight.shape[0] ** 0.5)
-#         attention_score = F.softmax(attention_score, dim=-1)
-#
-#         # Output Calculation, shape: [seq_len, 1, hidden_dim]
-#         output = torch.matmul(attention_score, value)
-#         print('output', output.requires_grad)
-#
-#         return output
-
 class SimpleSelfAttention(nn.Module):
     def __init__(self, hidden_dim, num_heads=8):
         super(SimpleSelfAttention, self).__init__()
@@ -328,7 +288,6 @@ class SimpleSelfAttention(nn.Module):
     def forward(self, x):
         # x shape: (seq_len, batch_size, hidden_dim)
         attn_output, _ = self.multihead_attn(x, x, x)
-        # attn_output shape: (seq_len, batch_size, hidden_dim)
         return attn_output
 
 
@@ -345,9 +304,7 @@ class RelationshipRefiner(nn.Module):
 
     def forward(self, img_embed, neighbor_txt_embed, query_embed):
         hidden = self.rel_tokens + query_embed
-        print('hidden1', hidden.shape)
         hidden = torch.cat((hidden, img_embed, neighbor_txt_embed), dim=-1)
-        print('hidden2', hidden.shape)
         hidden = F.relu(self.fc1(hidden))
         hidden = self.dropout(hidden)
         hidden = F.relu(self.fc2(hidden))

@@ -229,18 +229,15 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, phrase, rank
 
     # collect text_embeds for all possible labels
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
-    all_possible_embeds = clip_model.module.get_text_features(**inputs)
+    with torch.no_grad():
+        all_possible_embeds = clip_model.module.get_text_features(**inputs)
     all_possible_embeds = F.normalize(all_possible_embeds, p=2, dim=-1)
-    print('all_possible_embeds', all_possible_embeds.shape)
 
     predicted_txt_embed = F.normalize(predicted_txt_embed, p=2, dim=-1)  # normalize the predicted embedding
-    print('predicted_txt_embed', predicted_txt_embed.shape)
 
     # compute cosine similarity between predicted embedding and all query embeddings
     cos_sim = torch.mm(predicted_txt_embed, all_possible_embeds.t())
-    print('cos_sim 1', cos_sim.shape)
     cos_sim = cos_sim.squeeze(0)  # remove batch dimension
-    print('cos_sim 2', cos_sim.shape)
 
     # find the query with the highest similarity
     _, max_index = cos_sim.max(dim=0)
@@ -258,7 +255,8 @@ def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, pr
                 subject_neighbor_edges, object_neighbor_edges, rank, args):
     # collect image embedding
     inputs = processor(images=image, return_tensors="pt").to(rank)
-    image_embed = clip_model.module.get_image_features(**inputs)
+    with torch.no_grad():
+        image_embed = clip_model.module.get_image_features(**inputs)
     print('image_embed', image_embed.shape)
 
     # accumulate all neighbor edges
@@ -272,31 +270,29 @@ def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, pr
         neighbor_phrases.append(phrase)
 
         inputs = tokenizer([f"a photo of a {phrase}"], padding=False, return_tensors="pt").to(rank)
-        text_embed = clip_model.module.get_text_features(**inputs)
+        with torch.no_grad():
+            text_embed = clip_model.module.get_text_features(**inputs)
         neighbor_text_embeds.append(text_embed)
 
     neighbor_text_embeds = torch.stack(neighbor_text_embeds)
-    print('neighbor_phrases', neighbor_phrases)
-    print('neighbor_text_embeds', neighbor_text_embeds.shape, neighbor_text_embeds.requires_grad)
+    print('neighbor_text_embeds', neighbor_text_embeds.shape)
 
     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
-    weighted_neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach())
-    print('weighted_neighbor_text_embeds', weighted_neighbor_text_embeds.shape, weighted_neighbor_text_embeds.requires_grad)
+    neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach())
 
     # fuse all neighbor_text_embeds after the attention layer
-    weighted_neighbor_text_embeds = torch.sum(weighted_neighbor_text_embeds, dim=0)
+    neighbor_text_embeds = torch.sum(neighbor_text_embeds, dim=0)
 
     # extract current subject and object to condition the relation prediction
     current_edge = current_edge[-1].split()
     subject, relation, object = extract_words_from_edge(current_edge, all_labels)
     query = [f"a photo of a {subject} and {object}"]
     inputs = tokenizer(query, padding=False, return_tensors="pt").to(rank)
-    query_txt_embed = clip_model.module.get_text_features(**inputs)
+    with torch.no_grad():
+        query_txt_embed = clip_model.module.get_text_features(**inputs)
 
     # forward to the learnable layers
-    print('before relationship_refiner', image_embed.requires_grad, weighted_neighbor_text_embeds.requires_grad, query_txt_embed.requires_grad)
-    predicted_txt_embed = relationship_refiner(image_embed.detach(), weighted_neighbor_text_embeds, query_txt_embed.detach())
-    print('predicted_txt_embed', predicted_txt_embed.shape, predicted_txt_embed.requires_grad)
+    predicted_txt_embed = relationship_refiner(image_embed.detach(), neighbor_text_embeds, query_txt_embed.detach())
     return predicted_txt_embed
 
 
@@ -330,7 +326,8 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
 
     # initialize queue and visited set for BFS
     queue = deque([(start_node, 0)])  # the second element in the tuple is used to keep track of levels
-    visited = set()
+    visited_nodes = set()
+    visited_edges = set()
 
     while True:
         while queue:
@@ -338,11 +335,13 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
             current_node, level = queue.popleft()
 
             # if the node hasn't been visited yet
-            if current_node not in visited:
-                print(f"Visiting node: {current_node} at level {level}")
+            if current_node not in visited_nodes:
+                deep_green_code = 32
+                text_green_colored = colored_text(current_node, deep_green_code)
+                print(f"Visiting node: {text_green_colored} at level {level}")
 
                 # mark the node as visited
-                visited.add(current_node)
+                visited_nodes.add(current_node)
 
                 # get all the neighboring edges for the current node
                 neighbor_edges = graph.adj_list[current_node]
@@ -356,18 +355,23 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
 
                 # add neighbors to the queue for future exploration
                 for neighbor_node in neighbor_nodes:
-                    if neighbor_node not in visited:
-                        current_edge = neighbor_to_edge_map[neighbor_node]
-                        print(f"Visiting edge: {current_edge}")
+                    current_edge = neighbor_to_edge_map[neighbor_node]
+                    if current_edge not in visited_edges:
+                        light_green_code = 92
+                        text_green_colored = colored_text(current_edge, light_green_code)
+                        print(f"Visiting edge: {text_green_colored}")
+
+                        # mark the edge as visited
+                        visited_edges.add(current_edge)
 
                         if args['training']['run_mode'] == 'clip_zs':
                             # query CLIP on the current neighbor edge in zero shot
                             clip_zero_shot(clip_model, processor, image, current_edge, rank, args)
                         else:
                             # train the model to predict relations from neighbors and image features
-                            subject_neighbor_edges = neighbor_edges
+                            subject_neighbor_edges = list(neighbor_edges)   # use the list constructor to create a new list with the elements of the original list
                             print('subject_neighbor_edges', subject_neighbor_edges)
-                            object_neighbor_edges = graph.adj_list[neighbor_node]
+                            object_neighbor_edges = list(graph.adj_list[neighbor_node])
                             print('object_neighbor_edges', object_neighbor_edges)
                             subject_neighbor_edges.remove(current_edge)    # do not include the current edge redundantly
                             object_neighbor_edges.remove(current_edge)
@@ -379,10 +383,10 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
                             subject, relation, object = extract_words_from_edge(current_edge[-1].split(), all_labels)
                             target = [f"a photo of a {subject} {relation} {object}"]
                             inputs = tokenizer(target, padding=False, return_tensors="pt").to(rank)
-                            target_txt_embed = clip_model.module.get_text_features(**inputs)
+                            with torch.no_grad():
+                                target_txt_embed = clip_model.module.get_text_features(**inputs)
 
                             # back-propagate
-                            print('predicted_txt_embed', predicted_txt_embed.shape, predicted_txt_embed.requires_grad, 'target_txt_embed', target_txt_embed.shape, target_txt_embed.requires_grad)
                             loss = criterion(predicted_txt_embed, target_txt_embed)
                             loss.backward()
 
@@ -399,7 +403,7 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
         print("Finished BFS for current connected component.\n")
 
         # check if there are any unvisited nodes
-        unvisited_nodes = set(node_degrees.keys()) - visited
+        unvisited_nodes = set(node_degrees.keys()) - visited_nodes
         if not unvisited_nodes:
             break  # all nodes have been visited, exit the loop
 
