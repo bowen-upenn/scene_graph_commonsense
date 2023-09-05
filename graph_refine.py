@@ -141,6 +141,8 @@ def extract_updated_edges(graph, rank):
     # initialize a torch tensor for updated relations
     relation_pred = torch.tensor([graph.edges[i][1] for i in range(len(graph.edges))]).to(rank)
     confidence = torch.tensor([graph.confidence[i][1] for i in range(len(graph.confidence))]).to(rank)
+
+    # TODO: update relation_pred and confidence in Recall
     return relation_pred, confidence
 
 
@@ -284,6 +286,7 @@ def train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, pr
     neighbor_text_embeds = []
     all_neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
     print('current neighbor edges', all_neighbor_edges)
+    # TODO use ground-truth neighbor edges when possible in training
 
     # collect all neighbors of the current edge
     for neighbor_edge in all_neighbor_edges:
