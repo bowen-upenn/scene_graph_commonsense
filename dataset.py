@@ -118,19 +118,19 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             triplets = []
             for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
                 for j, (rel, so) in enumerate(zip(rels, sos)):
-                    bbox_sub = bbox[i + 1].clone() / self.args['models']['feature_size']
-                    bbox_obj = bbox[j].clone() / self.args['models']['feature_size']
-                    bbox_sub[:2] *= height
-                    bbox_sub[2:] *= width
-                    bbox_obj[:2] *= height
-                    bbox_obj[2:] *= width
+                    bbox_sub = bbox[i + 1]#.clone() / self.args['models']['feature_size']
+                    bbox_obj = bbox[j]#.clone()# / self.args['models']['feature_size']
+                    # bbox_sub[:2] *= height
+                    # bbox_sub[2:] *= width
+                    # bbox_obj[:2] *= height
+                    # bbox_obj[2:] *= width
 
                     if so == 1:  # if subject
-                        triplets.append([bbox_sub, bbox_obj,
-                                         self.dict_object_names[categories[i + 1].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[j].item()]])
+                        triplets.append((tuple(bbox_sub.tolist()), tuple(bbox_obj.tolist()),
+                                         self.dict_object_names[categories[i + 1].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[j].item()]))
                     elif so == 0:  # if object
-                        triplets.append([bbox_obj, bbox_sub,
-                                         self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]])
+                        triplets.append((tuple(bbox_obj.tolist()), tuple(bbox_sub.tolist()),
+                                         self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
 
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
             return images, image2, image_depth, categories, super_categories, bbox, relationships, subj_or_obj

@@ -370,9 +370,9 @@ def bfs_explore(image, graph, batch_idx, data_len, rank, args):
                         else:
                             # train the model to predict relations from neighbors and image features
                             subject_neighbor_edges = list(neighbor_edges)   # use the list constructor to create a new list with the elements of the original list
-                            print('subject_neighbor_edges', subject_neighbor_edges)
+                            # print('subject_neighbor_edges', subject_neighbor_edges)
                             object_neighbor_edges = list(graph.adj_list[neighbor_node])
-                            print('object_neighbor_edges', object_neighbor_edges)
+                            # print('object_neighbor_edges', object_neighbor_edges)
                             subject_neighbor_edges.remove(current_edge)    # do not include the current edge redundantly
                             object_neighbor_edges.remove(current_edge)
                             predicted_txt_embed = train_graph(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
