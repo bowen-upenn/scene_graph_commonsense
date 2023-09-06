@@ -9,6 +9,7 @@ from transformers import CLIPProcessor, CLIPModel, AutoTokenizer
 from collections import deque
 import torch.optim as optim
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from evaluate import inference, eval_pc
 from utils import *
@@ -252,7 +253,7 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, curr_edge, r
     # compute cosine similarity between predicted embedding and all query embeddings
     CosSim = nn.CosineSimilarity(dim=1)    #torch.mm(predicted_txt_embed, all_possible_embeds.t())
     cos_sim = CosSim(predicted_txt_embed, all_possible_embeds)
-    cos_sim = F.softmax(cos_sim)  # remove batch dimension
+    cos_sim = F.softmax(cos_sim, dim=0)  # remove batch dimension
 
     # find the query with the highest similarity
     max_val, max_index = cos_sim.max(dim=0)
@@ -359,6 +360,8 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args, 
     queue = deque([(start_node, 0)])  # the second element in the tuple is used to keep track of levels
     visited_nodes = set()
     visited_edges = set()
+    # running_graph_refine_loss = 0.0
+    # running_counter = 0
 
     while True:
         while queue:
@@ -437,8 +440,10 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args, 
                                         optimizer.step()
                                         optimizer.zero_grad()  # Ensure we clear gradients after an update
 
-                                    if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
-                                        print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
+                                    # running_graph_refine_loss += loss.item()
+                                    # running_counter += 1
+                                    # if (batch_idx % args['training']['eval_freq'] == 0) or (batch_idx + 1 == data_len):
+                                    #     print(f'Rank {rank} epoch {batch_idx}, graphRefineLoss {loss.item()}')
                                     # break the target matching loop
                                     break
 
@@ -454,7 +459,8 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args, 
 
                         queue.append((neighbor_node, level + 1))
 
-        print("Finished BFS for current connected component.\n")
+        if verbose:
+            print("Finished BFS for current connected component.\n")
 
         # check if there are any unvisited nodes
         unvisited_nodes = set(node_degrees.keys()) - visited_nodes
@@ -463,10 +469,13 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args, 
 
         # start a new BFS from the unvisited node with the highest degree
         new_start_node = max(unvisited_nodes, key=lambda x: node_degrees.get(x, 0))
-        print(f"Starting new BFS from node: {new_start_node}")
+        if verbose:
+            print(f"Starting new BFS from node: {new_start_node}")
         queue.append((new_start_node, 0))
 
-    return graph
+    # running_graph_refine_loss = running_graph_refine_loss / (running_counter + 1e-6)
+
+    return graph#, running_graph_refine_loss
 
 
 def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False):
@@ -477,8 +486,9 @@ def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False)
     images = sgg_results['images']
     target_triplets = sgg_results['target_triplets']
     Recall = sgg_results['Recall']
+    # graph_refine_loss = sgg_results['graph_refine_loss']
 
-    for batch_idx, (curr_strings, curr_image, curr_target_triplet) in enumerate(zip(top_k_predictions, top_k_image_graphs, target_triplets)):
+    for batch_idx, (curr_strings, curr_image, curr_target_triplet) in tqdm(enumerate(zip(top_k_predictions, top_k_image_graphs, target_triplets))):
         graph = ImageGraph()
 
         for string, triplet in zip(curr_strings, curr_image):
@@ -486,18 +496,19 @@ def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False)
             graph.add_edge(subject_bbox, object_bbox, relation_id, string, verbose=verbose)
 
         if verbose:
-            save_png(images[batch_idx], "curr_image.png")
-
-        if verbose:
+            print('batch_idx', batch_idx, '/', len(top_k_predictions))
             dark_orange_code = 33
             text_orange_colored = colored_text(curr_target_triplet, dark_orange_code)
             print(f"curr_target_triplet edge: {text_orange_colored}")
+            save_png(images[batch_idx], "curr_image.png")
 
+        # updated_graph, running_graph_refine_loss = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args, verbose=verbose)
         updated_graph = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args, verbose=verbose)
         relation_pred, confidence = extract_updated_edges(updated_graph, rank)
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k)
 
-        break
+    #     graph_refine_loss += running_graph_refine_loss
+    # graph_refine_loss /= len(top_k_predictions)
 
 
 def query_clip(gpu, args, train_dataset, test_dataset):

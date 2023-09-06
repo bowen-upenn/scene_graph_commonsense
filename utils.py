@@ -388,7 +388,8 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
         json.dump(record, f)
 
 def record_test_results(args, test_record, rank, epoch, recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
-                        connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=False):
+                        connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase,
+                        graph_refine_loss=None, global_refine=False):
     if args['dataset']['dataset'] == 'vg':
         if args['models']['hierarchical_pred']:
             if recall_top3 is None:
@@ -417,12 +418,12 @@ def record_test_results(args, test_record, rank, epoch, recall_top3, recall, mea
                                     'num_connected': num_connected, 'num_not_connected': num_not_connected})
         else:
             if global_refine:
-                print('TEST Global Refined, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
+                print('GRAP, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f'
                       % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
                          recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
                          connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
             else:
-                print('TEST Refined, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
+                print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
                       % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
                          recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
                          connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))

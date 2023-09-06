@@ -259,6 +259,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
                 images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
         except:
             continue
+        batch_size = len(images)
 
         with torch.no_grad():
             images = torch.stack(images).to(rank)
@@ -391,16 +392,18 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
                 recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                 wmap_rel, wmap_phrase = Recall.compute_precision()
 
-            if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
-                top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
-                sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall}
-                yield sgg_results
-
         if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
             record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                 connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
 
         if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+            if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
+                graph_refine_loss = 0.0
+                top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
+                sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets,
+                               'Recall': Recall, 'graph_refine_loss': graph_refine_loss}
+                yield sgg_results
+
             # evaluate again after global refinement
             if args['training']['run_mode'] == 'clip_train':
                 recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
@@ -411,12 +414,10 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
             # clean up the evaluator
             Recall.clear_data()
 
-        break
-
+    print('FINISHED TESTING PC\n')
     if not (args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'):
         dist.destroy_process_group()  # clean up
     print('FINISHED TESTING PC\n')
-
 
 
 def eval_sgd(gpu, args, test_subset):

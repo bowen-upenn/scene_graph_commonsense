@@ -89,6 +89,11 @@ if __name__ == "__main__":
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
             mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
+            # # eval_pc is used in global graphical refinement, so we need to call it as a generator with a yield statement
+            # generator = mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
+            # for result in generator:
+            #     # process the results as they are yielded by the generator
+            #     process_result(result)
         elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
             args['models']['topk_cat'] = 1
             mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset))
