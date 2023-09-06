@@ -56,6 +56,7 @@ class Evaluator_PC:
         self.object_bbox_pred = None
         self.subject_bbox_target = None
         self.object_bbox_target = None
+        self.skipped = None
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -199,6 +200,7 @@ class Evaluator_PC:
         """
         top_k_predictions = []
         top_k_image_graphs = []
+        skipped = []
         dict_relation_names = relation_by_super_class_int2str()
         dict_object_names = object_class_int2str()
 
@@ -213,6 +215,7 @@ class Evaluator_PC:
 
             curr_predictions = []
             curr_image_graph = []
+            curr_skipped = []
 
             for ind in keep_inds:
                 subject_id = self.subject_cat_pred[curr_image][ind].item()
@@ -226,12 +229,19 @@ class Evaluator_PC:
                 # object_bbox[:2] *= height
                 # object_bbox[2:] *= width
 
+                edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
+                if edge in curr_image_graph:    # remove redundant edges
+                    curr_skipped.append(ind.item())
+                    continue
+
                 curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
-                curr_image_graph.append([subject_bbox.tolist(), relation_id, object_bbox.tolist()])
+                curr_image_graph.append(edge)
 
             top_k_predictions.append(curr_predictions)
             top_k_image_graphs.append(curr_image_graph)
+            skipped.append(curr_skipped)
 
+        self.skipped = skipped
         return top_k_predictions, top_k_image_graphs
 
 
@@ -272,7 +282,7 @@ class Evaluator_PC:
         return top_k_predictions
 
 
-    def global_refine(self, relation_pred, confidence, batch_idx, top_k):
+    def global_refine(self, relation_pred, confidence, batch_idx, top_k, rank):
         """
         For the batch_idx image in the batch, update the relation_pred and confidence of its top_k predictions.
         Because we calculate the confidence scores in a different way in global graphical refine, we only use new confidence scores
@@ -288,11 +298,14 @@ class Evaluator_PC:
             # select the top k predictions
             this_k = min(top_k, len(self.relation_pred[curr_image]))
             keep_inds = sorted_inds[:this_k]
-            # print('keep_inds', keep_inds.shape, keep_inds)
-            # print('self.relation_pred[curr_image][keep_inds]', self.relation_pred[curr_image][keep_inds].shape, 'relation_pred', relation_pred.shape)
+            if self.skipped is not None:
+                curr_skipped = self.skipped[image]
+                if len(curr_skipped) > 0:   # remove redundant edges
+                    mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
+                    keep_inds = keep_inds[mask]
 
             # assign new relation predictions
-            self.relation_pred[curr_image][keep_inds] = relation_pred
+            self.relation_pred[curr_image][keep_inds] = relation_pred[:min(top_k, len(keep_inds))]
 
             # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
             reorder_topk_inds = torch.argsort(confidence, descending=True)

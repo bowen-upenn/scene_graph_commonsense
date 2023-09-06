@@ -45,6 +45,8 @@ class ImageGraph:
         if edge not in self.edges:
             self.edges.append(edge)
             self.confidence.append(-1)
+        else:
+            print('!!!!!!!!!', self.edges, 'edge', edge)
         if subject_bbox not in self.nodes:
             self.nodes.append(subject_bbox)
         if object_bbox not in self.nodes:
@@ -488,7 +490,7 @@ def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False)
     Recall = sgg_results['Recall']
     # graph_refine_loss = sgg_results['graph_refine_loss']
 
-    for batch_idx, (curr_strings, curr_image, curr_target_triplet) in tqdm(enumerate(zip(top_k_predictions, top_k_image_graphs, target_triplets))):
+    for batch_idx, (curr_strings, curr_image, curr_target_triplet) in enumerate(zip(top_k_predictions, top_k_image_graphs, target_triplets)):
         graph = ImageGraph()
 
         for string, triplet in zip(curr_strings, curr_image):
@@ -505,7 +507,7 @@ def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False)
         # updated_graph, running_graph_refine_loss = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args, verbose=verbose)
         updated_graph = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args, verbose=verbose)
         relation_pred, confidence = extract_updated_edges(updated_graph, rank)
-        Recall.global_refine(relation_pred, confidence, batch_idx, top_k)
+        Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
     #     graph_refine_loss += running_graph_refine_loss
     # graph_refine_loss /= len(top_k_predictions)
