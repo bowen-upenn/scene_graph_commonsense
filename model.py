@@ -285,9 +285,9 @@ class SimpleSelfAttention(nn.Module):
         self.positional_encoding = PositionalEncoding(hidden_dim)
         self.multihead_attn = nn.MultiheadAttention(hidden_dim, num_heads)
 
-    def forward(self, x):
+    def forward(self, x, key_padding_mask):
         # x shape: (seq_len, batch_size, hidden_dim)
-        attn_output, _ = self.multihead_attn(x, x, x)
+        attn_output, _ = self.multihead_attn(query=x, key=x, value=x, key_padding_mask=key_padding_mask)
         return attn_output
 
 
