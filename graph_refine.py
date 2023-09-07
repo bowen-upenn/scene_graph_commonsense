@@ -381,24 +381,9 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge
     return updated_edge, max_val
 
 
-def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args, verbose=False):
-    # initialize CLIP
-    clip_model = DDP(CLIPModel.from_pretrained("openai/clip-vit-base-patch32")).to(rank)
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-
+def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+                image, graph, target_triplets, batch_idx, data_len, rank, args, verbose=False):
     if args['training']['run_mode'] == 'clip_train':
-        attention_layer = DDP(SimpleSelfAttention(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
-        attention_layer.train()
-        relationship_refiner = DDP(RelationshipRefiner(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
-        relationship_refiner.train()
-
-        optimizer = optim.Adam([
-            {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
-            {'params': relationship_refiner.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']}
-        ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
-        criterion = nn.MSELoss()
-
         # the gradient accumulation process begins by zeroing out gradients at the start of each epoch.
         grad_acc_counter = 0
         accumulation_steps = 16
@@ -530,25 +515,11 @@ def bfs_explore(image, graph, target_triplets, batch_idx, data_len, rank, args, 
             print(f"Starting new BFS from node: {new_start_node}")
         queue.append((new_start_node, 0))
 
-    return graph
+    return graph, attention_layer, relationship_refiner
 
 
-def batch_training(images, graphs, target_triplets, data_len, rank, args, verbose=False):
-    # initialize CLIP
-    clip_model = DDP(CLIPModel.from_pretrained("openai/clip-vit-base-patch32")).to(rank)
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-
-    attention_layer = DDP(SimpleSelfAttention(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
-    attention_layer.train()
-    relationship_refiner = DDP(RelationshipRefiner(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
-    relationship_refiner.train()
-
-    optimizer = optim.Adam([
-        {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
-        {'params': relationship_refiner.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']}
-    ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
-    criterion = nn.MSELoss()
+def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+                   images, graphs, target_triplets, data_len, rank, args, verbose=False):
 
     # for all graphs in the batch, iterate all its edges being added
     for graph, targets, image in zip(graphs, target_triplets, images):
@@ -622,10 +593,11 @@ def batch_training(images, graphs, target_triplets, data_len, rank, args, verbos
             graph.edges[edge_idx] = updated_edges
             graph.confidence[edge_idx] = confidences
 
-    return graphs
+    return graphs, attention_layer, relationship_refiner
 
 
-def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False):
+def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+                        rank, args, sgg_results, top_k, data_len, verbose=False):
     top_k_predictions = sgg_results['top_k_predictions']
     if verbose:
         print('top_k_predictions', top_k_predictions[0])
@@ -648,12 +620,17 @@ def process_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False)
             print(f"curr_target_triplet edge: {text_orange_colored}")
             save_png(images[batch_idx], "curr_image.png")
 
-        updated_graph = bfs_explore(images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args, verbose=verbose)
+        updated_graph, attention_layer, relationship_refiner = bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+                                                                           images[batch_idx], graph, curr_target_triplet, batch_idx, data_len, rank, args, verbose=verbose)
         relation_pred, confidence = extract_updated_edges(updated_graph, rank)
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
+    torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
+    torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
 
-def process_batch_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=False):
+
+def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+                              rank, args, sgg_results, top_k, data_len, verbose=False):
     top_k_predictions = sgg_results['top_k_predictions']
     if verbose:
         print('top_k_predictions', top_k_predictions[0])
@@ -672,11 +649,15 @@ def process_batch_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=
 
         graphs.append(graph)
 
-    updated_graphs = batch_training(images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
+    updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+                                                                           images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
 
     for batch_idx in range(len(top_k_predictions)):
         relation_pred, confidence = extract_updated_edges(updated_graphs[batch_idx], rank)
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
+
+    torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
+    torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
 
 
 def query_clip(gpu, args, train_dataset, test_dataset):
@@ -691,6 +672,22 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=test_sampler)
     print("Finished loading the datasets...")
 
+    # initialize CLIP
+    clip_model = DDP(CLIPModel.from_pretrained("openai/clip-vit-base-patch32")).to(rank)
+    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+
+    attention_layer = DDP(SimpleSelfAttention(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+    attention_layer.train()
+    relationship_refiner = DDP(RelationshipRefiner(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+    relationship_refiner.train()
+
+    optimizer = optim.Adam([
+        {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
+        {'params': relationship_refiner.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']}
+    ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
+    criterion = nn.MSELoss()
+
     # receive current SGG predictions from a baseline model
     sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
 
@@ -699,8 +696,10 @@ def query_clip(gpu, args, train_dataset, test_dataset):
         if args['training']['verbose_global_refine']:
             print('batch_idx', batch_idx)
 
-        process_batch_sgg_results(rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
-        # process_sgg_results(rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+        process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+                                  rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+        # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+        #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
     dist.destroy_process_group()  # clean up
 
