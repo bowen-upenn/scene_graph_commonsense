@@ -304,14 +304,15 @@ class RelationshipRefiner(nn.Module):
 
     def forward(self, img_embed, neighbor_txt_embed, query_embed):
         # build skip connection
-        init_pred = neighbor_txt_embed[0].unsqueeze(0)
+        # init_pred = neighbor_txt_embed[0].unsqueeze(0)
 
         hidden = self.rel_tokens + query_embed
         hidden = torch.cat((hidden, img_embed, neighbor_txt_embed), dim=-1)
         hidden = F.relu(self.fc1(hidden))
         hidden = self.dropout(hidden)
 
-        hidden = init_pred + self.fc2(hidden)   # skip connection
+        # hidden = init_pred + self.fc2(hidden)   # skip connection
+        hidden = self.fc2(hidden)
 
         return hidden
 

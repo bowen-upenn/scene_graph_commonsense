@@ -28,7 +28,8 @@ def setup(rank, world_size):
 
 
 class ImageGraph:
-    def __init__(self):
+    def __init__(self, targets=None):
+        self.targets = targets
         # node to neighbors mapping
         self.adj_list = {}
         # edge to nodes mapping
@@ -38,7 +39,7 @@ class ImageGraph:
         self.edges = []
         self.confidence = []    # only record new confidence after refinement
 
-    def add_edge(self, subject_bbox, object_bbox, relation_id, string, verbose=False):
+    def add_edge(self, subject_bbox, object_bbox, relation_id, string, training=True, verbose=False):
         subject_bbox, object_bbox = tuple(subject_bbox), tuple(object_bbox)
         edge = (subject_bbox, relation_id, object_bbox, string)
         edge_wo_string = (subject_bbox, relation_id, object_bbox)
@@ -56,13 +57,15 @@ class ImageGraph:
             print('object_bbox', object_bbox)
             print('edge', edge, '\n')
 
-        # Check if the node is already present, otherwise initialize with an empty list
+        # check if the node is already present, otherwise initialize with an empty list
         if subject_bbox not in self.adj_list:
             self.adj_list[subject_bbox] = []
         if object_bbox not in self.adj_list:
             self.adj_list[object_bbox] = []
 
-        # change list as immutable tuple as the dict key
+        # in training, store ground truth neighbors if a target is matched
+        if training:
+            edge = find_matched_target(edge, self.targets)
         self.adj_list[subject_bbox].append(edge)
         self.adj_list[object_bbox].append(edge)
 
@@ -144,8 +147,6 @@ def extract_updated_edges(graph, rank):
     # initialize a torch tensor for updated relations
     relation_pred = torch.tensor([graph.edges[i][1] for i in range(len(graph.edges))]).to(rank)
     confidence = torch.tensor([graph.confidence[i] for i in range(len(graph.confidence))]).to(rank)
-
-    # TODO: update relation_pred and confidence in Recall
     return relation_pred, confidence
 
 
@@ -192,6 +193,23 @@ def crop_image(image, edge, args, crop=True):
         return cropped_image
     else:
         return image * union_bbox
+
+
+def find_matched_target(edge, targets):
+    subject_node, object_node = edge[0], edge[2]
+    current_subject, _, current_object = extract_words_from_edge(edge[-1].split(), all_labels)
+
+    for target in targets:
+        target_subject_bbox = target[0]
+        target_object_bbox = target[1]
+
+        if target_subject_bbox == subject_node and target_object_bbox == object_node:
+            target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
+
+            if target_subject == current_subject and target_object == current_object:
+                return target
+
+    return edge  # return the original edge if no target matched
 
 
 def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hierar=True):
@@ -541,8 +559,10 @@ def batch_training(images, graphs, target_triplets, data_len, rank, args, verbos
 
         for edge_idx, current_edge in enumerate(graph.edges):
             subject_node, object_node = current_edge[0], current_edge[2]
+            current_subject, _, current_object = extract_words_from_edge(current_edge[-1].split(), all_labels)
 
-            # find corresponding target edge
+            # find corresponding target edge for the current edge
+            target_txt_embed = None
             for target in targets:
                 target_subject_bbox = target[0]
                 target_object_bbox = target[1]
@@ -550,19 +570,25 @@ def batch_training(images, graphs, target_triplets, data_len, rank, args, verbos
                 # when the current prediction is about the current target
                 if iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5:
                     target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
-                    target = [f"a photo of a {target_subject} {target_relation} {target_object}"]
-                    inputs = tokenizer(target, padding=True, return_tensors="pt").to(rank)
-                    with torch.no_grad():
-                        target_txt_embed = clip_model.module.get_text_features(**inputs)
-                    all_target_txt_embeds.append(target_txt_embed)
-                    target_mask.append(edge_idx)
+
+                    if target_subject == current_subject and target_object == current_object:
+                        phrase = [f"a photo of a {target_subject} {target_relation} {target_object}"]
+                        inputs = tokenizer(phrase, padding=True, return_tensors="pt").to(rank)
+                        with torch.no_grad():
+                            target_txt_embed = clip_model.module.get_text_features(**inputs)
+                        all_target_txt_embeds.append(target_txt_embed)
+                        target_mask.append(edge_idx)
                     break
 
             # find neighbor edges for the current edge
             subject_neighbor_edges = graph.adj_list[subject_node]
             object_neighbor_edges = graph.adj_list[object_node]
-            subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
-            object_neighbor_edges.remove(current_edge)
+            if target_txt_embed is None:
+                subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
+                object_neighbor_edges.remove(current_edge)
+            else:
+                subject_neighbor_edges.remove(target)
+                object_neighbor_edges.remove(target)
 
             neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
 
@@ -638,11 +664,11 @@ def process_batch_sgg_results(rank, args, sgg_results, top_k, data_len, verbose=
 
     graphs = []
     for batch_idx, (curr_strings, curr_image) in enumerate(zip(top_k_predictions, top_k_image_graphs)):
-        graph = ImageGraph()
+        graph = ImageGraph(targets=target_triplets[batch_idx])
 
         for string, triplet in zip(curr_strings, curr_image):
             subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
-            graph.add_edge(subject_bbox, object_bbox, relation_id, string, verbose=verbose)
+            graph.add_edge(subject_bbox, object_bbox, relation_id, string, training=True, verbose=verbose)
 
         graphs.append(graph)
 
