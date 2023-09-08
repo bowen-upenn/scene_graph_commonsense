@@ -126,10 +126,10 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                     # bbox_obj[2:] *= width
 
                     if so == 1:  # if subject
-                        triplets.append((tuple(bbox_sub.tolist()), tuple(bbox_obj.tolist()),
+                        triplets.append((tuple(bbox_sub.tolist()), rel.item(), tuple(bbox_obj.tolist()),
                                          self.dict_object_names[categories[i + 1].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[j].item()]))
                     elif so == 0:  # if object
-                        triplets.append((tuple(bbox_obj.tolist()), tuple(bbox_sub.tolist()),
+                        triplets.append((tuple(bbox_obj.tolist()), rel.item(), tuple(bbox_sub.tolist()),
                                          self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
 
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':

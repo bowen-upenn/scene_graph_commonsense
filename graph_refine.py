@@ -15,7 +15,7 @@ from torch.nn.utils.rnn import pad_sequence
 from evaluate import inference, eval_pc
 from utils import *
 from dataset_utils import relation_by_super_class_int2str
-from model import SimpleSelfAttention, RelationshipRefiner
+from model import SimpleSelfAttention, RelationshipRefiner, MultimodalTransformerEncoder
 
 
 all_labels = list(relation_by_super_class_int2str().values())
@@ -65,9 +65,13 @@ class ImageGraph:
 
         # in training, store ground truth neighbors if a target is matched
         if training:
-            edge = find_matched_target(edge, self.targets)
-        self.adj_list[subject_bbox].append(edge)
-        self.adj_list[object_bbox].append(edge)
+            matched_target_edge = find_matched_target(edge, self.targets)
+            if matched_target_edge is not None:
+                self.adj_list[subject_bbox].append(matched_target_edge)
+                self.adj_list[object_bbox].append(matched_target_edge)
+        else:
+            self.adj_list[subject_bbox].append(edge)
+            self.adj_list[object_bbox].append(edge)
 
         self.edge_node_map[edge_wo_string] = (subject_bbox, object_bbox)
 
@@ -196,20 +200,21 @@ def crop_image(image, edge, args, crop=True):
 
 
 def find_matched_target(edge, targets):
-    subject_node, object_node = edge[0], edge[2]
+    subject_bbox, object_bbox = edge[0], edge[2]
     current_subject, _, current_object = extract_words_from_edge(edge[-1].split(), all_labels)
 
     for target in targets:
         target_subject_bbox = target[0]
-        target_object_bbox = target[1]
+        target_object_bbox = target[2]
 
-        if target_subject_bbox == subject_node and target_object_bbox == object_node:
-            target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
+        if target_subject_bbox == subject_bbox and target_object_bbox == object_bbox:
+            target_subject, _, target_object = extract_words_from_edge(target[-1].split(), all_labels)
 
             if target_subject == current_subject and target_object == current_object:
                 return target
 
-    return edge  # return the original edge if no target matched
+    return None
+    # return edge  # return the original edge if no target matched
 
 
 def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hierar=True):
@@ -339,6 +344,88 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     return predicted_txt_embed
 
 
+def prepare_training_multimodal_transformer(clip_model, multimodal_transformer_encoder, tokenizer, processor, image, current_edge,
+                                            neighbor_edges, rank, batch=True, verbose=False):
+    # collect image embedding
+    inputs = processor(images=image, return_tensors="pt").to(rank)
+    with torch.no_grad():
+        image_embed = clip_model.module.get_image_features(**inputs)
+
+    # if batch:   # process all edges in a graph in parallel, but they all belong to the same image
+    #     image_embed = image_embed.repeat(len(current_edge), 1)
+    if verbose:
+        print('image_embed', image_embed.shape)
+
+    # extract current subject and object to condition the relation prediction
+    if batch:
+        queries = []
+        for edge in current_edge:
+            edge = edge[-1].split()
+            subject, relation, object = extract_words_from_edge(edge, all_labels)
+            queries.append(f"a photo of a {subject} and {object}")
+        inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
+    else:
+        current_edge = current_edge[-1].split()
+        subject, relation, object = extract_words_from_edge(current_edge, all_labels)
+        query = [f"a photo of a {subject} and {object}"]
+        inputs = tokenizer(query, padding=False, return_tensors="pt").to(rank)
+
+    with torch.no_grad():
+        query_txt_embed = clip_model.module.get_text_features(**inputs)
+    if verbose:
+        print('query_txt_embed', query_txt_embed.shape)
+
+    # accumulate all neighbor edges
+    neighbor_text_embeds = []
+    if verbose:
+        print('current neighbor edges', neighbor_edges)
+    # TODO use ground-truth neighbor edges when possible in training
+
+    # collect all neighbors of the current edge
+    if batch:
+        for curr_neighbor_edges in neighbor_edges:
+            inputs = tokenizer([f"a photo of a {edge[-1]}" for edge in curr_neighbor_edges],
+                               padding=True, return_tensors="pt").to(rank)
+            with torch.no_grad():
+                text_embed = clip_model.module.get_text_features(**inputs)
+                text_embed = torch.cat((image_embed, query_txt_embed, text_embed), dim=0)
+            neighbor_text_embeds.append(text_embed)
+
+        # pad the sequences to make them the same length (max_seq_len)
+        seq_len = [len(embed) for embed in neighbor_text_embeds]
+        key_padding_mask = torch.zeros(len(seq_len), max(seq_len), dtype=torch.bool).to(rank)
+        for i, length in enumerate(seq_len):
+            key_padding_mask[i, length:] = 1    # a True value indicates that the corresponding key value will be ignored
+
+        neighbor_text_embeds = pad_sequence(neighbor_text_embeds, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
+    else:
+        for edge in neighbor_edges:
+            inputs = tokenizer([f"a photo of a {edge[-1]}"], padding=False, return_tensors="pt").to(rank)
+            with torch.no_grad():
+                text_embed = clip_model.module.get_text_features(**inputs)
+                text_embed = torch.cat((image_embed, query_txt_embed, text_embed), dim=0)
+            neighbor_text_embeds.append(text_embed)
+
+        neighbor_text_embeds = torch.stack(neighbor_text_embeds)    # size [seq_len, batch_size, hidden_dim]
+        key_padding_mask = None
+
+    # feed neighbor_text_embeds to a self-attention layer to get learnable weights
+    neighbor_text_embeds = multimodal_transformer_encoder(neighbor_text_embeds.to(rank).detach(), key_padding_mask=key_padding_mask)
+
+    # fuse all neighbor_text_embeds after the attention layer
+    if batch:
+        neighbor_text_embeds = neighbor_text_embeds.permute(1, 0, 2)  # size [batch_size, seq_len, hidden_dim]
+        neighbor_text_embeds = neighbor_text_embeds * key_padding_mask.unsqueeze(-1)
+        neighbor_text_embeds = neighbor_text_embeds.sum(dim=1)
+    else:
+        neighbor_text_embeds = torch.sum(neighbor_text_embeds, dim=0)
+
+    if verbose:
+        print('neighbor_text_embeds', neighbor_text_embeds.shape)
+
+    return neighbor_text_embeds
+
+
 def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank, verbose=False):
     # extract current subject and object from the edge
     phrase = current_edge[-1].split()
@@ -460,7 +547,7 @@ def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_
                             curr_object_bbox = current_edge[2]
                             for target in target_triplets:
                                 target_subject_bbox = target[0]
-                                target_object_bbox = target[1]
+                                target_object_bbox = target[2]
 
                                 # when the current prediction is about the current target
                                 if args['training']['eval_mode'] == 'pc':
@@ -518,7 +605,9 @@ def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_
     return graph, attention_layer, relationship_refiner
 
 
-def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+# def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+#                    images, graphs, target_triplets, data_len, rank, args, verbose=False):
+def batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
                    images, graphs, target_triplets, data_len, rank, args, verbose=False):
 
     # for all graphs in the batch, iterate all its edges being added
@@ -533,13 +622,14 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
             current_subject, _, current_object = extract_words_from_edge(current_edge[-1].split(), all_labels)
 
             # find corresponding target edge for the current edge
-            target_txt_embed = None
+            current_target = None
             for target in targets:
                 target_subject_bbox = target[0]
-                target_object_bbox = target[1]
+                target_object_bbox = target[2]
 
                 # when the current prediction is about the current target
-                if iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5:
+                # if iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5:
+                if target_subject_bbox == subject_node and target_object_bbox == object_node:
                     target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
 
                     if target_subject == current_subject and target_object == current_object:
@@ -549,17 +639,34 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                             target_txt_embed = clip_model.module.get_text_features(**inputs)
                         all_target_txt_embeds.append(target_txt_embed)
                         target_mask.append(edge_idx)
-                    break
+                        current_target = target
+                        break
 
             # find neighbor edges for the current edge
             subject_neighbor_edges = graph.adj_list[subject_node]
             object_neighbor_edges = graph.adj_list[object_node]
-            if target_txt_embed is None:
-                subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
-                object_neighbor_edges.remove(current_edge)
-            else:
-                subject_neighbor_edges.remove(target)
-                object_neighbor_edges.remove(target)
+            # if current_target is None:
+            #     try:
+            #         subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
+            #         object_neighbor_edges.remove(current_edge)
+            #     except:
+            #         print('no target')
+            #         print('subject_neighbor_edges', subject_neighbor_edges)
+            #         print('object_neighbor_edges', object_neighbor_edges)
+            #         print('current_edge', current_edge)
+            #         print('targets', targets)
+            #         assert False
+            # else:
+            #     try:
+            #         subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
+            #         object_neighbor_edges.remove(current_target)
+            #     except:
+            #         print('has target')
+            #         print('subject_neighbor_edges', subject_neighbor_edges)
+            #         print('object_neighbor_edges', object_neighbor_edges)
+            #         print('current_target', current_target, 'current_edge', current_edge)
+            #         print('targets', targets)
+            #         assert False
 
             neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
 
@@ -569,8 +676,10 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         target_mask = torch.tensor(target_mask).to(rank)
 
         # forward pass
-        predicted_txt_embeds = prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
-                                               all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
+        predicted_txt_embeds = prepare_training_multimodal_transformer(clip_model, multimodal_transformer_encoder, tokenizer, processor, image,
+                                                                       all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
+        # predicted_txt_embeds = prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
+        #                                        all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
 
         if len(all_target_txt_embeds) > 0:
             all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
@@ -593,7 +702,8 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
             graph.edges[edge_idx] = updated_edges
             graph.confidence[edge_idx] = confidences
 
-    return graphs, attention_layer, relationship_refiner
+    return graphs, multimodal_transformer_encoder
+    # return graphs, attention_layer, relationship_refiner
 
 
 def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
@@ -629,7 +739,9 @@ def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relat
     torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
 
 
-def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+# def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+#                               rank, args, sgg_results, top_k, data_len, verbose=False):
+def process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
                               rank, args, sgg_results, top_k, data_len, verbose=False):
     top_k_predictions = sgg_results['top_k_predictions']
     if verbose:
@@ -649,15 +761,18 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
 
         graphs.append(graph)
 
-    updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+    # updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+    #                                                                        images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
+    updated_graphs, multimodal_transformer_encoder = batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
                                                                            images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
 
     for batch_idx in range(len(top_k_predictions)):
         relation_pred, confidence = extract_updated_edges(updated_graphs[batch_idx], rank)
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
-    torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
-    torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
+    # torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
+    # torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
+    torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
 
 
 def query_clip(gpu, args, train_dataset, test_dataset):
@@ -677,14 +792,19 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
-    attention_layer = DDP(SimpleSelfAttention(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
-    attention_layer.train()
-    relationship_refiner = DDP(RelationshipRefiner(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
-    relationship_refiner.train()
+    # attention_layer = DDP(SimpleSelfAttention(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+    # attention_layer.train()
+    # relationship_refiner = DDP(RelationshipRefiner(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+    # relationship_refiner.train()
+    multimodal_transformer_encoder = DDP(MultimodalTransformerEncoder(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+    multimodal_transformer_encoder.train()
 
+    # optimizer = optim.Adam([
+    #     {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
+    #     {'params': relationship_refiner.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']}
+    # ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     optimizer = optim.Adam([
-        {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
-        {'params': relationship_refiner.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']}
+        {'params': multimodal_transformer_encoder.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
     ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     criterion = nn.MSELoss()
 
@@ -696,8 +816,11 @@ def query_clip(gpu, args, train_dataset, test_dataset):
         if args['training']['verbose_global_refine']:
             print('batch_idx', batch_idx)
 
-        process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+        process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
                                   rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+
+        # process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+        #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
         # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
         #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 

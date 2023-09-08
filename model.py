@@ -291,6 +291,38 @@ class SimpleSelfAttention(nn.Module):
         return attn_output
 
 
+class MultimodalTransformerEncoder(nn.Module):
+    def __init__(self, hidden_dim, num_heads=8, num_layers=1, dropout=0.1):
+        super(MultimodalTransformerEncoder, self).__init__()
+
+        self.positional_encoding = PositionalEncoding(hidden_dim)
+
+        # Initialize learned modality encodings for image, query, and text
+        self.image_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.query_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.text_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
+
+        encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, dropout=dropout)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+    def forward(self, x, key_padding_mask):
+        # Apply positional encoding
+        x = self.positional_encoding(x)
+
+        # Add learned modality encodings to image, query, and text features
+        image_feat = x[0] + self.image_modality_encoding
+        query_feat = x[1] + self.query_modality_encoding
+        text_feat = x[2:] + self.text_modality_encoding
+
+        # Concatenate back into the original sequence
+        x = torch.cat([image_feat, query_feat, text_feat], dim=0)
+
+        # Perform self-attention with transformer encoder
+        output = self.transformer_encoder(x, src_key_padding_mask=key_padding_mask)
+
+        return output
+
+
 class RelationshipRefiner(nn.Module):
     def __init__(self, hidden_dim):
         super(RelationshipRefiner, self).__init__()
