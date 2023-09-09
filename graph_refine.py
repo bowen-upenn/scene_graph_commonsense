@@ -260,8 +260,8 @@ def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hier
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image, current_edge,
-                     neighbor_edges, rank, batch=True, verbose=False):
+def prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
+                     current_edge, neighbor_edges, rank, batch=True, verbose=False):
     # collect image embedding
     inputs = processor(images=image, return_tensors="pt").to(rank)
     with torch.no_grad():
@@ -305,6 +305,7 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
         key_padding_mask = None
 
     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
+    current_text_embeds = neighbor_text_embeds[0, :, :]     # [batch_size, hidden_dim]
     neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach(), key_padding_mask=key_padding_mask)
 
     # fuse all neighbor_text_embeds after the attention layer
@@ -338,7 +339,7 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
         print('query_txt_embed', query_txt_embed.shape)
 
     # forward to the learnable layers
-    predicted_txt_embed = relationship_refiner(image_embed.detach(), neighbor_text_embeds, query_txt_embed.detach())
+    predicted_txt_embed = relationship_refiner(image_embed.detach(), current_text_embeds.detach(), query_txt_embed.detach(), neighbor_text_embeds)
     if verbose:
         print('predicted_txt_embed', predicted_txt_embed.shape)
     return predicted_txt_embed
@@ -426,11 +427,13 @@ def prepare_training_multimodal_transformer(clip_model, multimodal_transformer_e
     return neighbor_text_embeds
 
 
-def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank, verbose=False):
+def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank, batch_count, verbose=False):
     # extract current subject and object from the edge
     phrase = current_edge[-1].split()
     subject, relation, object = extract_words_from_edge(phrase, all_labels)
     queries = [f"a photo of a {subject} {label} {object}" for label in all_labels]
+    # if batch_count % 10 == 0:
+    #     print('phrase', phrase)
 
     # collect text_embeds for all possible labels
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
@@ -605,7 +608,7 @@ def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_
     return graph, attention_layer, relationship_refiner
 
 
-def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
                    images, graphs, target_triplets, data_len, batch_count, rank, args, verbose=False):
 # def batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
 #                    images, graphs, target_triplets, data_len, rank, args, verbose=False):
@@ -617,6 +620,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         all_current_edges = []
         all_neighbor_edges = []
         all_target_txt_embeds = []
+        all_targets = []
         target_mask = []    # mask of predicate that has matched with a target
 
         for edge_idx, current_edge in enumerate(graph.edges):
@@ -643,6 +647,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                         all_target_txt_embeds.append(target_txt_embed)
                         target_mask.append(edge_idx)
                         current_target = target
+                        all_targets.append(target)
                         break
 
             # find neighbor edges for the current edge
@@ -653,22 +658,22 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                     subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
                     object_neighbor_edges.remove(current_edge)
                 except:
-                    print('no target')
-                    print('subject_neighbor_edges', subject_neighbor_edges)
-                    print('object_neighbor_edges', object_neighbor_edges)
-                    print('current_edge', current_edge)
-                    print('targets', targets)
+                    # print('no target')
+                    # print('subject_neighbor_edges', subject_neighbor_edges)
+                    # print('object_neighbor_edges', object_neighbor_edges)
+                    # print('current_edge', current_edge)
+                    # print('targets', targets)
                     assert False
             else:
                 try:
                     subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
                     object_neighbor_edges.remove(current_target)
                 except:
-                    print('has target')
-                    print('subject_neighbor_edges', subject_neighbor_edges)
-                    print('object_neighbor_edges', object_neighbor_edges)
-                    print('current_target', current_target, 'current_edge', current_edge)
-                    print('targets', targets)
+                    # print('has target')
+                    # print('subject_neighbor_edges', subject_neighbor_edges)
+                    # print('object_neighbor_edges', object_neighbor_edges)
+                    # print('current_target', current_target, 'current_edge', current_edge)
+                    # print('targets', targets)
                     assert False
 
             neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
@@ -682,13 +687,15 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         # predicted_txt_embeds = prepare_training_multimodal_transformer(clip_model, multimodal_transformer_encoder, tokenizer, processor, image,
         #                                                                all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
         predicted_txt_embeds = prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
-                                               all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
+                                                all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
         # predicted_txt_embeds = F.normalize(predicted_txt_embeds)
 
         if len(all_target_txt_embeds) > 0:
             all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
 
             # loss = criterion(predicted_txt_embeds[target_mask], all_target_txt_embeds)
+            # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
+            #     print('all_current_edges', all_current_edges[target_mask[0]], 'all_targets', all_targets[0])
             loss = 1 - F.cosine_similarity(predicted_txt_embeds[target_mask], all_target_txt_embeds, dim=-1).mean()
             running_loss += loss.item()
             running_loss_counter += 1
@@ -696,14 +703,22 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
-            # for each graph in the batch, update self.edges using corresponding predicted_txt_embed
-            # even predicate outside the mask may still improve their reasonable yet not annotated predictions
-            for edge_idx in torch.nonzero(target_mask).flatten():
-                updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds[edge_idx], all_current_edges[edge_idx], rank, verbose=verbose)
+        # for each graph in the batch, update self.edges using corresponding predicted_txt_embed
+        # even predicate outside the mask may still improve their reasonable yet not annotated predictions
+        for i, idx in enumerate(target_mask):
+            updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds[idx], all_current_edges[idx], rank, batch_count, verbose=verbose)
+            # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
+            #     print('updated_edges', updated_edges, 'target', all_targets[i])
 
-                graph.edges[edge_idx] = updated_edges
-                graph.confidence[edge_idx] = confidences
+            graph.edges[idx] = updated_edges
+            graph.confidence[idx] = confidences
+        # for edge_idx in range(len(graph.edges)):
+        #     updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds[edge_idx], all_current_edges[edge_idx], rank, verbose=verbose)
+        #
+        #     graph.edges[edge_idx] = updated_edges
+        #     graph.confidence[edge_idx] = confidences
 
     # if verbose:
     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
@@ -746,7 +761,7 @@ def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relat
     torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
 
 
-def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
                               rank, batch_count, args, sgg_results, top_k, data_len, verbose=False):
 # def process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
 #                               rank, args, sgg_results, top_k, data_len, verbose=False):
@@ -768,7 +783,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
 
         graphs.append(graph)
 
-    updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+    updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
                                                                            images, graphs, target_triplets, data_len, batch_count, rank, args, verbose=verbose)
     # updated_graphs, multimodal_transformer_encoder = batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
     #                                                                        images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
@@ -815,6 +830,8 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     # criterion = nn.MSELoss()
     criterion = nn.CosineEmbeddingLoss()
+    num_training_steps = len(train_loader)
+    scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
 
     # receive current SGG predictions from a baseline model
     sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
@@ -827,7 +844,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
         # process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
         #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
-        process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+        process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
                                   rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
         # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
         #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])

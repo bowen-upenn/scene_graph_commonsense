@@ -382,19 +382,19 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
         """
         EVALUATE AND PRINT CURRENT RESULTS
         """
-        if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-            if args['dataset']['dataset'] == 'vg':
-                recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                if args['models']['hierarchical_pred']:
-                    recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
-                    Recall_top3.clear_data()
-            else:
-                recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
-                wmap_rel, wmap_phrase = Recall.compute_precision()
-
-        if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-            record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
-                                connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+        # if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+        #     if args['dataset']['dataset'] == 'vg':
+        #         recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+        #         if args['models']['hierarchical_pred']:
+        #             recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+        #             Recall_top3.clear_data()
+        #     else:
+        #         recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
+        #         wmap_rel, wmap_phrase = Recall.compute_precision()
+        #
+        # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+        #     record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+        #                         connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
 
         if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
             if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
