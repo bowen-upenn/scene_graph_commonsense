@@ -282,7 +282,7 @@ class Evaluator_PC:
         return top_k_predictions
 
 
-    def global_refine(self, relation_pred, confidence, batch_idx, top_k, rank):
+    def global_refine(self, refined_relation_pred, refined_confidence, batch_idx, top_k, rank):
         """
         For the batch_idx image in the batch, update the relation_pred and confidence of its top_k predictions.
         Because we calculate the confidence scores in a different way in global graphical refine, we only use new confidence scores
@@ -305,10 +305,15 @@ class Evaluator_PC:
                     keep_inds = keep_inds[mask]
 
             # assign new relation predictions
-            self.relation_pred[curr_image][keep_inds] = relation_pred[:min(top_k, len(keep_inds))]
+            # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
+            tmp = self.relation_pred[curr_image].clone()
+            for i, idx in enumerate(keep_inds):
+                tmp[idx] = refined_relation_pred[i]
+            self.relation_pred[curr_image] = tmp
+            # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
 
             # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
-            reorder_topk_inds = torch.argsort(confidence, descending=True)
+            reorder_topk_inds = torch.argsort(refined_confidence, descending=True)
 
             self.relation_pred[curr_image][keep_inds] = self.relation_pred[curr_image][keep_inds][reorder_topk_inds]
             self.relation_target[curr_image][keep_inds] = self.relation_target[curr_image][keep_inds][reorder_topk_inds]

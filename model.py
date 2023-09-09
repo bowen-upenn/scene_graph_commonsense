@@ -307,6 +307,7 @@ class MultimodalTransformerEncoder(nn.Module):
 
     def forward(self, x, key_padding_mask):
         # Apply positional encoding
+        init_pred = x[2].unsqueeze(0)
         x = self.positional_encoding(x)
 
         # Add learned modality encodings to image, query, and text features
@@ -319,6 +320,7 @@ class MultimodalTransformerEncoder(nn.Module):
 
         # Perform self-attention with transformer encoder
         output = self.transformer_encoder(x, src_key_padding_mask=key_padding_mask)
+        output += init_pred  # skip connection
 
         return output
 
@@ -336,15 +338,15 @@ class RelationshipRefiner(nn.Module):
 
     def forward(self, img_embed, neighbor_txt_embed, query_embed):
         # build skip connection
-        # init_pred = neighbor_txt_embed[0].unsqueeze(0)
+        init_pred = neighbor_txt_embed[0].unsqueeze(0)
 
         hidden = self.rel_tokens + query_embed
         hidden = torch.cat((hidden, img_embed, neighbor_txt_embed), dim=-1)
         hidden = F.relu(self.fc1(hidden))
         hidden = self.dropout(hidden)
 
-        # hidden = init_pred + self.fc2(hidden)   # skip connection
-        hidden = self.fc2(hidden)
+        hidden = init_pred + self.fc2(hidden)   # skip connection
+        # hidden = self.fc2(hidden)
 
         return hidden
 
