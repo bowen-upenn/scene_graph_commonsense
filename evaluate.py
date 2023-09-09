@@ -414,10 +414,12 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
             # clean up the evaluator
             Recall.clear_data()
 
-    print('FINISHED TESTING PC\n')
+    if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
+        print('FINISHED GRAPH TRAINING PC\n')
+    else:
+        print('FINISHED TESTING PC\n')
     if not (args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'):
         dist.destroy_process_group()  # clean up
-    print('FINISHED TESTING PC\n')
 
 
 def eval_sgd(gpu, args, test_subset):
