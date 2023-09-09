@@ -707,7 +707,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
     # if verbose:
     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
-        print(f'Rank {rank} epoch {batch_count}, graphRefineLoss {running_loss / running_loss_counter}')
+        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss / running_loss_counter}')
 
     # return graphs, multimodal_transformer_encoder
     return graphs, attention_layer, relationship_refiner
