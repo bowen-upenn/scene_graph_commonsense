@@ -432,16 +432,14 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge
     phrase = current_edge[-1].split()
     subject, relation, object = extract_words_from_edge(phrase, all_labels)
     queries = [f"a photo of a {subject} {label} {object}" for label in all_labels]
-    # if batch_count % 10 == 0:
-    #     print('phrase', phrase)
 
     # collect text_embeds for all possible labels
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
     with torch.no_grad():
         all_possible_embeds = clip_model.module.get_text_features(**inputs)
-    all_possible_embeds = F.normalize(all_possible_embeds, p=2, dim=-1)
 
-    predicted_txt_embed = F.normalize(predicted_txt_embed, p=2, dim=-1)  # normalize the predicted embedding
+    # all_possible_embeds = F.normalize(all_possible_embeds, p=2, dim=-1)
+    # predicted_txt_embed = F.normalize(predicted_txt_embed, p=2, dim=-1)  # normalize the predicted embedding
 
     # compute cosine similarity between predicted embedding and all query embeddings
     CosSim = nn.CosineSimilarity(dim=1)
@@ -619,6 +617,51 @@ def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_
     return graph
 
 
+def find_negative_targets(num_negative_targets, current_subject, current_object, all_negative_target_txt_embeds, clip_model, tokenizer):
+    # Collect N negative text embeddings for each positive target
+    for _ in range(num_negative_targets):
+        # Find the label with the highest similarity to the current positive target
+        queries = [f"a photo of a {current_subject} {label} {current_object}" for label in all_labels]
+
+        # Collect text embeddings for all possible labels
+        inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
+        with torch.no_grad():
+            all_possible_embeds = clip_model.module.get_text_features(**inputs)
+
+        # Calculate cosine similarity between the positive target embedding and all query embeddings
+        CosSim = nn.CosineSimilarity(dim=1)
+        cos_sim = CosSim(positive_target_txt_embed, all_possible_embeds)
+
+        # Find the index of the label with the highest similarity
+        max_index = cos_sim.argmax(dim=0)
+
+        # Initialize a list to store the indices of negative labels
+        negative_label_indices = []
+
+        # Collect the top N labels that are not the true label as negative labels
+        top_similarities, top_indices = cos_sim.topk(num_negative_targets + 1, largest=False)
+
+        # Exclude the true label index from the list of negative label indices
+        if max_index == all_labels.index(current_relation):
+            top_indices = top_indices[top_indices != max_index]
+
+        # Select the first N indices as negative label indices
+        negative_label_indices.extend(top_indices[:num_negative_targets].tolist())
+
+        # Create negative phrases and get text features for negative targets
+        for negative_index in negative_label_indices:
+            negative_label = all_labels[negative_index]
+            negative_phrase = [f"a photo of a {current_subject} {negative_label} {current_object}"]
+            negative_inputs = tokenizer(negative_phrase, padding=True, return_tensors="pt").to(rank)
+            with torch.no_grad():
+                negative_target_txt_embed = clip_model.module.get_text_features(**negative_inputs)
+
+            # Append the negative target text embedding to the list
+            all_negative_target_txt_embeds.append(negative_target_txt_embed)
+
+    return all_negative_target_txt_embeds
+
+
 def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
                    images, graphs, target_triplets, data_len, batch_count, rank, args, training=True, verbose=False):
 # def batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
@@ -637,6 +680,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         all_current_edges = []
         all_neighbor_edges = []
         all_target_txt_embeds = []
+        all_negative_target_txt_embeds = []
         all_targets = []
         target_mask = []    # mask of predicate that has matched with a target
 
@@ -662,21 +706,29 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                             with torch.no_grad():
                                 target_txt_embed = clip_model.module.get_text_features(**inputs)
                                 # target_txt_embed = F.normalize(target_txt_embed)
+
                             all_target_txt_embeds.append(target_txt_embed)
                             target_mask.append(edge_idx)
                             current_target = target
                             all_targets.append(target)
+
+                            all_negative_target_txt_embeds = find_negative_targets(3, current_subject, current_object, all_negative_target_txt_embeds, clip_model, tokenizer)
+
                             break
 
             # find neighbor edges for the current edge
             subject_neighbor_edges = graph.adj_list[subject_node]
             object_neighbor_edges = graph.adj_list[object_node]
             if not training or current_target is None:
-                subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
-                object_neighbor_edges.remove(current_edge)
+                if current_edge in subject_neighbor_edges:
+                    subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
+                if current_edge in object_neighbor_edges:
+                    object_neighbor_edges.remove(current_edge)
             else:
-                subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
-                object_neighbor_edges.remove(current_target)
+                if current_target in subject_neighbor_edges:
+                    subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
+                if current_target in object_neighbor_edges:
+                    object_neighbor_edges.remove(current_target)
 
             neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
 
@@ -694,11 +746,14 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
         if training and len(all_target_txt_embeds) > 0:
             all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
+            all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds).squeeze(dim=1)
+            print('all_target_txt_embeds', all_target_txt_embeds.shape, 'all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
 
             # loss = criterion(predicted_txt_embeds[target_mask], all_target_txt_embeds)
             # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
             #     print('all_current_edges', all_current_edges[target_mask[0]], 'all_targets', all_targets[0])
             loss = 1 - F.cosine_similarity(predicted_txt_embeds[target_mask], all_target_txt_embeds, dim=-1).mean()
+            loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds, dim=-1).mean()
             running_loss += loss.item()
             running_loss_counter += 1
 
@@ -770,42 +825,44 @@ def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relat
 
 
 def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
-                              rank, batch_count, args, sgg_results, top_k, data_len, training=True, verbose=False):
+                              rank, batch_count, args, sgg_results, top_k, data_len, training=True, multiple_eval_iter=False, prev_graphs=None, verbose=False):
 # def process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
 #                               rank, args, sgg_results, top_k, data_len, verbose=False):
-    top_k_predictions = sgg_results['top_k_predictions']
-    if verbose:
-        print('top_k_predictions', top_k_predictions[0])
-    top_k_image_graphs = sgg_results['top_k_image_graphs']
+    if not multiple_eval_iter:
+        top_k_predictions = sgg_results['top_k_predictions']
+        if verbose:
+            print('top_k_predictions', top_k_predictions[0])
+        top_k_image_graphs = sgg_results['top_k_image_graphs']
     images = sgg_results['images']
     target_triplets = sgg_results['target_triplets']
     Recall = sgg_results['Recall']
 
-    graphs = []
-    for batch_idx, (curr_strings, curr_image) in enumerate(zip(top_k_predictions, top_k_image_graphs)):
-        graph = ImageGraph(targets=target_triplets[batch_idx])
+    if not multiple_eval_iter:
+        graphs = []
+        for batch_idx, (curr_strings, curr_image) in enumerate(zip(top_k_predictions, top_k_image_graphs)):
+            graph = ImageGraph(targets=target_triplets[batch_idx])
 
-        for string, triplet in zip(curr_strings, curr_image):
-            subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
-            graph.add_edge(subject_bbox, object_bbox, relation_id, string, training=training, verbose=verbose)
+            for string, triplet in zip(curr_strings, curr_image):
+                subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
+                graph.add_edge(subject_bbox, object_bbox, relation_id, string, training=training, verbose=verbose)
 
-        graphs.append(graph)
+            graphs.append(graph)
+    else:
+        graphs = prev_graphs
 
     updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
                                                                            images, graphs, target_triplets, data_len, batch_count, rank, args, training=training, verbose=verbose)
     # updated_graphs, multimodal_transformer_encoder = batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
     #                                                                        images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
 
-    for batch_idx in range(len(top_k_predictions)):
+    for batch_idx in range(len(images)):
         relation_pred, confidence = extract_updated_edges(updated_graphs[batch_idx], rank)
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
-    torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
-    torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
-    # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
-
     if training:
         return attention_layer, relationship_refiner
+    else:
+        return updated_graphs
 
 
 def query_clip(gpu, args, train_dataset, test_dataset):
@@ -844,26 +901,36 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     num_training_steps = len(train_loader)
     scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
 
-    # receive current SGG predictions from a baseline model
-    sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
-
-    # iterate through the generator to receive results
-    for batch_count, batch_sgg_results in enumerate(sgg_results):
-        if args['training']['verbose_global_refine']:
-            print('batch_count', batch_count)
-
-        # process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
-        #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
-
-        attention_layer, relationship_refiner = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
-                                                                          rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
-                                                                          verbose=args['training']['verbose_global_refine'])
-        # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
-        #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
-
-    dist.monitored_barrier()
+    # # receive current SGG predictions from a baseline model
+    # sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+    #
+    # # iterate through the generator to receive results
+    # for batch_count, batch_sgg_results in enumerate(sgg_results):
+    #     if args['training']['verbose_global_refine']:
+    #         print('batch_count', batch_count)
+    #
+    #     # process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
+    #     #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+    #
+    #     attention_layer, relationship_refiner = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
+    #                                                                       rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+    #                                                                       verbose=args['training']['verbose_global_refine'])
+    #     # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+    #     #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+    #
+    # torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
+    # torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
+    # # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
+    # dist.monitored_barrier()
 
     # evaluate on test dataset
+    map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
+    attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth', map_location=map_location))
+    relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth', map_location=map_location))
+    attention_layer.eval()
+    relationship_refiner.eval()
+    # updated_graphs = torch.load(args['training']['checkpoint_path'] + 'updated_graphs_0.pt', map_location=map_location)
+
     with torch.no_grad():
         test_sgg_results = eval_pc(rank, args, test_loader, topk_global_refine=args['training']['topk_global_refine'])
 
@@ -873,12 +940,22 @@ def query_clip(gpu, args, train_dataset, test_dataset):
                 print('batch_count', batch_count)
 
             # use attention_layer and relationship_refiner trained just now
-            process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
-                                      rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
-                                      training=False, verbose=args['training']['verbose_global_refine'])
-            # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-            #                     rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
-            #                     verbose=args['training']['verbose_global_refine'])
+            for eval_iter in range(3):
+                # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
+                #     print('eval_iter', eval_iter)
+                if eval_iter == 0:
+                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
+                                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                                                               training=False, multiple_eval_iter=False, verbose=args['training']['verbose_global_refine'])
+                    # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
+                    #                     rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                    #                     verbose=args['training']['verbose_global_refine'])
+                else:
+                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
+                                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                                                               training=False, multiple_eval_iter=True, prev_graphs=updated_graphs, verbose=args['training']['verbose_global_refine'])
+
+                # torch.save(updated_graphs, args['training']['checkpoint_path'] + 'updated_graphs_' + str(eval_iter) + '_' + str(rank) + '.pt')
 
     dist.destroy_process_group()  # clean up
 
