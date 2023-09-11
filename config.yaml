@@ -14,7 +14,7 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 1 #0.001
+    percent_train: 0.001
     percent_test: 0.01
     dataset: 'vg' # vg, oiv6
     return_annot: True

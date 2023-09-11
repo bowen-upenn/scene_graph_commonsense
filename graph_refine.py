@@ -617,49 +617,58 @@ def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_
     return graph
 
 
-def find_negative_targets(num_negative_targets, current_subject, current_object, all_negative_target_txt_embeds, clip_model, tokenizer):
-    # Collect N negative text embeddings for each positive target
-    for _ in range(num_negative_targets):
-        # Find the label with the highest similarity to the current positive target
-        queries = [f"a photo of a {current_subject} {label} {current_object}" for label in all_labels]
+def find_negative_targets(current_subject, current_object, target_label, clip_model, tokenizer, rank):
+    # find the label with the highest similarity to the current positive target
+    queries = [f"a photo of a {current_subject} {label} {current_object}" for label in all_labels if label != target_label]
 
-        # Collect text embeddings for all possible labels
-        inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
-        with torch.no_grad():
-            all_possible_embeds = clip_model.module.get_text_features(**inputs)
+    # Collect text embeddings for all possible labels
+    inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
+    with torch.no_grad():
+        negative_txt_embeds = clip_model.module.get_text_features(**inputs)
 
-        # Calculate cosine similarity between the positive target embedding and all query embeddings
-        CosSim = nn.CosineSimilarity(dim=1)
-        cos_sim = CosSim(positive_target_txt_embed, all_possible_embeds)
+    return negative_txt_embeds
 
-        # Find the index of the label with the highest similarity
-        max_index = cos_sim.argmax(dim=0)
-
-        # Initialize a list to store the indices of negative labels
-        negative_label_indices = []
-
-        # Collect the top N labels that are not the true label as negative labels
-        top_similarities, top_indices = cos_sim.topk(num_negative_targets + 1, largest=False)
-
-        # Exclude the true label index from the list of negative label indices
-        if max_index == all_labels.index(current_relation):
-            top_indices = top_indices[top_indices != max_index]
-
-        # Select the first N indices as negative label indices
-        negative_label_indices.extend(top_indices[:num_negative_targets].tolist())
-
-        # Create negative phrases and get text features for negative targets
-        for negative_index in negative_label_indices:
-            negative_label = all_labels[negative_index]
-            negative_phrase = [f"a photo of a {current_subject} {negative_label} {current_object}"]
-            negative_inputs = tokenizer(negative_phrase, padding=True, return_tensors="pt").to(rank)
-            with torch.no_grad():
-                negative_target_txt_embed = clip_model.module.get_text_features(**negative_inputs)
-
-            # Append the negative target text embedding to the list
-            all_negative_target_txt_embeds.append(negative_target_txt_embed)
-
-    return all_negative_target_txt_embeds
+    # for _ in range(num_negative_targets):
+    #     # Find the label with the highest similarity to the current positive target
+    #     queries = [f"a photo of a {current_subject} {label} {current_object}" for label in all_labels]
+    #
+    #     # Collect text embeddings for all possible labels
+    #     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
+    #     with torch.no_grad():
+    #         all_possible_embeds = clip_model.module.get_text_features(**inputs)
+    #
+    #     # Calculate cosine similarity between the positive target embedding and all query embeddings
+    #     CosSim = nn.CosineSimilarity(dim=1)
+    #     cos_sim = CosSim(positive_target_txt_embed, all_possible_embeds)
+    #
+    #     # Find the index of the label with the highest similarity
+    #     max_index = cos_sim.argmax(dim=0)
+    #
+    #     # Initialize a list to store the indices of negative labels
+    #     negative_label_indices = []
+    #
+    #     # Collect the top N labels that are not the true label as negative labels
+    #     top_similarities, top_indices = cos_sim.topk(num_negative_targets + 1, largest=False)
+    #
+    #     # Exclude the true label index from the list of negative label indices
+    #     if max_index == all_labels.index(current_relation):
+    #         top_indices = top_indices[top_indices != max_index]
+    #
+    #     # Select the first N indices as negative label indices
+    #     negative_label_indices.extend(top_indices[:num_negative_targets].tolist())
+    #
+    #     # Create negative phrases and get text features for negative targets
+    #     for negative_index in negative_label_indices:
+    #         negative_label = all_labels[negative_index]
+    #         negative_phrase = [f"a photo of a {current_subject} {negative_label} {current_object}"]
+    #         negative_inputs = tokenizer(negative_phrase, padding=True, return_tensors="pt").to(rank)
+    #         with torch.no_grad():
+    #             negative_target_txt_embed = clip_model.module.get_text_features(**negative_inputs)
+    #
+    #         # Append the negative target text embedding to the list
+    #         all_negative_target_txt_embeds.append(negative_target_txt_embed)
+    #
+    # return all_negative_target_txt_embeds
 
 
 def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
@@ -711,9 +720,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                             target_mask.append(edge_idx)
                             current_target = target
                             all_targets.append(target)
-
-                            all_negative_target_txt_embeds = find_negative_targets(3, current_subject, current_object, all_negative_target_txt_embeds, clip_model, tokenizer)
-
+                            all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, clip_model, tokenizer, rank))
                             break
 
             # find neighbor edges for the current edge
@@ -746,14 +753,14 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
         if training and len(all_target_txt_embeds) > 0:
             all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
-            all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds).squeeze(dim=1)
-            print('all_target_txt_embeds', all_target_txt_embeds.shape, 'all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
+            all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
 
-            # loss = criterion(predicted_txt_embeds[target_mask], all_target_txt_embeds)
-            # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
-            #     print('all_current_edges', all_current_edges[target_mask[0]], 'all_targets', all_targets[0])
             loss = 1 - F.cosine_similarity(predicted_txt_embeds[target_mask], all_target_txt_embeds, dim=-1).mean()
-            loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds, dim=-1).mean()
+
+            num_negatives = all_negative_target_txt_embeds.shape[1]
+            for i in range(num_negatives):    # num_rel-1
+                loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds[:, i], dim=-1).mean() / num_negatives
+
             running_loss += loss.item()
             running_loss_counter += 1
 
@@ -901,27 +908,27 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     num_training_steps = len(train_loader)
     scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
 
-    # # receive current SGG predictions from a baseline model
-    # sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
-    #
-    # # iterate through the generator to receive results
-    # for batch_count, batch_sgg_results in enumerate(sgg_results):
-    #     if args['training']['verbose_global_refine']:
-    #         print('batch_count', batch_count)
-    #
-    #     # process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
-    #     #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
-    #
-    #     attention_layer, relationship_refiner = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
-    #                                                                       rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
-    #                                                                       verbose=args['training']['verbose_global_refine'])
-    #     # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
-    #     #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
-    #
-    # torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
-    # torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
-    # # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
-    # dist.monitored_barrier()
+    # receive current SGG predictions from a baseline model
+    sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+
+    # iterate through the generator to receive results
+    for batch_count, batch_sgg_results in enumerate(sgg_results):
+        if args['training']['verbose_global_refine']:
+            print('batch_count', batch_count)
+
+        # process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
+        #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+
+        attention_layer, relationship_refiner = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion, scheduler,
+                                                                          rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                                                                          verbose=args['training']['verbose_global_refine'])
+        # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
+        #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+
+    torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
+    torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
+    # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
+    dist.monitored_barrier()
 
     # evaluate on test dataset
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
