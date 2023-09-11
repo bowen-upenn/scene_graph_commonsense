@@ -766,8 +766,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
             loss = 1 - F.cosine_similarity(predicted_txt_embeds[target_mask], all_target_txt_embeds, dim=-1).mean()
 
-            num_negatives = all_negative_target_txt_embeds.shape[1]
-            for i in range(num_negatives):    # num_rel-1
+            for i in range(args['models']['num_negatives']):    # num_rel-1
                 loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds[:, i], dim=-1).mean() / args['models']['num_negatives']
 
             running_loss += loss.item()
