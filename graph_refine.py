@@ -617,14 +617,22 @@ def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_
     return graph
 
 
-def find_negative_targets(current_subject, current_object, target_label, clip_model, tokenizer, rank):
+def find_negative_targets(current_subject, current_object, target_label, target_txt_embed, clip_model, tokenizer, rank, args):
     # find the label with the highest similarity to the current positive target
     queries = [f"a photo of a {current_subject} {label} {current_object}" for label in all_labels if label != target_label]
 
     # Collect text embeddings for all possible labels
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
     with torch.no_grad():
-        negative_txt_embeds = clip_model.module.get_text_features(**inputs)
+        candidate_txt_embeds = clip_model.module.get_text_features(**inputs)
+
+    # select top negative_txt_embeds with closest cosine distances but not the target
+    CosSim = nn.CosineSimilarity(dim=1)
+    cos_sim = CosSim(target_txt_embed, candidate_txt_embeds)
+    top_similarities, top_indices = cos_sim.topk(args['models']['num_negatives'], largest=False)
+    # print('top_similarities', top_similarities)
+
+    negative_txt_embeds = candidate_txt_embeds[top_indices]
 
     return negative_txt_embeds
 
@@ -720,7 +728,8 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                             target_mask.append(edge_idx)
                             current_target = target
                             all_targets.append(target)
-                            all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, clip_model, tokenizer, rank))
+                            all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, target_txt_embed,
+                                                                                        clip_model, tokenizer, rank, args))
                             break
 
             # find neighbor edges for the current edge
@@ -759,7 +768,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
             num_negatives = all_negative_target_txt_embeds.shape[1]
             for i in range(num_negatives):    # num_rel-1
-                loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds[:, i], dim=-1).mean() / num_negatives
+                loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds[:, i], dim=-1).mean() / args['models']['num_negatives']
 
             running_loss += loss.item()
             running_loss_counter += 1
