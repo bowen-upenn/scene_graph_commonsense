@@ -330,23 +330,26 @@ class RelationshipRefiner(nn.Module):
         super(RelationshipRefiner, self).__init__()
 
         # additional layers to predict relationship
-        self.fc1 = nn.Linear(hidden_dim * 4, hidden_dim)
+        self.fc1 = nn.Linear(hidden_dim * 5, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.dropout = nn.Dropout(p=0.3)
 
         # self.rel_tokens = nn.Parameter(torch.rand(1, hidden_dim), requires_grad=True)
 
-    def forward(self, img_embed, current_txt_embed, query_embed, neighbor_txt_embed):
+    def forward(self, img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
         # build skip connection
         # print('img_embed, current_txt_embed, query_embed, neighbor_txt_embed', img_embed.shape, current_txt_embed.shape, query_embed.shape, neighbor_txt_embed.shape)
 
         # hidden = self.rel_tokens + query_embed
-        hidden = torch.cat((img_embed, current_txt_embed, query_embed, neighbor_txt_embed), dim=-1)
+        hidden = torch.cat((img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
         hidden = F.relu(self.fc1(hidden))
         hidden = self.dropout(hidden)
 
-        hidden = current_txt_embed + self.fc2(hidden)   # skip connection
+        hidden = self.fc2(hidden) + current_txt_embed  # skip connection
         # hidden = self.fc2(hidden)
+
+        # init_pred = F.one_hot(init_pred_rel, num_classes=self.num_classes)
+        # hidden = self.fc2(hidden) + init_pred
 
         return hidden
 

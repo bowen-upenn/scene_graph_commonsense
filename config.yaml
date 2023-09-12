@@ -41,7 +41,7 @@ models:
     num_geometric: 15
     num_possessive: 11
     num_semantic: 24
-    num_negatives: 10
+    num_negatives: 49
 training:
     run_mode: 'clip_train'      # train, eval, caption, clip_zs, clip_train
     eval_mode: 'pc'        # pc sgc or sgd
