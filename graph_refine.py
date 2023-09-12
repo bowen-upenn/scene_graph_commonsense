@@ -263,105 +263,173 @@ def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hier
     print(f"Top predicted label from zero-shot CLIP: {text_blue_colored} (probability: {probs[0, top_label_idx]:.4f}), Target label: {text_pink_colored}\n")
 
 
-def prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
-                     current_edge, neighbor_edges, rank, batch=True, verbose=False):
+def prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, images,
+                     current_edges, neighbor_edges, edges_per_image, rank, verbose=False):
+    # ---------------------------------------------------------------------------- #
     # collect image embedding
-    inputs = processor(images=image, return_tensors="pt").to(rank)
+    inputs = processor(images=images, return_tensors="pt").to(rank)
     with torch.no_grad():
-        image_embed = clip_model.module.get_image_features(**inputs)
-
-    if batch:   # process all edges in a graph in parallel, but they all belong to the same image
-        image_embed = image_embed.repeat(len(current_edge), 1)
+        image_embeds = clip_model.module.get_image_features(**inputs)
     if verbose:
-        print('image_embed', image_embed.shape)
+        print('edges_per_image', edges_per_image, 'image_embeds', image_embeds.shape)
+    image_embeds = torch.cat([image_embeds[i].repeat(num, 1) for i, num in enumerate(edges_per_image)], dim=0)
+    # ---------------------------------------------------------------------------- #
 
     # accumulate all neighbor edges
-    neighbor_text_embeds = []
-    if verbose:
-        print('current neighbor edges', neighbor_edges)
+    num_neighbor_edges = [len(edge) for edge in neighbor_edges]
+    inputs = tokenizer([f"{edge[-1]}" for curr_neighbor_edges in neighbor_edges for edge in curr_neighbor_edges],
+                       padding=True, return_tensors="pt").to(rank)
+    with torch.no_grad():
+        neighbor_text_embeds = clip_model.module.get_text_features(**inputs)
+    neighbor_text_embeds = torch.split(neighbor_text_embeds, num_neighbor_edges)
 
-    # collect all neighbors of the current edge
-    if batch:
-        for curr_neighbor_edges in neighbor_edges:
-            inputs = tokenizer([f"{edge[-1]}" for edge in curr_neighbor_edges],
-                               padding=True, return_tensors="pt").to(rank)
-            with torch.no_grad():
-                text_embed = clip_model.module.get_text_features(**inputs)
-            neighbor_text_embeds.append(text_embed)
+    # pad the sequences to make them the same length (max_seq_len)
+    seq_len = [len(embed) for embed in neighbor_text_embeds]
+    key_padding_mask = torch.zeros(len(seq_len), max(seq_len), dtype=torch.bool).to(rank)
+    for i, length in enumerate(seq_len):
+        key_padding_mask[i, length:] = 1  # a True value indicates that the corresponding key value will be ignored
 
-        # pad the sequences to make them the same length (max_seq_len)
-        seq_len = [len(embed) for embed in neighbor_text_embeds]
-        key_padding_mask = torch.zeros(len(seq_len), max(seq_len), dtype=torch.bool).to(rank)
-        for i, length in enumerate(seq_len):
-            key_padding_mask[i, length:] = 1    # a True value indicates that the corresponding key value will be ignored
-
-        neighbor_text_embeds = pad_sequence(neighbor_text_embeds, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
-    else:
-        for edge in neighbor_edges:
-            inputs = tokenizer([f"{edge[-1]}"], padding=False, return_tensors="pt").to(rank)
-            with torch.no_grad():
-                text_embed = clip_model.module.get_text_features(**inputs)
-            neighbor_text_embeds.append(text_embed)
-
-        neighbor_text_embeds = torch.stack(neighbor_text_embeds)    # size [seq_len, batch_size, hidden_dim]
-        key_padding_mask = None
+    neighbor_text_embeds = pad_sequence(neighbor_text_embeds, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
 
     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
-    current_text_embeds = neighbor_text_embeds[0, :, :]     # [batch_size, hidden_dim]
+    current_text_embeds = neighbor_text_embeds[0, :, :]  # [batch_size, hidden_dim]
     neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach(), key_padding_mask=key_padding_mask)
 
     # fuse all neighbor_text_embeds after the attention layer
-    if batch:
-        neighbor_text_embeds = neighbor_text_embeds.permute(1, 0, 2)  # size [batch_size, seq_len, hidden_dim]
-        neighbor_text_embeds = neighbor_text_embeds * key_padding_mask.unsqueeze(-1)
-        neighbor_text_embeds = neighbor_text_embeds.sum(dim=1)
-    else:
-        neighbor_text_embeds = torch.sum(neighbor_text_embeds, dim=0)
+    neighbor_text_embeds = neighbor_text_embeds.permute(1, 0, 2)  # size [batch_size, seq_len, hidden_dim]
+    neighbor_text_embeds = neighbor_text_embeds * key_padding_mask.unsqueeze(-1)
+    neighbor_text_embeds = neighbor_text_embeds.sum(dim=1)
 
     if verbose:
         print('neighbor_text_embeds', neighbor_text_embeds.shape)
+    # ---------------------------------------------------------------------------- #
 
     # extract current subject and object to condition the relation prediction
-    if batch:
-        queries_sub = []
-        queries_obj = []
-        # queries_init_pred = []
-        # init_pred_rel = []
-        for edge in current_edge:
-            subject, relation, object = extract_words_from_edge(edge[-1].split(), all_labels)
-            queries_sub.append(f"{subject}")
-            queries_obj.append(f"{object}")
-            # queries_init_pred.append(f"{subject} {relation} {object}")
-            # init_pred_rel.append(edge[1])
-        inputs_sub = tokenizer(queries_sub, padding=True, return_tensors="pt").to(rank)
-        inputs_obj = tokenizer(queries_obj, padding=True, return_tensors="pt").to(rank)
-        # inputs_init_pred = tokenizer(queries_init_pred, padding=True, return_tensors="pt").to(rank)
-    else:
-        current_edge = current_edge[-1].split()
-        subject, relation, object = extract_words_from_edge(current_edge[-1].split(), all_labels)
-        queries_sub = [f"{subject}"]
-        queries_obj = [f"{object}"]
-        # queries_init_pred = [f"{subject} {relation} {object}"]
-        # init_pred_rel = current_edge[1]
-        inputs_sub = tokenizer(queries_sub, padding=False, return_tensors="pt").to(rank)
-        inputs_obj = tokenizer(queries_obj, padding=False, return_tensors="pt").to(rank)
-        # inputs_init_pred = tokenizer(queries_init_pred, padding=False, return_tensors="pt").to(rank)
-        # inputs = tokenizer(query, padding=False, return_tensors="pt").to(rank)
+    queries_sub = []
+    queries_obj = []
+    for edge in current_edges:
+        subject, relation, object = extract_words_from_edge(edge[-1].split(), all_labels)
+        queries_sub.append(f"{subject}")
+        queries_obj.append(f"{object}")
+    inputs_sub = tokenizer(queries_sub, padding=True, return_tensors="pt").to(rank)
+    inputs_obj = tokenizer(queries_obj, padding=True, return_tensors="pt").to(rank)
 
     with torch.no_grad():
         sub_txt_embed = clip_model.module.get_text_features(**inputs_sub)
         obj_txt_embed = clip_model.module.get_text_features(**inputs_obj)
-        # init_pred_txt_embed = clip_model.module.get_text_features(**inputs_init_pred)
+
     if verbose:
         print('sub_txt_embed', sub_txt_embed.shape)
         print('obj_txt_embed', obj_txt_embed.shape)
-        # print('init_pred_txt_embed', init_pred_txt_embed.shape)
+    # ---------------------------------------------------------------------------- #
 
     # forward to the learnable layers
-    predicted_txt_embed = relationship_refiner(image_embed.detach(), current_text_embeds.detach(), sub_txt_embed.detach(), obj_txt_embed.detach(), neighbor_text_embeds)
+    predicted_txt_embed = relationship_refiner(image_embeds.detach(), current_text_embeds.detach(), sub_txt_embed.detach(), obj_txt_embed.detach(), neighbor_text_embeds)
+
     if verbose:
         print('predicted_txt_embed', predicted_txt_embed.shape)
+
     return predicted_txt_embed
+
+# def prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
+#                      current_edge, neighbor_edges, rank, batch=True, verbose=False):
+#     # collect image embedding
+#     inputs = processor(images=image, return_tensors="pt").to(rank)
+#     with torch.no_grad():
+#         image_embed = clip_model.module.get_image_features(**inputs)
+#
+#     if batch:   # process all edges in a graph in parallel, but they all belong to the same image
+#         image_embed = image_embed.repeat(len(current_edge), 1)
+#     if verbose:
+#         print('image_embed', image_embed.shape)
+#
+#     # accumulate all neighbor edges
+#     neighbor_text_embeds = []
+#     if verbose:
+#         print('current neighbor edges', neighbor_edges)
+#
+#     # collect all neighbors of the current edge
+#     if batch:
+#         for curr_neighbor_edges in neighbor_edges:
+#             inputs = tokenizer([f"{edge[-1]}" for edge in curr_neighbor_edges],
+#                                padding=True, return_tensors="pt").to(rank)
+#             with torch.no_grad():
+#                 text_embed = clip_model.module.get_text_features(**inputs)
+#             neighbor_text_embeds.append(text_embed)
+#
+#         # pad the sequences to make them the same length (max_seq_len)
+#         seq_len = [len(embed) for embed in neighbor_text_embeds]
+#         key_padding_mask = torch.zeros(len(seq_len), max(seq_len), dtype=torch.bool).to(rank)
+#         for i, length in enumerate(seq_len):
+#             key_padding_mask[i, length:] = 1    # a True value indicates that the corresponding key value will be ignored
+#
+#         neighbor_text_embeds = pad_sequence(neighbor_text_embeds, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
+#     else:
+#         for edge in neighbor_edges:
+#             inputs = tokenizer([f"{edge[-1]}"], padding=False, return_tensors="pt").to(rank)
+#             with torch.no_grad():
+#                 text_embed = clip_model.module.get_text_features(**inputs)
+#             neighbor_text_embeds.append(text_embed)
+#
+#         neighbor_text_embeds = torch.stack(neighbor_text_embeds)    # size [seq_len, batch_size, hidden_dim]
+#         key_padding_mask = None
+#
+#     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
+#     current_text_embeds = neighbor_text_embeds[0, :, :]     # [batch_size, hidden_dim]
+#     neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach(), key_padding_mask=key_padding_mask)
+#
+#     # fuse all neighbor_text_embeds after the attention layer
+#     if batch:
+#         neighbor_text_embeds = neighbor_text_embeds.permute(1, 0, 2)  # size [batch_size, seq_len, hidden_dim]
+#         neighbor_text_embeds = neighbor_text_embeds * key_padding_mask.unsqueeze(-1)
+#         neighbor_text_embeds = neighbor_text_embeds.sum(dim=1)
+#     else:
+#         neighbor_text_embeds = torch.sum(neighbor_text_embeds, dim=0)
+#
+#     if verbose:
+#         print('neighbor_text_embeds', neighbor_text_embeds.shape)
+#
+#     # extract current subject and object to condition the relation prediction
+#     if batch:
+#         queries_sub = []
+#         queries_obj = []
+#         # queries_init_pred = []
+#         # init_pred_rel = []
+#         for edge in current_edge:
+#             subject, relation, object = extract_words_from_edge(edge[-1].split(), all_labels)
+#             queries_sub.append(f"{subject}")
+#             queries_obj.append(f"{object}")
+#             # queries_init_pred.append(f"{subject} {relation} {object}")
+#             # init_pred_rel.append(edge[1])
+#         inputs_sub = tokenizer(queries_sub, padding=True, return_tensors="pt").to(rank)
+#         inputs_obj = tokenizer(queries_obj, padding=True, return_tensors="pt").to(rank)
+#         # inputs_init_pred = tokenizer(queries_init_pred, padding=True, return_tensors="pt").to(rank)
+#     else:
+#         current_edge = current_edge[-1].split()
+#         subject, relation, object = extract_words_from_edge(current_edge[-1].split(), all_labels)
+#         queries_sub = [f"{subject}"]
+#         queries_obj = [f"{object}"]
+#         # queries_init_pred = [f"{subject} {relation} {object}"]
+#         # init_pred_rel = current_edge[1]
+#         inputs_sub = tokenizer(queries_sub, padding=False, return_tensors="pt").to(rank)
+#         inputs_obj = tokenizer(queries_obj, padding=False, return_tensors="pt").to(rank)
+#         # inputs_init_pred = tokenizer(queries_init_pred, padding=False, return_tensors="pt").to(rank)
+#         # inputs = tokenizer(query, padding=False, return_tensors="pt").to(rank)
+#
+#     with torch.no_grad():
+#         sub_txt_embed = clip_model.module.get_text_features(**inputs_sub)
+#         obj_txt_embed = clip_model.module.get_text_features(**inputs_obj)
+#         # init_pred_txt_embed = clip_model.module.get_text_features(**inputs_init_pred)
+#     if verbose:
+#         print('sub_txt_embed', sub_txt_embed.shape)
+#         print('obj_txt_embed', obj_txt_embed.shape)
+#         # print('init_pred_txt_embed', init_pred_txt_embed.shape)
+#
+#     # forward to the learnable layers
+#     predicted_txt_embed = relationship_refiner(image_embed.detach(), current_text_embeds.detach(), sub_txt_embed.detach(), obj_txt_embed.detach(), neighbor_text_embeds)
+#     if verbose:
+#         print('predicted_txt_embed', predicted_txt_embed.shape)
+#     return predicted_txt_embed
 
 
 def prepare_training_multimodal_transformer(clip_model, multimodal_transformer_encoder, tokenizer, processor, image, current_edge,
@@ -446,46 +514,93 @@ def prepare_training_multimodal_transformer(clip_model, multimodal_transformer_e
     return neighbor_text_embeds
 
 
-def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank, verbose=False):
+def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edges, rank, verbose=False):
     # extract current subject and object from the edge
-    phrase = current_edge[-1].split()
-    subject, relation, object = extract_words_from_edge(phrase, all_labels)
-    queries = [f"{subject} {label} {object}" for label in all_labels]
+    queries = []
+    for current_edge in current_edges:
+        subject, relation, object = extract_words_from_edge(current_edge[-1].split(), all_labels)
+        queries.extend([f"{subject} {label} {object}" for label in all_labels])
 
     # collect text_embeds for all possible labels
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
     with torch.no_grad():
         all_possible_embeds = clip_model.module.get_text_features(**inputs)
+    all_possible_embeds = torch.split(all_possible_embeds, [len(all_labels) for _ in range(len(current_edges))])
+    all_possible_embeds = torch.stack(all_possible_embeds)
+    predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=1)
 
-    # all_possible_embeds = F.normalize(all_possible_embeds, p=2, dim=-1)
-    # predicted_txt_embed = F.normalize(predicted_txt_embed, p=2, dim=-1)  # normalize the predicted embedding
-
-    # compute cosine similarity between predicted embedding and all query embeddings
-    CosSim = nn.CosineSimilarity(dim=1)
-    cos_sim = CosSim(predicted_txt_embed, all_possible_embeds)
-    cos_sim = F.softmax(cos_sim, dim=0)  # remove batch dimension
-
-    # find the query with the highest similarity
-    max_val, max_index = cos_sim.max(dim=0)
-    most_probable_query = all_labels[max_index]
-
-    # show the results
     if verbose:
-        light_blue_code = 94
-        light_pink_code = 95
-        text_blue_colored = colored_text(most_probable_query, light_blue_code)
-        text_pink_colored = colored_text(relation, light_pink_code)
-        print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Target label: '{text_pink_colored}'")
+        print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds', all_possible_embeds.shape)
 
-    # return the updated edge
-    updated_phrase = subject + ' ' + most_probable_query + ' ' + object
-    updated_edge = (current_edge[0], max_index.item(), current_edge[2], updated_phrase)
+    # # compute cosine similarity between predicted embedding and all query embeddings
+    CosSim = nn.CosineSimilarity(dim=2)  # Set dim=2 to compute cosine similarity across the embedding dimension
+    cos_sims = CosSim(predicted_txt_embeds, all_possible_embeds)
+    cos_sims = F.softmax(cos_sims, dim=1)
+    max_vals, max_indices = cos_sims.max(dim=1)
+
     if verbose:
-        dark_blue_code = 34
-        text_blue_colored = colored_text(updated_edge, dark_blue_code)
-        print('updated_edge', text_blue_colored, '\n')
+        print('cos_sims', cos_sims.shape, 'max_indices', max_indices.shape)
 
-    return updated_edge, max_val
+    updated_edges = []
+    for idx, current_edge in enumerate(current_edges):
+        predicted_rel = all_labels[max_indices[idx]]
+
+        subject, relation, object = extract_words_from_edge(current_edge[-1].split(), all_labels)
+        updated_phrase = subject + ' ' + predicted_rel + ' ' + object
+        updated_edge = (current_edge[0], max_indices[idx].item(), current_edge[2], updated_phrase)
+        updated_edges.append(updated_edge)
+
+        # show the results
+        if verbose:
+            light_blue_code = 94
+            light_pink_code = 95
+            text_blue_colored = colored_text(predicted_rel, light_blue_code)
+            text_pink_colored = colored_text(relation, light_pink_code)
+            print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Old label: '{text_pink_colored}'")
+
+            dark_blue_code = 34
+            text_blue_colored = colored_text(updated_edge, dark_blue_code)
+            print('Updated_edge', text_blue_colored, '\n')
+
+    return updated_edges, max_vals
+
+# def eval_refined_output(clip_model, tokenizer, predicted_txt_embed, current_edge, rank, verbose=False):
+#     # extract current subject and object from the edge
+#     phrase = current_edge[-1].split()
+#     subject, relation, object = extract_words_from_edge(phrase, all_labels)
+#     queries = [f"{subject} {label} {object}" for label in all_labels]
+#
+#     # collect text_embeds for all possible labels
+#     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
+#     with torch.no_grad():
+#         all_possible_embeds = clip_model.module.get_text_features(**inputs)
+#
+#     # compute cosine similarity between predicted embedding and all query embeddings
+#     CosSim = nn.CosineSimilarity(dim=1)
+#     cos_sim = CosSim(predicted_txt_embed, all_possible_embeds)
+#     cos_sim = F.softmax(cos_sim, dim=0)  # remove batch dimension
+#
+#     # find the query with the highest similarity
+#     max_val, max_index = cos_sim.max(dim=0)
+#     most_probable_query = all_labels[max_index]
+#
+#     # show the results
+#     if verbose:
+#         light_blue_code = 94
+#         light_pink_code = 95
+#         text_blue_colored = colored_text(most_probable_query, light_blue_code)
+#         text_pink_colored = colored_text(relation, light_pink_code)
+#         print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Target label: '{text_pink_colored}'")
+#
+#     # return the updated edge
+#     updated_phrase = subject + ' ' + most_probable_query + ' ' + object
+#     updated_edge = (current_edge[0], max_index.item(), current_edge[2], updated_phrase)
+#     if verbose:
+#         dark_blue_code = 34
+#         text_blue_colored = colored_text(updated_edge, dark_blue_code)
+#         print('updated_edge', text_blue_colored, '\n')
+#
+#     return updated_edge, max_val
 
 
 def bfs_explore(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
@@ -660,28 +775,18 @@ def find_negative_targets(current_subject, current_object, target_label, target_
 def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
                    optimizer_attention, optimizer_refiner, scheduler_attention, scheduler_refiner, criterion, # optimizer, scheduler,
                    images, graphs, target_triplets, data_len, batch_count, rank, args, training=True, verbose=False):
-# def batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
-#                    images, graphs, target_triplets, data_len, rank, args, verbose=False):
 
-    if training:
-        # for all graphs in the batch, iterate all its edges being added
-        running_loss = 0.0
-        running_loss_counter = 0
+    running_loss = 0.0
+    all_current_edges = []
+    all_neighbor_edges = []
+    all_target_txt_embeds = []
+    all_negative_target_txt_embeds = []
+    all_targets = []
+    target_mask = []    # mask of predicate that has matched with a target
+    edges_per_image = []
 
-        # initialize variable to keep track of number of accumulated mini-batches
-        accumulation_steps = len(graphs)
-        optimizer_attention.zero_grad()
-        optimizer_refiner.zero_grad()
-
-    for graph_idx, (graph, targets, image) in enumerate(zip(graphs, target_triplets, images)):
-        all_current_edges = []
-        all_neighbor_edges = []
-        all_target_txt_embeds = []
-        all_negative_target_txt_embeds = []
-        all_targets = []
-        target_mask = []    # mask of predicate that has matched with a target
-
-        start_time = time.time()
+    for graph_idx, (graph, targets) in enumerate(zip(graphs, target_triplets)):
+        edges_per_image.append(len(graph.edges))
 
         for edge_idx, current_edge in enumerate(graph.edges):
             subject_node, object_node = current_edge[0], current_edge[2]
@@ -695,7 +800,6 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                     target_object_bbox = target[2]
 
                     # when the current prediction is about the current target
-                    # if iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5:
                     if target_subject_bbox == subject_node and target_object_bbox == object_node:
                         target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
 
@@ -733,109 +837,235 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
             all_current_edges.append(current_edge)
             all_neighbor_edges.append(neighbor_edges)
 
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Elapsed time1: {elapsed_time} seconds")
-        start_time = time.time()
+    # forward pass
+    predicted_txt_embeds = prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, images,
+                                            all_current_edges, all_neighbor_edges, edges_per_image, rank, verbose=verbose)
 
-        target_mask = torch.tensor(target_mask).to(rank)
+    target_mask = torch.tensor(target_mask).to(rank)
+    if training and len(all_targets) > 0:
+        all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
+        # all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
+        # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
 
-        # forward pass
-        # predicted_txt_embeds = prepare_training_multimodal_transformer(clip_model, multimodal_transformer_encoder, tokenizer, processor, image,
-        #                                                                all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
-        predicted_txt_embeds = prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
-                                                all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
-        # predicted_txt_embeds = F.normalize(predicted_txt_embeds)
+        input1_positive = predicted_txt_embeds[target_mask]
+        input2_positive = all_target_txt_embeds
+        labels_positive = torch.ones(len(all_targets)).to(rank)
+        # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
+        # print('before', input1_positive[:, 0], all_negative_target_txt_embeds[0, :, 0])
 
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Elapsed time2: {elapsed_time} seconds")
-        start_time = time.time()
+        # input1_negative = predicted_txt_embeds[target_mask].repeat_interleave(args['models']['num_negatives'], dim=0)
+        # input2_negative = all_negative_target_txt_embeds.reshape(-1, input1_negative.shape[1])
+        # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
+        # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
+        # labels_negative = torch.full((len(all_targets) * args['models']['num_negatives'],), -1).to(rank)
 
-        if training and len(all_targets) > 0:
-            all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
-            all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
-            # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
+        # input1 = torch.cat([input1_positive, input1_negative], dim=0)
+        # input2 = torch.cat([input2_positive, input2_negative], dim=0)
+        # labels = torch.cat([labels_positive, labels_negative], dim=0)
 
-            input1_positive = predicted_txt_embeds[target_mask]
-            input2_positive = all_target_txt_embeds
-            labels_positive = torch.ones(len(all_targets)).to(rank)
-            # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
-            # print('before', input1_positive[:, 0], all_negative_target_txt_embeds[0, :, 0])
+        optimizer_attention.zero_grad()
+        optimizer_refiner.zero_grad()
 
-            # input1_negative = predicted_txt_embeds[target_mask].repeat_interleave(args['models']['num_negatives'], dim=0)
-            # input2_negative = all_negative_target_txt_embeds.reshape(-1, input1_negative.shape[1])
-            # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
-            # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
-            # labels_negative = torch.full((len(all_targets) * args['models']['num_negatives'],), -1).to(rank)
+        loss = criterion(input1_positive, input2_positive, labels_positive)
+        running_loss += loss.item()
+        loss.backward()
 
-            # input1 = torch.cat([input1_positive, input1_negative], dim=0)
-            # input2 = torch.cat([input2_positive, input2_negative], dim=0)
-            # labels = torch.cat([labels_positive, labels_negative], dim=0)
+        optimizer_attention.step()
+        optimizer_refiner.step()
+        scheduler_attention.step()
+        scheduler_refiner.step()
 
-            loss = criterion(input1_positive, input2_positive, labels_positive)
+        updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, all_current_edges, rank, verbose=verbose)
+        counter = 0
+        for idx, graph in enumerate(graphs):
+            graph.edges = updated_edges[counter:counter + edges_per_image[idx]]
+            graph.confidence = confidences[counter:counter + edges_per_image[idx]]
+            counter += edges_per_image[idx]
 
-            # loss = criterion(predicted_txt_embeds[target_mask], torch.tensor([target[1] for target in all_targets]).to(rank))
-            # loss = 1 - F.cosine_similarity(predicted_txt_embeds[target_mask], all_target_txt_embeds, dim=-1).mean()
-            # for i in range(args['models']['num_negatives']):    # num_rel-1
-            #     loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds[:, i], dim=-1).mean() / args['models']['num_negatives']
-
-            running_loss += loss.item()
-            running_loss_counter += 1
-
-            # accumulate gradients
-            loss = loss / accumulation_steps  # normalize the loss
-            loss.backward()
-
-            # perform optimizer step and scheduler step after accumulating all losses from all graphs in the batch
-            if graph_idx + 1 == accumulation_steps:
-                optimizer_attention.step()
-                optimizer_refiner.step()
-                scheduler_attention.step()
-                scheduler_refiner.step()
-                optimizer_attention.zero_grad()
-                optimizer_refiner.zero_grad()
-
-        # for each graph in the batch, update self.edges using corresponding predicted_txt_embed
-        # even predicate outside the mask may still improve their reasonable yet not annotated predictions
-        # for i, idx in enumerate(target_mask):
-        #     # print('graph.edges[idx]', graph.edges[idx], 'all_targets[i]', all_targets[i])
-        #     graph.edges[idx] = all_targets[i]
-
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Elapsed time3: {elapsed_time} seconds")
-        start_time = time.time()
-
-        for edge_idx in range(len(graph.edges)):
-            updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds[edge_idx], all_current_edges[edge_idx], rank, verbose=verbose)
-
-            graph.edges[edge_idx] = updated_edges
-            graph.confidence[edge_idx] = confidences
-
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"Elapsed time4: {elapsed_time} seconds")
-
-        # predicted_rels = torch.max(predicted_txt_embeds, dim=1)     # [0] for values [1] for indices
-        # for edge_idx in range(len(graph.edges)):
-        #     old_edge = graph.edges[edge_idx]
-        #     subject, relation, object = extract_words_from_edge(old_edge[-1].split(), all_labels)
-        #     updated_phrase = subject + ' ' + rel_id2txt[predicted_rels[1][edge_idx].item()] + ' ' + object
-        #     updated_edge = (old_edge[0], predicted_rels[1][edge_idx].item(), old_edge[2], updated_phrase)
-        #
-        #     graph.edges[edge_idx] = updated_edge
-        #     graph.confidence[edge_idx] = predicted_rels[0][edge_idx]
-        #
-        #     if verbose:
-        #         print('old_edge', old_edge, 'updated_edge', updated_edge)
-
-    # if verbose:
     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
-        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss / running_loss_counter}')
+        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss}')
 
-    # return graphs, multimodal_transformer_encoder
     return graphs, attention_layer, relationship_refiner
+
+# def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
+#                    optimizer_attention, optimizer_refiner, scheduler_attention, scheduler_refiner, criterion, # optimizer, scheduler,
+#                    images, graphs, target_triplets, data_len, batch_count, rank, args, training=True, verbose=False):
+# # def batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
+# #                    images, graphs, target_triplets, data_len, rank, args, verbose=False):
+#
+#     if training:
+#         # for all graphs in the batch, iterate all its edges being added
+#         running_loss = 0.0
+#         running_loss_counter = 0
+#
+#         # initialize variable to keep track of number of accumulated mini-batches
+#         accumulation_steps = len(graphs)
+#         optimizer_attention.zero_grad()
+#         optimizer_refiner.zero_grad()
+#
+#     for graph_idx, (graph, targets, image) in enumerate(zip(graphs, target_triplets, images)):
+#         all_current_edges = []
+#         all_neighbor_edges = []
+#         all_target_txt_embeds = []
+#         all_negative_target_txt_embeds = []
+#         all_targets = []
+#         target_mask = []    # mask of predicate that has matched with a target
+#
+#         # start_time = time.time()
+#
+#         for edge_idx, current_edge in enumerate(graph.edges):
+#             subject_node, object_node = current_edge[0], current_edge[2]
+#             current_subject, _, current_object = extract_words_from_edge(current_edge[-1].split(), all_labels)
+#
+#             if training:
+#                 # find corresponding target edge for the current edge
+#                 current_target = None
+#                 for target in targets:
+#                     target_subject_bbox = target[0]
+#                     target_object_bbox = target[2]
+#
+#                     # when the current prediction is about the current target
+#                     # if iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5:
+#                     if target_subject_bbox == subject_node and target_object_bbox == object_node:
+#                         target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
+#
+#                         if target_subject == current_subject and target_object == current_object:
+#                             phrase = [f"{target_subject} {target_relation} {target_object}"]
+#                             inputs = tokenizer(phrase, padding=True, return_tensors="pt").to(rank)
+#                             with torch.no_grad():
+#                                 target_txt_embed = clip_model.module.get_text_features(**inputs)
+#                                 # target_txt_embed = F.normalize(target_txt_embed)
+#
+#                             all_target_txt_embeds.append(target_txt_embed)
+#                             target_mask.append(edge_idx)
+#                             current_target = target
+#                             all_targets.append(target)
+#                             all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, target_txt_embed,
+#                                                                                         clip_model, tokenizer, rank, args))
+#                             break
+#
+#             # find neighbor edges for the current edge
+#             subject_neighbor_edges = graph.adj_list[subject_node]
+#             object_neighbor_edges = graph.adj_list[object_node]
+#             if not training or current_target is None:
+#                 if current_edge in subject_neighbor_edges:
+#                     subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
+#                 if current_edge in object_neighbor_edges:
+#                     object_neighbor_edges.remove(current_edge)
+#             else:
+#                 if current_target in subject_neighbor_edges:
+#                     subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
+#                 if current_target in object_neighbor_edges:
+#                     object_neighbor_edges.remove(current_target)
+#
+#             neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
+#
+#             all_current_edges.append(current_edge)
+#             all_neighbor_edges.append(neighbor_edges)
+#
+#         # end_time = time.time()
+#         # elapsed_time = end_time - start_time
+#         # print(f"Elapsed time1: {elapsed_time} seconds")
+#         # start_time = time.time()
+#
+#         target_mask = torch.tensor(target_mask).to(rank)
+#
+#         # forward pass
+#         # predicted_txt_embeds = prepare_training_multimodal_transformer(clip_model, multimodal_transformer_encoder, tokenizer, processor, image,
+#         #                                                                all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
+#         predicted_txt_embeds = prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
+#                                                 all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
+#         # predicted_txt_embeds = F.normalize(predicted_txt_embeds)
+#
+#         # end_time = time.time()
+#         # elapsed_time = end_time - start_time
+#         # print(f"Elapsed time2: {elapsed_time} seconds")
+#         # start_time = time.time()
+#
+#         if training and len(all_targets) > 0:
+#             all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
+#             all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
+#             # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
+#
+#             input1_positive = predicted_txt_embeds[target_mask]
+#             input2_positive = all_target_txt_embeds
+#             labels_positive = torch.ones(len(all_targets)).to(rank)
+#             # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
+#             # print('before', input1_positive[:, 0], all_negative_target_txt_embeds[0, :, 0])
+#
+#             # input1_negative = predicted_txt_embeds[target_mask].repeat_interleave(args['models']['num_negatives'], dim=0)
+#             # input2_negative = all_negative_target_txt_embeds.reshape(-1, input1_negative.shape[1])
+#             # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
+#             # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
+#             # labels_negative = torch.full((len(all_targets) * args['models']['num_negatives'],), -1).to(rank)
+#
+#             # input1 = torch.cat([input1_positive, input1_negative], dim=0)
+#             # input2 = torch.cat([input2_positive, input2_negative], dim=0)
+#             # labels = torch.cat([labels_positive, labels_negative], dim=0)
+#
+#             loss = criterion(input1_positive, input2_positive, labels_positive)
+#
+#             # loss = criterion(predicted_txt_embeds[target_mask], torch.tensor([target[1] for target in all_targets]).to(rank))
+#             # loss = 1 - F.cosine_similarity(predicted_txt_embeds[target_mask], all_target_txt_embeds, dim=-1).mean()
+#             # for i in range(args['models']['num_negatives']):    # num_rel-1
+#             #     loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds[:, i], dim=-1).mean() / args['models']['num_negatives']
+#
+#             running_loss += loss.item()
+#             running_loss_counter += 1
+#
+#             # accumulate gradients
+#             loss = loss / accumulation_steps  # normalize the loss
+#             loss.backward()
+#
+#             # perform optimizer step and scheduler step after accumulating all losses from all graphs in the batch
+#             if graph_idx + 1 == accumulation_steps:
+#                 optimizer_attention.step()
+#                 optimizer_refiner.step()
+#                 scheduler_attention.step()
+#                 scheduler_refiner.step()
+#                 optimizer_attention.zero_grad()
+#                 optimizer_refiner.zero_grad()
+#
+#         # for each graph in the batch, update self.edges using corresponding predicted_txt_embed
+#         # even predicate outside the mask may still improve their reasonable yet not annotated predictions
+#         # for i, idx in enumerate(target_mask):
+#         #     # print('graph.edges[idx]', graph.edges[idx], 'all_targets[i]', all_targets[i])
+#         #     graph.edges[idx] = all_targets[i]
+#
+#         # end_time = time.time()
+#         # elapsed_time = end_time - start_time
+#         # print(f"Elapsed time3: {elapsed_time} seconds")
+#         # start_time = time.time()
+#
+#         for edge_idx in range(len(graph.edges)):
+#             updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds[edge_idx], all_current_edges[edge_idx], rank, verbose=verbose)
+#
+#             graph.edges[edge_idx] = updated_edges
+#             graph.confidence[edge_idx] = confidences
+#
+#         # end_time = time.time()
+#         # elapsed_time = end_time - start_time
+#         # print(f"Elapsed time4: {elapsed_time} seconds")
+#
+#         # predicted_rels = torch.max(predicted_txt_embeds, dim=1)     # [0] for values [1] for indices
+#         # for edge_idx in range(len(graph.edges)):
+#         #     old_edge = graph.edges[edge_idx]
+#         #     subject, relation, object = extract_words_from_edge(old_edge[-1].split(), all_labels)
+#         #     updated_phrase = subject + ' ' + rel_id2txt[predicted_rels[1][edge_idx].item()] + ' ' + object
+#         #     updated_edge = (old_edge[0], predicted_rels[1][edge_idx].item(), old_edge[2], updated_phrase)
+#         #
+#         #     graph.edges[edge_idx] = updated_edge
+#         #     graph.confidence[edge_idx] = predicted_rels[0][edge_idx]
+#         #
+#         #     if verbose:
+#         #         print('old_edge', old_edge, 'updated_edge', updated_edge)
+#
+#     # if verbose:
+#     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
+#         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss / running_loss_counter}')
+#
+#     # return graphs, multimodal_transformer_encoder
+#     return graphs, attention_layer, relationship_refiner
 
 
 def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
