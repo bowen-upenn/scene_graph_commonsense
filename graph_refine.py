@@ -266,8 +266,13 @@ def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hier
 def prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, images,
                      current_edges, neighbor_edges, edges_per_image, rank, verbose=False):
     # ---------------------------------------------------------------------------- #
+    # crop out bounding boxes
+    # images = [images[i].repeat(num, 1) for i, num in enumerate(edges_per_image)]
+    # print)
+
     # collect image embedding
     inputs = processor(images=images, return_tensors="pt").to(rank)
+    print('images', [img.shape for img in images])
     with torch.no_grad():
         image_embeds = clip_model.module.get_image_features(**inputs)
     if verbose:
@@ -780,7 +785,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
     all_current_edges = []
     all_neighbor_edges = []
     all_target_txt_embeds = []
-    all_negative_target_txt_embeds = []
+    # all_negative_target_txt_embeds = []
     all_targets = []
     target_mask = []    # mask of predicate that has matched with a target
     edges_per_image = []
@@ -814,8 +819,8 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                             target_mask.append(edge_idx)
                             current_target = target
                             all_targets.append(target)
-                            all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, target_txt_embed,
-                                                                                        clip_model, tokenizer, rank, args))
+                            # all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, target_txt_embed,
+                            #                                                             clip_model, tokenizer, rank, args))
                             break
 
             # find neighbor edges for the current edge
@@ -855,10 +860,10 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
         # input1_negative = predicted_txt_embeds[target_mask].repeat_interleave(args['models']['num_negatives'], dim=0)
         # input2_negative = all_negative_target_txt_embeds.reshape(-1, input1_negative.shape[1])
-        # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
-        # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
+        # # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
+        # # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
         # labels_negative = torch.full((len(all_targets) * args['models']['num_negatives'],), -1).to(rank)
-
+        #
         # input1 = torch.cat([input1_positive, input1_negative], dim=0)
         # input2 = torch.cat([input2_positive, input2_negative], dim=0)
         # labels = torch.cat([labels_positive, labels_negative], dim=0)
@@ -886,186 +891,6 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss}')
 
     return graphs, attention_layer, relationship_refiner
-
-# def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-#                    optimizer_attention, optimizer_refiner, scheduler_attention, scheduler_refiner, criterion, # optimizer, scheduler,
-#                    images, graphs, target_triplets, data_len, batch_count, rank, args, training=True, verbose=False):
-# # def batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
-# #                    images, graphs, target_triplets, data_len, rank, args, verbose=False):
-#
-#     if training:
-#         # for all graphs in the batch, iterate all its edges being added
-#         running_loss = 0.0
-#         running_loss_counter = 0
-#
-#         # initialize variable to keep track of number of accumulated mini-batches
-#         accumulation_steps = len(graphs)
-#         optimizer_attention.zero_grad()
-#         optimizer_refiner.zero_grad()
-#
-#     for graph_idx, (graph, targets, image) in enumerate(zip(graphs, target_triplets, images)):
-#         all_current_edges = []
-#         all_neighbor_edges = []
-#         all_target_txt_embeds = []
-#         all_negative_target_txt_embeds = []
-#         all_targets = []
-#         target_mask = []    # mask of predicate that has matched with a target
-#
-#         # start_time = time.time()
-#
-#         for edge_idx, current_edge in enumerate(graph.edges):
-#             subject_node, object_node = current_edge[0], current_edge[2]
-#             current_subject, _, current_object = extract_words_from_edge(current_edge[-1].split(), all_labels)
-#
-#             if training:
-#                 # find corresponding target edge for the current edge
-#                 current_target = None
-#                 for target in targets:
-#                     target_subject_bbox = target[0]
-#                     target_object_bbox = target[2]
-#
-#                     # when the current prediction is about the current target
-#                     # if iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5:
-#                     if target_subject_bbox == subject_node and target_object_bbox == object_node:
-#                         target_subject, target_relation, target_object = extract_words_from_edge(target[-1].split(), all_labels)
-#
-#                         if target_subject == current_subject and target_object == current_object:
-#                             phrase = [f"{target_subject} {target_relation} {target_object}"]
-#                             inputs = tokenizer(phrase, padding=True, return_tensors="pt").to(rank)
-#                             with torch.no_grad():
-#                                 target_txt_embed = clip_model.module.get_text_features(**inputs)
-#                                 # target_txt_embed = F.normalize(target_txt_embed)
-#
-#                             all_target_txt_embeds.append(target_txt_embed)
-#                             target_mask.append(edge_idx)
-#                             current_target = target
-#                             all_targets.append(target)
-#                             all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, target_txt_embed,
-#                                                                                         clip_model, tokenizer, rank, args))
-#                             break
-#
-#             # find neighbor edges for the current edge
-#             subject_neighbor_edges = graph.adj_list[subject_node]
-#             object_neighbor_edges = graph.adj_list[object_node]
-#             if not training or current_target is None:
-#                 if current_edge in subject_neighbor_edges:
-#                     subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
-#                 if current_edge in object_neighbor_edges:
-#                     object_neighbor_edges.remove(current_edge)
-#             else:
-#                 if current_target in subject_neighbor_edges:
-#                     subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
-#                 if current_target in object_neighbor_edges:
-#                     object_neighbor_edges.remove(current_target)
-#
-#             neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
-#
-#             all_current_edges.append(current_edge)
-#             all_neighbor_edges.append(neighbor_edges)
-#
-#         # end_time = time.time()
-#         # elapsed_time = end_time - start_time
-#         # print(f"Elapsed time1: {elapsed_time} seconds")
-#         # start_time = time.time()
-#
-#         target_mask = torch.tensor(target_mask).to(rank)
-#
-#         # forward pass
-#         # predicted_txt_embeds = prepare_training_multimodal_transformer(clip_model, multimodal_transformer_encoder, tokenizer, processor, image,
-#         #                                                                all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
-#         predicted_txt_embeds = prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, image,
-#                                                 all_current_edges, all_neighbor_edges, rank, batch=True, verbose=verbose)
-#         # predicted_txt_embeds = F.normalize(predicted_txt_embeds)
-#
-#         # end_time = time.time()
-#         # elapsed_time = end_time - start_time
-#         # print(f"Elapsed time2: {elapsed_time} seconds")
-#         # start_time = time.time()
-#
-#         if training and len(all_targets) > 0:
-#             all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
-#             all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
-#             # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
-#
-#             input1_positive = predicted_txt_embeds[target_mask]
-#             input2_positive = all_target_txt_embeds
-#             labels_positive = torch.ones(len(all_targets)).to(rank)
-#             # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
-#             # print('before', input1_positive[:, 0], all_negative_target_txt_embeds[0, :, 0])
-#
-#             # input1_negative = predicted_txt_embeds[target_mask].repeat_interleave(args['models']['num_negatives'], dim=0)
-#             # input2_negative = all_negative_target_txt_embeds.reshape(-1, input1_negative.shape[1])
-#             # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
-#             # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
-#             # labels_negative = torch.full((len(all_targets) * args['models']['num_negatives'],), -1).to(rank)
-#
-#             # input1 = torch.cat([input1_positive, input1_negative], dim=0)
-#             # input2 = torch.cat([input2_positive, input2_negative], dim=0)
-#             # labels = torch.cat([labels_positive, labels_negative], dim=0)
-#
-#             loss = criterion(input1_positive, input2_positive, labels_positive)
-#
-#             # loss = criterion(predicted_txt_embeds[target_mask], torch.tensor([target[1] for target in all_targets]).to(rank))
-#             # loss = 1 - F.cosine_similarity(predicted_txt_embeds[target_mask], all_target_txt_embeds, dim=-1).mean()
-#             # for i in range(args['models']['num_negatives']):    # num_rel-1
-#             #     loss += F.cosine_similarity(predicted_txt_embeds[target_mask], all_negative_target_txt_embeds[:, i], dim=-1).mean() / args['models']['num_negatives']
-#
-#             running_loss += loss.item()
-#             running_loss_counter += 1
-#
-#             # accumulate gradients
-#             loss = loss / accumulation_steps  # normalize the loss
-#             loss.backward()
-#
-#             # perform optimizer step and scheduler step after accumulating all losses from all graphs in the batch
-#             if graph_idx + 1 == accumulation_steps:
-#                 optimizer_attention.step()
-#                 optimizer_refiner.step()
-#                 scheduler_attention.step()
-#                 scheduler_refiner.step()
-#                 optimizer_attention.zero_grad()
-#                 optimizer_refiner.zero_grad()
-#
-#         # for each graph in the batch, update self.edges using corresponding predicted_txt_embed
-#         # even predicate outside the mask may still improve their reasonable yet not annotated predictions
-#         # for i, idx in enumerate(target_mask):
-#         #     # print('graph.edges[idx]', graph.edges[idx], 'all_targets[i]', all_targets[i])
-#         #     graph.edges[idx] = all_targets[i]
-#
-#         # end_time = time.time()
-#         # elapsed_time = end_time - start_time
-#         # print(f"Elapsed time3: {elapsed_time} seconds")
-#         # start_time = time.time()
-#
-#         for edge_idx in range(len(graph.edges)):
-#             updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds[edge_idx], all_current_edges[edge_idx], rank, verbose=verbose)
-#
-#             graph.edges[edge_idx] = updated_edges
-#             graph.confidence[edge_idx] = confidences
-#
-#         # end_time = time.time()
-#         # elapsed_time = end_time - start_time
-#         # print(f"Elapsed time4: {elapsed_time} seconds")
-#
-#         # predicted_rels = torch.max(predicted_txt_embeds, dim=1)     # [0] for values [1] for indices
-#         # for edge_idx in range(len(graph.edges)):
-#         #     old_edge = graph.edges[edge_idx]
-#         #     subject, relation, object = extract_words_from_edge(old_edge[-1].split(), all_labels)
-#         #     updated_phrase = subject + ' ' + rel_id2txt[predicted_rels[1][edge_idx].item()] + ' ' + object
-#         #     updated_edge = (old_edge[0], predicted_rels[1][edge_idx].item(), old_edge[2], updated_phrase)
-#         #
-#         #     graph.edges[edge_idx] = updated_edge
-#         #     graph.confidence[edge_idx] = predicted_rels[0][edge_idx]
-#         #
-#         #     if verbose:
-#         #         print('old_edge', old_edge, 'updated_edge', updated_edge)
-#
-#     # if verbose:
-#     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
-#         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss / running_loss_counter}')
-#
-#     # return graphs, multimodal_transformer_encoder
-#     return graphs, attention_layer, relationship_refiner
 
 
 def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
@@ -1174,13 +999,13 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     #     {'params': multimodal_transformer_encoder.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
     # ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     # criterion = nn.MSELoss()
-    criterion = nn.CosineEmbeddingLoss(margin=0.5)
+    criterion = nn.CosineEmbeddingLoss(margin=0.8)
 
     optimizer_attention = optim.Adam(attention_layer.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     optimizer_refiner = optim.SGD(relationship_refiner.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'], momentum=0.9)
-    num_training_steps = len(train_loader)
+    num_training_steps = 3 * len(train_loader)
     scheduler_attention = transformers.get_linear_schedule_with_warmup(optimizer_attention, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
-    scheduler_refiner = StepLR(optimizer_refiner, step_size=500, gamma=0.1)
+    scheduler_refiner = StepLR(optimizer_refiner, step_size=2364, gamma=0.1)
 
     # relation_count = get_num_each_class_reordered(args)
     # class_weight = 1 - relation_count / torch.sum(relation_count)
@@ -1226,7 +1051,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
                 print('batch_count', batch_count)
 
             # use attention_layer and relationship_refiner trained just now
-            for eval_iter in range(3):
+            for eval_iter in range(5):
                 # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len):
                 #     print('eval_iter', eval_iter)
                 if eval_iter == 0:

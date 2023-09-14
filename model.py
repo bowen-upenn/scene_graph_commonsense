@@ -292,7 +292,7 @@ class SimpleSelfAttention(nn.Module):
 
 
 class MultimodalTransformerEncoder(nn.Module):
-    def __init__(self, hidden_dim, num_heads=8, num_layers=1, dropout=0.1):
+    def __init__(self, hidden_dim, num_heads=8, num_layers=3, dropout=0.1):
         super(MultimodalTransformerEncoder, self).__init__()
 
         self.positional_encoding = PositionalEncoding(hidden_dim)

@@ -104,6 +104,10 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return None
         bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
 
+        bbox_raw = bbox.clone() / self.args['models']['feature_size']
+        bbox_raw[:2] *= height
+        bbox_raw[2:] *= width
+
         subj_or_obj = curr_annot['subj_or_obj']
         relationships = curr_annot['relationships']
         relationships_reordered = []
@@ -118,8 +122,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             triplets = []
             for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
                 for j, (rel, so) in enumerate(zip(rels, sos)):
-                    bbox_sub = bbox[i + 1].clone()# / self.args['models']['feature_size']
-                    bbox_obj = bbox[j].clone()# / self.args['models']['feature_size']
+                    bbox_sub = bbox_raw[i + 1]#.clone() / self.args['models']['feature_size']
+                    bbox_obj = bbox_raw[j]#.clone() / self.args['models']['feature_size']
                     # bbox_sub[:2] *= height
                     # bbox_sub[2:] *= width
                     # bbox_obj[:2] *= height
@@ -135,7 +139,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
             return images, image2, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
         elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train':
-            return images, image2, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, triplets
+            return images, image2, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
         else:
             return images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
 
