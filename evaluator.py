@@ -244,6 +244,8 @@ class Evaluator_PC:
                 subject_bbox[2:] *= width
                 object_bbox[:2] *= height
                 object_bbox[2:] *= width
+                subject_bbox = subject_bbox.ceil().int()
+                object_bbox = object_bbox.ceil().int()
 
                 edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
                 if edge in curr_image_graph:    # remove redundant edges
