@@ -317,7 +317,9 @@ class Evaluator_PC:
             this_k = min(top_k, len(self.relation_pred[curr_image]))
             keep_inds = sorted_inds[:this_k]
             if self.skipped is not None:
+                print('self.skipped', len(self.skipped), self.skipped, 'image', image)
                 curr_skipped = self.skipped[image]
+                print('curr_skipped', curr_skipped)
                 if len(curr_skipped) > 0:   # remove redundant edges
                     mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
                     keep_inds = keep_inds[mask]

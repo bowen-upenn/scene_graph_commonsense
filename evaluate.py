@@ -248,7 +248,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Testing PC...')
-    for epoch in range(3):
+    for epoch in range(1):
         for batch_count, data in enumerate(tqdm(test_loader), 0):
             """
             PREPARE INPUT DATA

@@ -268,16 +268,29 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     # ---------------------------------------------------------------------------- #
     images = [img for img, count in zip(images, edges_per_image) for _ in repeat(None, count)]
     assert len(images) == len(current_edges)
-    images_sub = [img[:, edge[0][2]:edge[0][3], edge[0][0]:edge[0][1]] for (img, edge) in zip(images, current_edges)]
-    images_obj = [img[:, edge[2][2]:edge[2][3], edge[2][0]:edge[2][1]] for (img, edge) in zip(images, current_edges)]
+
+    images_sub = []
+    images_obj = []
+    for img, edge in zip(images, current_edges):
+        mask_sub = torch.zeros((1, img.shape[1], img.shape[2]), dtype=torch.bool)
+        mask_obj = torch.zeros((1, img.shape[1], img.shape[2]), dtype=torch.bool)
+        mask_sub[:, edge[0][2]:edge[0][3], edge[0][0]:edge[0][1]] = 1
+        mask_obj[:, edge[2][2]:edge[2][3], edge[2][0]:edge[2][1]] = 1
+
+        # zero out values outside the bounding box
+        images_sub.append(img * mask_sub)
+        images_obj.append(img * mask_obj)
+
+    # images_sub = [img[:, edge[0][2]:edge[0][3], edge[0][0]:edge[0][1]] for (img, edge) in zip(images, current_edges)]
+    # images_obj = [img[:, edge[2][2]:edge[2][3], edge[2][0]:edge[2][1]] for (img, edge) in zip(images, current_edges)]
     del images
 
     # collect image embedding
-    inputs_sub = processor(images=images_sub, return_tensors="pt").to(rank)
-    inputs_obj = processor(images=images_obj, return_tensors="pt").to(rank)
+    inputs = processor(images=images_sub + images_obj, return_tensors="pt").to(rank)
     with torch.no_grad():
-        image_embeds_sub = clip_model.module.get_image_features(**inputs_sub)
-        image_embeds_obj = clip_model.module.get_image_features(**inputs_obj)
+        image_embeds = clip_model.module.get_image_features(**inputs)
+    image_embeds_sub = image_embeds[:len(images_sub), :]
+    image_embeds_obj = image_embeds[len(images_sub):, :]
     if verbose:
         print('edges_per_image', edges_per_image, 'image_embeds_obj', image_embeds_sub.shape, 'image_embeds_obj', image_embeds_obj.shape)
     # ---------------------------------------------------------------------------- #
@@ -331,7 +344,8 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     # ---------------------------------------------------------------------------- #
 
     # forward to the learnable layers
-    predicted_txt_embed = relationship_refiner(image_embeds.detach(), current_text_embeds.detach(), sub_txt_embed.detach(), obj_txt_embed.detach(), neighbor_text_embeds)
+    predicted_txt_embed = relationship_refiner(image_embeds_sub.detach(), image_embeds_obj.detach(), current_text_embeds.detach(),
+                                               sub_txt_embed.detach(), obj_txt_embed.detach(), neighbor_text_embeds)
 
     if verbose:
         print('predicted_txt_embed', predicted_txt_embed.shape)
@@ -862,9 +876,9 @@ def query_clip(gpu, args, train_dataset, test_dataset):
 
     optimizer_attention = optim.Adam(attention_layer.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     optimizer_refiner = optim.SGD(relationship_refiner.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'], momentum=0.9)
-    num_training_steps = 3 * len(train_loader)
+    num_training_steps = 1 * len(train_loader)
     scheduler_attention = transformers.get_linear_schedule_with_warmup(optimizer_attention, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
-    scheduler_refiner = StepLR(optimizer_refiner, step_size=2364, gamma=0.1)
+    scheduler_refiner = StepLR(optimizer_refiner, step_size=750, gamma=0.1)
 
     # relation_count = get_num_each_class_reordered(args)
     # class_weight = 1 - relation_count / torch.sum(relation_count)

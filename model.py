@@ -282,11 +282,13 @@ class TransformerEncoder(nn.Module):
 class SimpleSelfAttention(nn.Module):
     def __init__(self, hidden_dim, num_heads=8):
         super(SimpleSelfAttention, self).__init__()
+        self.linear = nn.Linear(hidden_dim, hidden_dim)
         self.positional_encoding = PositionalEncoding(hidden_dim)
         self.multihead_attn = nn.MultiheadAttention(hidden_dim, num_heads)
 
     def forward(self, x, key_padding_mask):
         # x shape: (seq_len, batch_size, hidden_dim)
+        x = self.linear(x)
         attn_output, _ = self.multihead_attn(query=x, key=x, value=x, key_padding_mask=key_padding_mask)
         return attn_output
 
@@ -330,18 +332,18 @@ class RelationshipRefiner(nn.Module):
         super(RelationshipRefiner, self).__init__()
 
         # additional layers to predict relationship
-        self.fc1 = nn.Linear(hidden_dim * 5, hidden_dim)
+        self.fc1 = nn.Linear(hidden_dim * 6, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.dropout = nn.Dropout(p=0.3)
 
         # self.rel_tokens = nn.Parameter(torch.rand(1, hidden_dim), requires_grad=True)
 
-    def forward(self, img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
+    def forward(self, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
         # build skip connection
         # print('img_embed, current_txt_embed, query_embed, neighbor_txt_embed', img_embed.shape, current_txt_embed.shape, query_embed.shape, neighbor_txt_embed.shape)
 
         # hidden = self.rel_tokens + query_embed
-        hidden = torch.cat((img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
+        hidden = torch.cat((sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
         hidden = F.relu(self.fc1(hidden))
         hidden = self.dropout(hidden)
 

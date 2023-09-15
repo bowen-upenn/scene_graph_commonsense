@@ -108,7 +108,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         bbox_raw[:2] *= height
         bbox_raw[2:] *= width
         bbox_raw = bbox_raw.ceil().int()
-        if torch.any(bbox_raw[:, 1] - bbox_raw[:, 0] <= 0) or torch.any(bbox_raw[:, 3] - bbox_raw[:, 2] <= 0):
+        if torch.any(bbox_raw[:, 1] - bbox_raw[:, 0] <= 10) or torch.any(bbox_raw[:, 3] - bbox_raw[:, 2] <= 10):
             return None
 
         subj_or_obj = curr_annot['subj_or_obj']
