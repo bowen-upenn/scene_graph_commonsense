@@ -249,6 +249,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
 
     print('Start Testing PC...')
     for epoch in range(1):
+        print('epoch', epoch)
         for batch_count, data in enumerate(tqdm(test_loader), 0):
             """
             PREPARE INPUT DATA
@@ -302,6 +303,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
                 which_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1)
+                # print('which_in_batch', which_in_batch)
 
                 curr_graph_masks = torch.stack([torch.unsqueeze(masks[i][graph_iter], dim=0) for i in which_in_batch])
                 h_graph = torch.cat((image_feature[which_in_batch] * curr_graph_masks, image_depth[which_in_batch] * curr_graph_masks), dim=1)  # (bs, 256, 64, 64), (bs, 1, 64, 64)

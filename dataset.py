@@ -100,7 +100,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         categories = curr_annot['categories']
         super_categories = curr_annot['super_categories']
         # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
-        if images.shape[0] <= 1 or images.shape[0] > 20:
+        if categories.shape[0] <= 1 or categories.shape[0] > 20:
             return None
         bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
 
@@ -108,7 +108,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         bbox_raw[:2] *= height
         bbox_raw[2:] *= width
         bbox_raw = bbox_raw.ceil().int()
-        if torch.any(bbox_raw[:, 1] - bbox_raw[:, 0] <= 10) or torch.any(bbox_raw[:, 3] - bbox_raw[:, 2] <= 10):
+        if torch.any(bbox_raw[:, 1] - bbox_raw[:, 0] <= 0) or torch.any(bbox_raw[:, 3] - bbox_raw[:, 2] <= 0):
             return None
 
         subj_or_obj = curr_annot['subj_or_obj']
@@ -145,6 +145,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return images, image2, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
         else:
             return images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+
 
     def load_one_image(self, file_name=None, idx=None, return_annot=False):
         # only return the image for inference

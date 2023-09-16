@@ -266,24 +266,25 @@ def clip_zero_shot(clip_model, processor, image, edge, rank, args, based_on_hier
 def prepare_training(clip_model, attention_layer, relationship_refiner, tokenizer, processor, images,
                      current_edges, neighbor_edges, edges_per_image, rank, verbose=False):
     # ---------------------------------------------------------------------------- #
-    images = [img for img, count in zip(images, edges_per_image) for _ in repeat(None, count)]
+    images = [img.to(rank) for img, count in zip(images, edges_per_image) for _ in repeat(None, count)]
     assert len(images) == len(current_edges)
 
-    images_sub = []
-    images_obj = []
+    mask_sub_list = []
+    mask_obj_list = []
     for img, edge in zip(images, current_edges):
-        mask_sub = torch.zeros((1, img.shape[1], img.shape[2]), dtype=torch.bool)
-        mask_obj = torch.zeros((1, img.shape[1], img.shape[2]), dtype=torch.bool)
+        mask_sub = torch.zeros((1, img.shape[1], img.shape[2]), dtype=torch.bool).to(rank)
+        mask_obj = torch.zeros((1, img.shape[1], img.shape[2]), dtype=torch.bool).to(rank)
         mask_sub[:, edge[0][2]:edge[0][3], edge[0][0]:edge[0][1]] = 1
         mask_obj[:, edge[2][2]:edge[2][3], edge[2][0]:edge[2][1]] = 1
+        mask_sub_list.append(mask_sub)
+        mask_obj_list.append(mask_obj)
 
-        # zero out values outside the bounding box
-        images_sub.append(img * mask_sub)
-        images_obj.append(img * mask_obj)
+    images_sub = [img * mask_sub for img, mask_sub in zip(images, mask_sub_list)]
+    images_obj = [img * mask_obj for img, mask_obj in zip(images, mask_obj_list)]
+    del images
 
     # images_sub = [img[:, edge[0][2]:edge[0][3], edge[0][0]:edge[0][1]] for (img, edge) in zip(images, current_edges)]
     # images_obj = [img[:, edge[2][2]:edge[2][3], edge[2][0]:edge[2][1]] for (img, edge) in zip(images, current_edges)]
-    del images
 
     # collect image embedding
     inputs = processor(images=images_sub + images_obj, return_tensors="pt").to(rank)
@@ -293,6 +294,15 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     image_embeds_obj = image_embeds[len(images_sub):, :]
     if verbose:
         print('edges_per_image', edges_per_image, 'image_embeds_obj', image_embeds_sub.shape, 'image_embeds_obj', image_embeds_obj.shape)
+
+    # # collect image embedding
+    # inputs = processor(images=images, return_tensors="pt").to(rank)
+    # with torch.no_grad():
+    #     image_embeds = clip_model.module.get_image_features(**inputs)
+    # if verbose:
+    #     print('edges_per_image', edges_per_image, 'image_embeds', image_embeds.shape)
+    # image_embeds = torch.cat([image_embeds[i].repeat(num, 1) for i, num in enumerate(edges_per_image)], dim=0)
+
     # ---------------------------------------------------------------------------- #
 
     # accumulate all neighbor edges
@@ -346,7 +356,6 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     # forward to the learnable layers
     predicted_txt_embed = relationship_refiner(image_embeds_sub.detach(), image_embeds_obj.detach(), current_text_embeds.detach(),
                                                sub_txt_embed.detach(), obj_txt_embed.detach(), neighbor_text_embeds)
-
     if verbose:
         print('predicted_txt_embed', predicted_txt_embed.shape)
 
@@ -830,6 +839,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
     # updated_graphs, multimodal_transformer_encoder = batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
     #                                                                        images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
 
+    # print('len(images)', len(images), 'updated_graphs', len(updated_graphs))
     for batch_idx in range(len(images)):
         relation_pred, confidence = extract_updated_edges(updated_graphs[batch_idx], rank)
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)

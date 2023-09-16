@@ -219,6 +219,7 @@ class Evaluator_PC:
         dict_relation_names = relation_by_super_class_int2str()
         dict_object_names = object_class_int2str()
 
+        # print('torch.unique(self.which_in_batch)', len(torch.unique(self.which_in_batch)), torch.unique(self.which_in_batch))
         for image in torch.unique(self.which_in_batch):  # image-wise
             curr_image = self.which_in_batch == image
             curr_confidence = self.confidence[curr_image]
@@ -259,7 +260,10 @@ class Evaluator_PC:
             top_k_image_graphs.append(curr_image_graph)
             skipped.append(curr_skipped)
 
-        self.skipped = skipped
+        if sum([len(sk) for sk in skipped]) == 0:
+            self.skipped = None
+        else:
+            self.skipped = skipped
         return top_k_predictions, top_k_image_graphs
 
 
@@ -307,6 +311,7 @@ class Evaluator_PC:
         to reorder the new top_k predictions, without actually
         """
         if not self.hierar:
+            # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
             # find the top k predictions to be updated
             image = torch.unique(self.which_in_batch)[batch_idx]
             curr_image = self.which_in_batch == image
@@ -317,9 +322,7 @@ class Evaluator_PC:
             this_k = min(top_k, len(self.relation_pred[curr_image]))
             keep_inds = sorted_inds[:this_k]
             if self.skipped is not None:
-                print('self.skipped', len(self.skipped), self.skipped, 'image', image)
                 curr_skipped = self.skipped[image]
-                print('curr_skipped', curr_skipped)
                 if len(curr_skipped) > 0:   # remove redundant edges
                     mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
                     keep_inds = keep_inds[mask]
