@@ -50,7 +50,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
         self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
 
-        if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train':
+        if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
             self.dict_relation_names = relation_by_super_class_int2str()
             self.dict_object_names = object_class_int2str()
 
@@ -88,7 +88,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             image2 = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
             image2 = 255 * self.image_transform(image2)[[2, 1, 0]]  # BGR
             image2 = self.image_norm(image2)
-        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train':
+        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
             del images_aug
             image2 = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
             image2 = self.image_transform_to_tensor(image2)
@@ -120,7 +120,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             relationships_reordered.append(rel_reorder_dict[rel])
         relationships = relationships_reordered
 
-        if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train':
+        if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
             # reformulate relation annots for a single image in a more efficient way
             triplets = []
             for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
@@ -141,7 +141,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
             return images, image2, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
-        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train':
+        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
             return images, image2, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
         else:
             return images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj

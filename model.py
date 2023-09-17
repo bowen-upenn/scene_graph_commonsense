@@ -299,30 +299,30 @@ class MultimodalTransformerEncoder(nn.Module):
 
         self.positional_encoding = PositionalEncoding(hidden_dim)
 
-        # Initialize learned modality encodings for image, query, and text
-        self.image_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
-        self.query_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
-        self.text_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        # # Initialize learned modality encodings for image, query, and text
+        # self.image_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        # self.query_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        # self.text_modality_encoding = nn.Parameter(torch.randn(1, 1, hidden_dim))
 
         encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, dropout=dropout)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
     def forward(self, x, key_padding_mask):
         # Apply positional encoding
-        init_pred = x[2].unsqueeze(0)
-        x = self.positional_encoding(x)
+        # init_pred = x[2].unsqueeze(0)
+        # x = self.positional_encoding(x)
 
-        # Add learned modality encodings to image, query, and text features
-        image_feat = x[0] + self.image_modality_encoding
-        query_feat = x[1] + self.query_modality_encoding
-        text_feat = x[2:] + self.text_modality_encoding
-
-        # Concatenate back into the original sequence
-        x = torch.cat([image_feat, query_feat, text_feat], dim=0)
+        # # Add learned modality encodings to image, query, and text features
+        # image_feat = x[0] + self.image_modality_encoding
+        # query_feat = x[1] + self.query_modality_encoding
+        # text_feat = x[2:] + self.text_modality_encoding
+        #
+        # # Concatenate back into the original sequence
+        # x = torch.cat([image_feat, query_feat, text_feat], dim=0)
 
         # Perform self-attention with transformer encoder
         output = self.transformer_encoder(x, src_key_padding_mask=key_padding_mask)
-        output += init_pred  # skip connection
+        # output += init_pred  # skip connection
 
         return output
 
@@ -332,18 +332,18 @@ class RelationshipRefiner(nn.Module):
         super(RelationshipRefiner, self).__init__()
 
         # additional layers to predict relationship
-        self.fc1 = nn.Linear(hidden_dim * 6, hidden_dim)
+        self.fc1 = nn.Linear(hidden_dim * 7, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.dropout = nn.Dropout(p=0.3)
 
         # self.rel_tokens = nn.Parameter(torch.rand(1, hidden_dim), requires_grad=True)
 
-    def forward(self, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
+    def forward(self, glob_imge_embed, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
         # build skip connection
         # print('img_embed, current_txt_embed, query_embed, neighbor_txt_embed', img_embed.shape, current_txt_embed.shape, query_embed.shape, neighbor_txt_embed.shape)
 
         # hidden = self.rel_tokens + query_embed
-        hidden = torch.cat((sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
+        hidden = torch.cat((glob_imge_embed, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
         hidden = F.relu(self.fc1(hidden))
         hidden = self.dropout(hidden)
 

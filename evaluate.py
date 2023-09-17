@@ -204,7 +204,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
     """
     rank = gpu
     world_size = torch.cuda.device_count()
-    if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
+    if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
         # this function will be called within another function mp spawned
         test_loader = test_subset
     else:
@@ -255,7 +255,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
             PREPARE INPUT DATA
             """
             try:
-                if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
+                if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
                     images, images_raw, image_depth, categories, super_categories, bbox, heights, widths, relationships, subj_or_obj, triplets = data
                 else:
                     images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
@@ -401,7 +401,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
             #                         connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
 
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
+                if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'or args['training']['run_mode'] == 'clip_eval':
                     graph_refine_loss = 0.0
                     top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
                     sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets,
@@ -420,11 +420,11 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
 
         dist.monitored_barrier()
 
-    if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train':
+    if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'or args['training']['run_mode'] == 'clip_eval':
         print('FINISHED GRAPH TRAINING PC\n')
     else:
         print('FINISHED TESTING PC\n')
-    if not (args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'):
+    if not (args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval'):
         dist.destroy_process_group()  # clean up
 
 
