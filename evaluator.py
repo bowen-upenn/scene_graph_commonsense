@@ -310,69 +310,47 @@ class Evaluator_PC:
         Because we calculate the confidence scores in a different way in global graphical refine, we only use new confidence scores
         to reorder the new top_k predictions, without actually
         """
-        if not self.hierar:
-            # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
-            # find the top k predictions to be updated
-            image = torch.unique(self.which_in_batch)[batch_idx]
-            curr_image = self.which_in_batch == image
-            curr_confidence = self.confidence[curr_image]
-            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+        # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
+        # find the top k predictions to be updated
+        image = torch.unique(self.which_in_batch)[batch_idx]
+        curr_image = self.which_in_batch == image
+        curr_confidence = self.confidence[curr_image]
+        sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
 
-            # select the top k predictions
-            this_k = min(top_k, len(self.relation_pred[curr_image]))
-            keep_inds = sorted_inds[:this_k]
-            if self.skipped is not None:
-                curr_skipped = self.skipped[image]
-                if len(curr_skipped) > 0:   # remove redundant edges
-                    mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
-                    keep_inds = keep_inds[mask]
+        # select the top k predictions
+        this_k = min(top_k, len(self.relation_pred[curr_image]))
+        keep_inds = sorted_inds[:this_k]
+        if self.skipped is not None:
+            curr_skipped = self.skipped[image]
+            if len(curr_skipped) > 0:   # remove redundant edges
+                mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
+                keep_inds = keep_inds[mask]
 
-            # assign new relation predictions
-            # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
-            tmp = self.relation_pred[curr_image].clone()
-            for i, idx in enumerate(keep_inds):
-                tmp[idx] = refined_relation_pred[i]
-            self.relation_pred[curr_image] = tmp
-            # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
+        # assign new relation predictions
+        # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
+        tmp = self.relation_pred[curr_image].clone()
+        for i, idx in enumerate(keep_inds):
+            tmp[idx] = refined_relation_pred[i]
+        self.relation_pred[curr_image] = tmp
+        # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
 
-            # # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
-            # reorder_topk_inds = torch.argsort(refined_confidence, descending=True)
-            #
-            # self.relation_pred[curr_image][keep_inds] = self.relation_pred[curr_image][keep_inds][reorder_topk_inds]
-            # self.relation_target[curr_image][keep_inds] = self.relation_target[curr_image][keep_inds][reorder_topk_inds]
-            # self.confidence[curr_image][keep_inds] = self.confidence[curr_image][keep_inds][reorder_topk_inds]
-            # self.connectivity[curr_image][keep_inds] = self.connectivity[curr_image][keep_inds][reorder_topk_inds]
-            #
-            # self.subject_cat_pred[curr_image][keep_inds] = self.subject_cat_pred[curr_image][keep_inds][reorder_topk_inds]
-            # self.object_cat_pred[curr_image][keep_inds] = self.object_cat_pred[curr_image][keep_inds][reorder_topk_inds]
-            # self.subject_cat_target[curr_image][keep_inds] = self.subject_cat_target[curr_image][keep_inds][reorder_topk_inds]
-            # self.object_cat_target[curr_image][keep_inds] = self.object_cat_target[curr_image][keep_inds][reorder_topk_inds]
-            # self.subject_bbox_pred[curr_image][keep_inds] = self.subject_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
-            # self.object_bbox_pred[curr_image][keep_inds] = self.object_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
-            # self.subject_bbox_target[curr_image][keep_inds] = self.subject_bbox_target[curr_image][keep_inds][reorder_topk_inds]
-            # self.object_bbox_target[curr_image][keep_inds] = self.object_bbox_target[curr_image][keep_inds][reorder_topk_inds]
-
-        else:
-            assert False, "Not Implemented"
-
-    # def global_refine(self, refined_relation, connected_indices_accumulated):
-    #     if not self.hierar:  # flat relationship prediction
-    #         self.relation_pred[connected_indices_accumulated] = torch.argmax(refined_relation, dim=1)
-    #         self.confidence[connected_indices_accumulated] = torch.max(refined_relation, dim=1)[0]
-    #     else:
-    #         connected_indices_accumulated = connected_indices_accumulated.repeat(3)
-    #         relation_pred = torch.hstack((torch.argmax(refined_relation[:, :self.args['models']['num_geometric']], dim=1),
-    #                                          torch.argmax(refined_relation[:, self.args['models']['num_geometric']:self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)
-    #                                          + self.args['models']['num_geometric'],
-    #                                          torch.argmax(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)
-    #                                          + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
-    #         self.relation_pred[connected_indices_accumulated] = relation_pred
-    #
-    #         confidence = torch.hstack((torch.max(refined_relation[:, :self.args['models']['num_geometric']], dim=1)[0],
-    #                                    torch.max(refined_relation[:, self.args['models']['num_geometric']: self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
-    #                                    torch.max(refined_relation[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
-    #         self.confidence[connected_indices_accumulated] = confidence
-
+        # # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
+        # reorder_topk_inds = torch.argsort(refined_confidence, descending=True)
+        #
+        # self.relation_pred[curr_image][keep_inds] = self.relation_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.relation_target[curr_image][keep_inds] = self.relation_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.confidence[curr_image][keep_inds] = self.confidence[curr_image][keep_inds][reorder_topk_inds]
+        # self.connectivity[curr_image][keep_inds] = self.connectivity[curr_image][keep_inds][reorder_topk_inds]
+        #
+        # self.subject_cat_pred[curr_image][keep_inds] = self.subject_cat_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_cat_pred[curr_image][keep_inds] = self.object_cat_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.subject_cat_target[curr_image][keep_inds] = self.subject_cat_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_cat_target[curr_image][keep_inds] = self.object_cat_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.subject_bbox_pred[curr_image][keep_inds] = self.subject_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_bbox_pred[curr_image][keep_inds] = self.object_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.subject_bbox_target[curr_image][keep_inds] = self.subject_bbox_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_bbox_target[curr_image][keep_inds] = self.object_bbox_target[curr_image][keep_inds][reorder_topk_inds]
+        
 
     def compute(self, per_class=False):
         """

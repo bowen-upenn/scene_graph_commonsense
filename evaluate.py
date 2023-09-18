@@ -11,6 +11,7 @@ import math
 import torchvision
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
+import datetime
 
 from evaluator import *
 from model import FlatMotif, HierMotif
@@ -418,7 +419,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=5):
                 # clean up the evaluator
                 Recall.clear_data()
 
-        dist.monitored_barrier()
+        dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
     if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'or args['training']['run_mode'] == 'clip_eval':
         print('FINISHED GRAPH TRAINING PC\n')

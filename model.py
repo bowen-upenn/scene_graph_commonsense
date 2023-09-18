@@ -332,8 +332,9 @@ class RelationshipRefiner(nn.Module):
         super(RelationshipRefiner, self).__init__()
 
         # additional layers to predict relationship
-        self.fc1 = nn.Linear(hidden_dim * 7, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc_img = nn.Linear(hidden_dim * 3, hidden_dim)
+        self.fc_txt = nn.Linear(hidden_dim * 3, hidden_dim)
+        self.fc_out = nn.Linear(2 * hidden_dim, hidden_dim)
         self.dropout = nn.Dropout(p=0.3)
 
         # self.rel_tokens = nn.Parameter(torch.rand(1, hidden_dim), requires_grad=True)
@@ -343,11 +344,16 @@ class RelationshipRefiner(nn.Module):
         # print('img_embed, current_txt_embed, query_embed, neighbor_txt_embed', img_embed.shape, current_txt_embed.shape, query_embed.shape, neighbor_txt_embed.shape)
 
         # hidden = self.rel_tokens + query_embed
-        hidden = torch.cat((glob_imge_embed, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
-        hidden = F.relu(self.fc1(hidden))
-        hidden = self.dropout(hidden)
+        hidden_img = torch.cat((glob_imge_embed, sub_img_embed, obj_img_embed), dim=-1)
+        hidden_img = F.relu(self.fc_img(hidden_img))
+        hidden_img = self.dropout(hidden_img)
 
-        hidden = self.fc2(hidden) + current_txt_embed  # skip connection
+        hidden_txt = torch.cat((sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
+        hidden_txt = F.relu(self.fc_txt(hidden_txt))
+        hidden_txt = self.dropout(hidden_txt)
+
+        hidden = torch.cat((hidden_img, hidden_txt), dim=-1)
+        hidden = self.fc_out(hidden) + current_txt_embed  # skip connection
         # hidden = self.fc2(hidden)
 
         # init_pred = F.one_hot(init_pred_rel, num_classes=self.num_classes)
