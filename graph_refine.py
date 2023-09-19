@@ -500,21 +500,22 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edg
         ids_geometric = torch.nonzero(mask_geom).flatten()
         ids_possessive = torch.nonzero(mask_poss).flatten()
         ids_semantic = torch.nonzero(mask_sem).flatten()
-        all_possible_embeds_geom = torch.stack([all_possible_embeds[i] for i in ids_geometric])
-        all_possible_embeds_poss = torch.stack([all_possible_embeds[i] for i in ids_possessive])
-        all_possible_embeds_sem = torch.stack([all_possible_embeds[i] for i in ids_semantic])
+        all_possible_embeds_geom = torch.stack([all_possible_embeds[i] for i in ids_geometric]) if torch.sum(ids_geometric) > 0 else None
+        all_possible_embeds_poss = torch.stack([all_possible_embeds[i] for i in ids_possessive]) if torch.sum(ids_possessive) > 0 else None
+        all_possible_embeds_sem = torch.stack([all_possible_embeds[i] for i in ids_semantic]) if torch.sum(ids_semantic) > 0 else None
 
         # calculate Cosine Similarities
         CosSim = nn.CosineSimilarity(dim=2)
         for label_type, masked_ids, embeds in [("geometric", mask_geom, all_possible_embeds_geom),
                                                ("possessive", mask_poss, all_possible_embeds_poss),
                                                ("semantic", mask_sem, all_possible_embeds_sem)]:
-            cos_sims = CosSim(predicted_txt_embeds[masked_ids], embeds)
-            cos_sims = F.softmax(cos_sims, dim=1)
-            max_vals_cur, max_indices_cur = cos_sims.max(dim=1)
+            if embeds is not None:
+                cos_sims = CosSim(predicted_txt_embeds[masked_ids], embeds)
+                cos_sims = F.softmax(cos_sims, dim=1)
+                max_vals_cur, max_indices_cur = cos_sims.max(dim=1)
 
-            max_vals[masked_ids] = max_vals_cur
-            max_indices[masked_ids] = max_indices_cur
+                max_vals[masked_ids] = max_vals_cur
+                max_indices[masked_ids] = max_indices_cur
 
         if verbose:
             print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds_geom', all_possible_embeds_geom.shape,
