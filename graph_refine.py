@@ -519,46 +519,6 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edg
         if verbose:
             print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds_geom', all_possible_embeds_geom.shape,
                   'all_possible_embeds_poss', all_possible_embeds_poss.shape, 'all_possible_embeds_sem', all_possible_embeds_sem.shape)
-
-        # all_possible_embeds = torch.split(all_possible_embeds, [num for num in num_candidate_labels])
-        #
-        # # extract indices for three super categories
-        # num_candidate_labels = torch.tensor(num_candidate_labels).to(rank)
-        # ids_geometric = torch.nonzero(num_candidate_labels == args['models']['num_geometric']).flatten()
-        # ids_possessive = torch.nonzero(num_candidate_labels == args['models']['num_possessive']).flatten()
-        # ids_semantic = torch.nonzero(num_candidate_labels == args['models']['num_semantic']).flatten()
-        #
-        # # split all_possible_embeds into three super categories because they have different tensor dimensions that can't be stacked together
-        # all_possible_embeds_geometric = torch.stack([embed for embed in all_possible_embeds if len(embed) == args['models']['num_geometric']])
-        # all_possible_embeds_possessive = torch.stack([embed for embed in all_possible_embeds if len(embed) == args['models']['num_possessive']])
-        # all_possible_embeds_semantic = torch.stack([embed for embed in all_possible_embeds if len(embed) == args['models']['num_semantic']])
-        # print('all_possible_embeds_geometric', all_possible_embeds_geometric.shape, 'all_possible_embeds_possessive', all_possible_embeds_possessive.shape, 'all_possible_embeds_semantic', all_possible_embeds_semantic.shape)
-        #
-        # # compute cosine similarity between predicted embedding and all query embeddings
-        # max_vals = -1 * torch.ones(len(current_edges), dtype=torch.float32).to(rank)
-        # max_indices = -1 * torch.ones(len(current_edges), dtype=torch.int64).to(rank)
-        #
-        # CosSim = nn.CosineSimilarity(dim=2)  # Set dim=2 to compute cosine similarity across the embedding dimension
-        # cos_sims = CosSim(predicted_txt_embeds[ids_geometric], all_possible_embeds_geometric)
-        # cos_sims = F.softmax(cos_sims, dim=1)
-        # max_vals_geometric, max_indices_geometric = cos_sims.max(dim=1)
-        #
-        # cos_sims = CosSim(predicted_txt_embeds[ids_possessive], all_possible_embeds_possessive)
-        # cos_sims = F.softmax(cos_sims, dim=1)
-        # max_vals_possessive, max_indices_possessive = cos_sims.max(dim=1)
-        #
-        # cos_sims = CosSim(predicted_txt_embeds[ids_semantic], all_possible_embeds_semantic)
-        # cos_sims = F.softmax(cos_sims, dim=1)
-        # max_vals_semantic, max_indices_semantic = cos_sims.max(dim=1)
-        #
-        # if verbose:
-        #     print('predicted_txt_embeds', predicted_txt_embeds.shape, 'max_vals_geometric', max_vals_geometric.shape,
-        #           'max_vals_possessive', max_vals_possessive.shape, 'max_vals_semantic', max_vals_semantic.shape)
-        #
-        # max_vals[ids_geometric], max_indices[ids_geometric] = max_vals_geometric, max_indices_geometric
-        # max_vals[ids_possessive], max_indices[ids_possessive] = max_vals_possessive, max_indices_possessive
-        # max_vals[ids_semantic], max_indices[ids_semantic] = max_vals_semantic, max_indices_semantic
-
     else:
         all_possible_embeds = torch.split(all_possible_embeds, [len(all_labels) for _ in range(len(current_edges))])    # size [[50, hidden_embed] * num_edges]
         all_possible_embeds = torch.stack(all_possible_embeds)    # size [num_edges, 50, hidden_embed]
