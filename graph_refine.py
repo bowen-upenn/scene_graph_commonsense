@@ -171,16 +171,7 @@ def extract_words_from_edge(phrase, all_relation_labels):
     # create a regular expression pattern to match the relations
     pattern = r'\b(' + '|'.join(map(re.escape, all_relation_labels)) + r')\b'
     phrase = re.split(pattern, phrase)
-    print('phrase', phrase)
     subject, relation, object = phrase[0], phrase[1], phrase[2]
-
-    # for i in range(len(phrase)):
-    #     if phrase[i] in all_relation_labels:
-    #         relation = phrase[i]
-    #         subject = " ".join(phrase[:i])
-    #         object = " ".join(phrase[i + 1:])
-    #         break  # exit loop once the relation is found
-
     return subject, relation, object
 
 
@@ -461,64 +452,145 @@ def prepare_training_multimodal_transformer(clip_model, multimodal_transformer_e
 
 
 def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edges, rank, args, verbose=False):
+    # pre-compute common arguments
+    num_geom, num_poss, num_sem = args['models']['num_geometric'], args['models']['num_possessive'], args['models']['num_semantic']
+
     # extract current subject and object from the edge
     queries = []
     num_candidate_labels = []
     for current_edge in current_edges:
         if args['models']['hierarchical_pred']:
             relation_id = current_edge[1]
-            if relation_id < args['models']['num_geometric']:
+            if relation_id < num_geom:
                 subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_geometric)
                 queries.extend([f"{subject} {label} {object}" for label in all_labels_geometric])
-                num_candidate_labels.append(args['models']['num_geometric'])
-            elif args['models']['num_geometric'] <= relation_id < args['models']['num_geometric'] + args['models']['num_possessive']:
+                num_candidate_labels.append(num_geom)
+            elif num_geom <= relation_id < num_geom + num_poss:
                 subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_possessive)
                 queries.extend([f"{subject} {label} {object}" for label in all_labels_possessive])
-                num_candidate_labels.append(args['models']['num_possessive'])
+                num_candidate_labels.append(num_poss)
             else:
-                print('current_edge[-1].split()', current_edge[-1].split())
                 subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_semantic)
                 queries.extend([f"{subject} {label} {object}" for label in all_labels_semantic])
-                num_candidate_labels.append(args['models']['num_semantic'])
+                num_candidate_labels.append(num_sem)
         else:
             subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
             queries.extend([f"{subject} {label} {object}" for label in all_labels])
 
+    predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=1)
+
     # collect text_embeds for all possible labels
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
     with torch.no_grad():
-        all_possible_embeds = clip_model.module.get_text_features(**inputs)
-    print('all_possible_embeds1', all_possible_embeds.shape)
+        all_possible_embeds = clip_model.module.get_text_features(**inputs)     # size [num_edges * 50, hidden_embed]
 
     if args['models']['hierarchical_pred']:
+        # split out each data sample in the batch
         all_possible_embeds = torch.split(all_possible_embeds, [num for num in num_candidate_labels])
+
+        num_candidate_labels = torch.tensor(num_candidate_labels).to(rank)
+        max_vals = -torch.ones(len(current_edges), dtype=torch.float32).to(rank)
+        max_indices = -torch.ones(len(current_edges), dtype=torch.int64).to(rank)
+
+        mask_geom = num_candidate_labels == num_geom
+        mask_poss = num_candidate_labels == num_poss
+        mask_sem = num_candidate_labels == num_sem
+
+        # get integer indices for each label type
+        ids_geometric = torch.nonzero(mask_geom).flatten()
+        ids_possessive = torch.nonzero(mask_poss).flatten()
+        ids_semantic = torch.nonzero(mask_sem).flatten()
+        all_possible_embeds_geom = torch.stack([all_possible_embeds[i] for i in ids_geometric])
+        all_possible_embeds_poss = torch.stack([all_possible_embeds[i] for i in ids_possessive])
+        all_possible_embeds_sem = torch.stack([all_possible_embeds[i] for i in ids_semantic])
+
+        # calculate Cosine Similarities
+        CosSim = nn.CosineSimilarity(dim=2)
+        for label_type, masked_ids, embeds in [("geometric", mask_geom, all_possible_embeds_geom),
+                                               ("possessive", mask_poss, all_possible_embeds_poss),
+                                               ("semantic", mask_sem, all_possible_embeds_sem)]:
+            cos_sims = CosSim(predicted_txt_embeds[masked_ids], embeds)
+            cos_sims = F.softmax(cos_sims, dim=1)
+            max_vals_cur, max_indices_cur = cos_sims.max(dim=1)
+
+            max_vals[masked_ids] = max_vals_cur
+            max_indices[masked_ids] = max_indices_cur
+
+        if verbose:
+            print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds_geom', all_possible_embeds_geom.shape,
+                  'all_possible_embeds_poss', all_possible_embeds_poss.shape, 'all_possible_embeds_sem', all_possible_embeds_sem.shape)
+
+        # all_possible_embeds = torch.split(all_possible_embeds, [num for num in num_candidate_labels])
+        #
+        # # extract indices for three super categories
+        # num_candidate_labels = torch.tensor(num_candidate_labels).to(rank)
+        # ids_geometric = torch.nonzero(num_candidate_labels == args['models']['num_geometric']).flatten()
+        # ids_possessive = torch.nonzero(num_candidate_labels == args['models']['num_possessive']).flatten()
+        # ids_semantic = torch.nonzero(num_candidate_labels == args['models']['num_semantic']).flatten()
+        #
+        # # split all_possible_embeds into three super categories because they have different tensor dimensions that can't be stacked together
+        # all_possible_embeds_geometric = torch.stack([embed for embed in all_possible_embeds if len(embed) == args['models']['num_geometric']])
+        # all_possible_embeds_possessive = torch.stack([embed for embed in all_possible_embeds if len(embed) == args['models']['num_possessive']])
+        # all_possible_embeds_semantic = torch.stack([embed for embed in all_possible_embeds if len(embed) == args['models']['num_semantic']])
+        # print('all_possible_embeds_geometric', all_possible_embeds_geometric.shape, 'all_possible_embeds_possessive', all_possible_embeds_possessive.shape, 'all_possible_embeds_semantic', all_possible_embeds_semantic.shape)
+        #
+        # # compute cosine similarity between predicted embedding and all query embeddings
+        # max_vals = -1 * torch.ones(len(current_edges), dtype=torch.float32).to(rank)
+        # max_indices = -1 * torch.ones(len(current_edges), dtype=torch.int64).to(rank)
+        #
+        # CosSim = nn.CosineSimilarity(dim=2)  # Set dim=2 to compute cosine similarity across the embedding dimension
+        # cos_sims = CosSim(predicted_txt_embeds[ids_geometric], all_possible_embeds_geometric)
+        # cos_sims = F.softmax(cos_sims, dim=1)
+        # max_vals_geometric, max_indices_geometric = cos_sims.max(dim=1)
+        #
+        # cos_sims = CosSim(predicted_txt_embeds[ids_possessive], all_possible_embeds_possessive)
+        # cos_sims = F.softmax(cos_sims, dim=1)
+        # max_vals_possessive, max_indices_possessive = cos_sims.max(dim=1)
+        #
+        # cos_sims = CosSim(predicted_txt_embeds[ids_semantic], all_possible_embeds_semantic)
+        # cos_sims = F.softmax(cos_sims, dim=1)
+        # max_vals_semantic, max_indices_semantic = cos_sims.max(dim=1)
+        #
+        # if verbose:
+        #     print('predicted_txt_embeds', predicted_txt_embeds.shape, 'max_vals_geometric', max_vals_geometric.shape,
+        #           'max_vals_possessive', max_vals_possessive.shape, 'max_vals_semantic', max_vals_semantic.shape)
+        #
+        # max_vals[ids_geometric], max_indices[ids_geometric] = max_vals_geometric, max_indices_geometric
+        # max_vals[ids_possessive], max_indices[ids_possessive] = max_vals_possessive, max_indices_possessive
+        # max_vals[ids_semantic], max_indices[ids_semantic] = max_vals_semantic, max_indices_semantic
+
     else:
-        all_possible_embeds = torch.split(all_possible_embeds, [len(all_labels) for _ in range(len(current_edges))])
-    print('all_possible_embeds2', [embed.shape for embed in all_possible_embeds])
-    all_possible_embeds = torch.stack(all_possible_embeds)
-    print('all_possible_embeds3', all_possible_embeds.shape)
-    predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=1)
-    print('predicted_txt_embeds', predicted_txt_embeds.shape)
+        all_possible_embeds = torch.split(all_possible_embeds, [len(all_labels) for _ in range(len(current_edges))])    # size [[50, hidden_embed] * num_edges]
+        all_possible_embeds = torch.stack(all_possible_embeds)    # size [num_edges, 50, hidden_embed]
 
-    if verbose:
-        print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds', all_possible_embeds.shape)
+        # compute cosine similarity between predicted embedding and all query embeddings
+        CosSim = nn.CosineSimilarity(dim=2)  # Set dim=2 to compute cosine similarity across the embedding dimension
+        cos_sims = CosSim(predicted_txt_embeds, all_possible_embeds)
+        cos_sims = F.softmax(cos_sims, dim=1)
+        max_vals, max_indices = cos_sims.max(dim=1)
 
-    # compute cosine similarity between predicted embedding and all query embeddings
-    CosSim = nn.CosineSimilarity(dim=2)  # Set dim=2 to compute cosine similarity across the embedding dimension
-    cos_sims = CosSim(predicted_txt_embeds, all_possible_embeds)
-    cos_sims = F.softmax(cos_sims, dim=1)
-    max_vals, max_indices = cos_sims.max(dim=1)
-
-    if verbose:
-        print('cos_sims', cos_sims.shape, 'max_indices', max_indices.shape)
+        if verbose:
+            print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds', all_possible_embeds.shape)
 
     updated_edges = []
     for idx, current_edge in enumerate(current_edges):
-        predicted_rel = all_labels[max_indices[idx]]
+        if args['models']['hierarchical_pred']:
+            if num_candidate_labels[idx] == num_geom:
+                predicted_rel = all_labels_geometric[max_indices[idx]]
+                predicted_rel_id = max_indices[idx].item()
+            elif num_candidate_labels[idx] == num_poss:
+                predicted_rel = all_labels_possessive[max_indices[idx]]
+                predicted_rel_id = max_indices[idx].item() + num_geom
+            else:
+                predicted_rel = all_labels_semantic[max_indices[idx]]
+                predicted_rel_id = max_indices[idx].item() + num_geom + num_poss
+        else:
+            predicted_rel = all_labels[max_indices[idx]]
+            predicted_rel_id = max_indices[idx].item()
 
         subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
         updated_phrase = subject + ' ' + predicted_rel + ' ' + object
-        updated_edge = (current_edge[0], max_indices[idx].item(), current_edge[2], updated_phrase)
+        updated_edge = (current_edge[0], predicted_rel_id, current_edge[2], updated_phrase)
         updated_edges.append(updated_edge)
 
         # show the results
