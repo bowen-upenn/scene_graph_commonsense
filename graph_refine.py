@@ -983,15 +983,23 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
             #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
-        torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
-        torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
-        # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
+        if args['models']['hierarchical_pred']:
+            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth')
+            torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefinerHierar' + '_' + str(rank) + '.pth')
+        else:
+            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
+            torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
+            # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
     # evaluate on test datasettr
     map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
-    attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth', map_location=map_location))
-    relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth', map_location=map_location))
+    if args['models']['hierarchical_pred']:
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
+        relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefinerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
+    else:
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth', map_location=map_location))
+        relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth', map_location=map_location))
     attention_layer.eval()
     relationship_refiner.eval()
     # updated_graphs = torch.load(args['training']['checkpoint_path'] + 'updated_graphs_0.pt', map_location=map_location)
