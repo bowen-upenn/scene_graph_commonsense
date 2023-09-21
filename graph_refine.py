@@ -41,7 +41,8 @@ def setup(rank, world_size):
 
 
 class ImageGraph:
-    def __init__(self, targets=None):
+    def __init__(self, args, targets=None):
+        self.args = args
         self.targets = targets
         # node to neighbors mapping
         self.adj_list = {}
@@ -208,7 +209,7 @@ def crop_image(image, edge, args, crop=True):
         return image * union_bbox
 
 
-def find_matched_target(edge, targets):
+def find_matched_target(args, edge, targets):
     subject_bbox, object_bbox = edge[0], edge[2]
     current_subject, _, current_object = extract_words_from_edge(edge[-1], all_labels)
 
@@ -216,7 +217,12 @@ def find_matched_target(edge, targets):
         target_subject_bbox = target[0]
         target_object_bbox = target[2]
 
-        if target_subject_bbox == subject_bbox and target_object_bbox == object_bbox:
+        if args['training']['eval_mode'] == 'pc':
+            condition = target_subject_bbox == subject_bbox and target_object_bbox == object_bbox
+        else:
+            condition = iou(target_subject_bbox, subject_bbox) >= 0.5 and iou(target_object_bbox, object_bbox) >= 0.5
+
+        if condition:
             target_subject, _, target_object = extract_words_from_edge(target[-1], all_labels)
 
             if target_subject == current_subject and target_object == current_object:
@@ -761,9 +767,11 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                     target_object_bbox = target[2]
 
                     # when the current prediction is about the current target
-                    if target_subject_bbox == subject_node and target_object_bbox == object_node:
-                        target_subject, target_relation, target_object = extract_words_from_edge(target[-1], all_labels)
-
+                    if args['training']['eval_mode'] == 'pc':
+                        condition = target_subject_bbox == subject_node and target_object_bbox == object_node
+                    else:
+                        condition = iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5
+                    if condition:
                         if target_subject == current_subject and target_object == current_object:
                             phrase = [f"{target_subject} {target_relation} {target_object}"]
                             inputs = tokenizer(phrase, padding=True, return_tensors="pt").to(rank)
@@ -857,7 +865,7 @@ def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relat
     Recall = sgg_results['Recall']
 
     for batch_idx, (curr_strings, curr_image, curr_target_triplet) in enumerate(zip(top_k_predictions, top_k_image_graphs, target_triplets)):
-        graph = ImageGraph()
+        graph = ImageGraph(args)
         print('batch_idx', batch_idx, '/', len(top_k_predictions))
 
         for string, triplet in zip(curr_strings, curr_image):
@@ -894,7 +902,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
     if not multiple_eval_iter:
         graphs = []
         for batch_idx, (curr_strings, curr_image) in enumerate(zip(top_k_predictions, top_k_image_graphs)):
-            graph = ImageGraph(targets=target_triplets[batch_idx])
+            graph = ImageGraph(args, targets=target_triplets[batch_idx])
 
             for string, triplet in zip(curr_strings, curr_image):
                 subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]

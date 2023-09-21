@@ -897,6 +897,11 @@ class Evaluator_SGD:
         self.subject_bbox_target = None
         self.object_bbox_target = None
 
+        self.height = None
+        self.width = None
+        self.skipped = None
+
+
     def iou(self, bbox_target, bbox_pred):
         mask_pred = torch.zeros(self.args['models']['feature_size'], self.args['models']['feature_size'])
         mask_pred[int(bbox_pred[2]):int(bbox_pred[3]), int(bbox_pred[0]):int(bbox_pred[1])] = 1
@@ -908,6 +913,7 @@ class Evaluator_SGD:
             return 0
         else:
             return float(intersect) / float(union)
+
 
     def accumulate_pred(self, which_in_batch, relation_pred, super_relation_pred, subject_cat_pred, object_cat_pred, subject_bbox_pred, object_bbox_pred,
                         cat_subject_confidence, cat_object_confidence, connectivity):
@@ -929,6 +935,9 @@ class Evaluator_SGD:
             self.subject_bbox_pred = subject_bbox_pred.repeat(3, 1)
             self.object_bbox_pred = object_bbox_pred.repeat(3, 1)
 
+            self.height = height.repeat(3)
+            self.width = width.repeat(3)
+
         else:
             self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(3)))
 
@@ -949,6 +958,10 @@ class Evaluator_SGD:
             self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred.repeat(3, 1)))
             self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat(3, 1)))
 
+            self.height = torch.hstack((self.height, height.repeat(3)))
+            self.width = torch.hstack((self.width, width.repeat(3)))
+
+
     def accumulate_target(self, relation_target, subject_cat_target, object_cat_target, subject_bbox_target, object_bbox_target):
         for i in range(len(relation_target)):
             if relation_target[i] is not None:
@@ -963,6 +976,113 @@ class Evaluator_SGD:
         self.object_cat_target = object_cat_target
         self.subject_bbox_target = subject_bbox_target
         self.object_bbox_target = object_bbox_target
+
+
+    def get_top_k_predictions(self, top_k):
+        """
+        Returns the top k most confident predictions for each image in the format: (subject_id, relation_id, object_id).
+        """
+        top_k_predictions = []
+        top_k_image_graphs = []
+        skipped = []
+        dict_relation_names = relation_by_super_class_int2str()
+        dict_object_names = object_class_int2str()
+
+        # print('torch.unique(self.which_in_batch)', len(torch.unique(self.which_in_batch)), torch.unique(self.which_in_batch))
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            # select the top k predictions
+            this_k = min(top_k, len(self.relation_pred[curr_image]))
+            keep_inds = sorted_inds[:this_k]
+
+            curr_predictions = []
+            curr_image_graph = []
+            curr_skipped = []
+
+            for ind in keep_inds:
+                subject_id = self.subject_cat_pred[curr_image][ind].item()
+                relation_id = self.relation_pred[curr_image][ind].item()
+                object_id = self.object_cat_pred[curr_image][ind].item()
+
+                subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
+                object_bbox = self.object_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
+                height, width = self.height[curr_image][ind], self.width[curr_image][ind]
+                subject_bbox[:2] *= height
+                subject_bbox[2:] *= width
+                object_bbox[:2] *= height
+                object_bbox[2:] *= width
+                subject_bbox = subject_bbox.ceil().int()
+                object_bbox = object_bbox.ceil().int()
+
+                edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
+                if edge in curr_image_graph:    # remove redundant edges
+                    curr_skipped.append(ind.item())
+                    continue
+
+                curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
+                curr_image_graph.append(edge)
+
+            top_k_predictions.append(curr_predictions)
+            top_k_image_graphs.append(curr_image_graph)
+            skipped.append(curr_skipped)
+
+        if sum([len(sk) for sk in skipped]) == 0:
+            self.skipped = None
+        else:
+            self.skipped = skipped
+        return top_k_predictions, top_k_image_graphs
+
+
+    def global_refine(self, refined_relation_pred, refined_confidence, batch_idx, top_k, rank):
+        """
+        For the batch_idx image in the batch, update the relation_pred and confidence of its top_k predictions.
+        Because we calculate the confidence scores in a different way in global graphical refine, we only use new confidence scores
+        to reorder the new top_k predictions, without actually
+        """
+        # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
+        # find the top k predictions to be updated
+        image = torch.unique(self.which_in_batch)[batch_idx]
+        curr_image = self.which_in_batch == image
+        curr_confidence = self.confidence[curr_image]
+        sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+        # select the top k predictions
+        this_k = min(top_k, len(self.relation_pred[curr_image]))
+        keep_inds = sorted_inds[:this_k]
+        if self.skipped is not None:
+            curr_skipped = self.skipped[image]
+            if len(curr_skipped) > 0:  # remove redundant edges
+                mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
+                keep_inds = keep_inds[mask]
+
+        # assign new relation predictions
+        # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
+        tmp = self.relation_pred[curr_image].clone()
+        for i, idx in enumerate(keep_inds):
+            tmp[idx] = refined_relation_pred[i]
+        self.relation_pred[curr_image] = tmp
+        # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
+
+        # # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
+        # reorder_topk_inds = torch.argsort(refined_confidence, descending=True)
+        #
+        # self.relation_pred[curr_image][keep_inds] = self.relation_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.relation_target[curr_image][keep_inds] = self.relation_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.confidence[curr_image][keep_inds] = self.confidence[curr_image][keep_inds][reorder_topk_inds]
+        # self.connectivity[curr_image][keep_inds] = self.connectivity[curr_image][keep_inds][reorder_topk_inds]
+        #
+        # self.subject_cat_pred[curr_image][keep_inds] = self.subject_cat_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_cat_pred[curr_image][keep_inds] = self.object_cat_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.subject_cat_target[curr_image][keep_inds] = self.subject_cat_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_cat_target[curr_image][keep_inds] = self.object_cat_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.subject_bbox_pred[curr_image][keep_inds] = self.subject_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_bbox_pred[curr_image][keep_inds] = self.object_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
+        # self.subject_bbox_target[curr_image][keep_inds] = self.subject_bbox_target[curr_image][keep_inds][reorder_topk_inds]
+        # self.object_bbox_target[curr_image][keep_inds] = self.object_bbox_target[curr_image][keep_inds][reorder_topk_inds]
+
 
     def compare_object_cat(self, pred_cat, target_cat):
         if pred_cat == target_cat:
