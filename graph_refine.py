@@ -885,8 +885,7 @@ def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relat
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
 
-def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                              optimizer, scheduler, criterion,
+def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, scheduler, criterion,
                               rank, batch_count, args, sgg_results, top_k, data_len, training=True, multiple_eval_iter=False, prev_graphs=None, verbose=False):
 # def process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
 #                               rank, args, sgg_results, top_k, data_len, verbose=False):

@@ -990,7 +990,7 @@ class Evaluator_SGD:
         """
         top_k_predictions = []
         top_k_image_graphs = []
-        skipped = []
+        skipped = [[] for _ in range(max(torch.unique(self.which_in_batch))+1)]   # some image might be missing in the batch, filtered out by iou_mask
         dict_relation_names = relation_by_super_class_int2str()
         dict_object_names = object_class_int2str()
 
@@ -1005,7 +1005,6 @@ class Evaluator_SGD:
 
             curr_predictions = []
             curr_image_graph = []
-            curr_skipped = []
 
             for ind in keep_inds:
                 subject_id = self.subject_cat_pred[curr_image][ind].item()
@@ -1024,7 +1023,7 @@ class Evaluator_SGD:
 
                 edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
                 if edge in curr_image_graph:    # remove redundant edges
-                    curr_skipped.append(ind.item())
+                    skipped[image].append(ind.item())
                     continue
 
                 curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
@@ -1032,7 +1031,6 @@ class Evaluator_SGD:
 
             top_k_predictions.append(curr_predictions)
             top_k_image_graphs.append(curr_image_graph)
-            skipped.append(curr_skipped)
 
         if sum([len(sk) for sk in skipped]) == 0:
             self.skipped = None
@@ -1064,7 +1062,6 @@ class Evaluator_SGD:
                 keep_inds = keep_inds[mask]
 
         # assign new relation predictions
-        # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
         tmp = self.relation_pred[curr_image].clone()
         for i, idx in enumerate(keep_inds):
             tmp[idx] = refined_relation_pred[i]
