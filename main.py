@@ -105,6 +105,8 @@ if __name__ == "__main__":
     elif args['training']['run_mode'] == 'caption':
         image_captioning(device, world_size, args, test_dataset)
     elif args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
+        if args['training']['eval_mode'] != 'pc' and args['training']['run_mode'] != 'clip_eval':
+            print('Invalid arguments. You must set run_mode as clip_eval')
         mp.spawn(query_clip, nprocs=world_size, args=(args, train_subset, test_subset))
     else:
         print('Invalid arguments.')

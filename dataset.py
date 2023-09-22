@@ -74,24 +74,28 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-        images = cv2.imread(image_path)
-        width, height = images.shape[0], images.shape[1]
+        image = cv2.imread(image_path)
+        width, height = image.shape[0], image.shape[1]
 
-        images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
-        images = 255 * self.image_transform_contrastive(images)
-        images, images_aug = images[0], images[1]
-        images = self.image_norm(images)  # squared size that unifies the size of feature maps
-        images_aug = self.image_norm(images_aug)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = 255 * self.image_transform_contrastive(image)
+        image, image_aug = image[0], image[1]
+        image = self.image_norm(image)  # squared size that unifies the size of feature maps
+        image_aug = self.image_norm(image_aug)
 
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
-            del images_aug
-            image2 = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
-            image2 = 255 * self.image_transform(image2)[[2, 1, 0]]  # BGR
-            image2 = self.image_norm(image2)
-        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
-            del images_aug
-            image2 = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
-            image2 = self.image_transform_to_tensor(image2)
+            del image_aug
+            image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
+            image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
+            image_nonsq = self.image_norm(image_nonsq)
+        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
+            del image_aug
+            if self.args['training']['eval_mode'] != 'pc':
+                image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
+                image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
+                image_nonsq = self.image_norm(image_nonsq)
+            image_raw = Image.open(image_path).convert('RGB')
+            image_raw = self.image_transform_to_tensor(image_raw)
 
         if self.args['models']['use_depth']:
             image_depth = curr_annot['image_depth']
@@ -120,7 +124,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             relationships_reordered.append(rel_reorder_dict[rel])
         relationships = relationships_reordered
 
-        if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
+        if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             # reformulate relation annots for a single image in a more efficient way
             triplets = []
             for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
@@ -139,12 +143,22 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                         triplets.append((tuple(bbox_obj.tolist()), rel.item(), tuple(bbox_sub.tolist()),
                                          self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
 
+        """
+        image: the image transformed to a squared shape of size self.args['models']['image_size'] (to generate a uniform-sized image features)
+        image_nonsq: the image transformed to a shape of size=600, max_size=1000 (used in SGCLS and SGDET to predict bounding boxes and labels in DETR-101)
+        image_aug: the image transformed to a squared shape of size self.args['models']['image_size'] with color jittering (used in contrastive learning only)
+        image_raw: the image transformed to tensor retaining its original shape (used in CLIP only)
+        """
+
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
-            return images, image2, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
-        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
-            return images, image2, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
+            return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
+            if self.args['training']['eval_mode'] == 'pc':
+                return image, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
+            else:
+                return image, image_nonsq, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
         else:
-            return images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+            return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
 
 
     def load_one_image(self, file_name=None, idx=None, return_annot=False):

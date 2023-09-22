@@ -17,7 +17,7 @@ import datetime
 import yaml
 import re
 
-from evaluate import inference, eval_pc
+from evaluate import *
 from utils import *
 from dataset_utils import relation_by_super_class_int2str
 from model import SimpleSelfAttention, RelationshipRefiner, MultimodalTransformerEncoder
@@ -79,7 +79,7 @@ class ImageGraph:
 
         # in training, store ground truth neighbors if a target is matched
         if training:
-            matched_target_edge = find_matched_target(edge, self.targets)
+            matched_target_edge = find_matched_target(self.args, edge, self.targets)
             # if matched_target_edge is not None:
             self.adj_list[subject_bbox].append(matched_target_edge)
             self.adj_list[object_bbox].append(matched_target_edge)
@@ -975,7 +975,14 @@ def query_clip(gpu, args, train_dataset, test_dataset):
 
     if not args['training']['run_mode'] == 'clip_eval':
         # receive current SGG predictions from a baseline model
-        sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+        if args['training']['eval_mode'] == 'pc':
+            sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+        elif args['training']['eval_mode'] == 'sgc':
+            sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+        elif args['training']['eval_mode'] == 'sgd':
+            sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+        else:
+            raise NotImplementedError
 
         # iterate through the generator to receive results
         for batch_count, batch_sgg_results in enumerate(sgg_results):
@@ -1014,7 +1021,14 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # updated_graphs = torch.load(args['training']['checkpoint_path'] + 'updated_graphs_0.pt', map_location=map_location)
 
     with torch.no_grad():
-        test_sgg_results = eval_pc(rank, args, test_loader, topk_global_refine=args['training']['topk_global_refine'])
+        if args['training']['eval_mode'] == 'pc':
+            test_sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+        elif args['training']['eval_mode'] == 'sgc':
+            test_sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+        elif args['training']['eval_mode'] == 'sgd':
+            test_sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+        else:
+            raise NotImplementedError
 
         # iterate through the generator to receive results
         for batch_count, batch_sgg_results in enumerate(test_sgg_results):

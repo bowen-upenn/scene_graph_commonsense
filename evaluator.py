@@ -121,8 +121,9 @@ class Evaluator_PC:
                 self.subject_bbox_target = subject_bbox_target
                 self.object_bbox_target = object_bbox_target
 
-                self.height = height
-                self.width = width
+                if height is not None:
+                    self.height = height
+                    self.width = width
             else:
                 self.which_in_batch = which_in_batch.repeat(3)
                 self.confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
@@ -149,8 +150,9 @@ class Evaluator_PC:
                 self.subject_bbox_target = subject_bbox_target.repeat(3, 1)
                 self.object_bbox_target = object_bbox_target.repeat(3, 1)
 
-                self.height = height.repeat(3)
-                self.width = width.repeat(3)
+                if height is not None:
+                    self.height = height.repeat(3)
+                    self.width = width.repeat(3)
         else:
             if not self.hierar:     # flat relationship prediction
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
@@ -173,8 +175,9 @@ class Evaluator_PC:
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                self.height = torch.hstack((self.height, height))
-                self.width = torch.hstack((self.width, width))
+                if height is not None:
+                    self.height = torch.hstack((self.height, height))
+                    self.width = torch.hstack((self.width, width))
             else:
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(3)))
                 confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
@@ -205,8 +208,9 @@ class Evaluator_PC:
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat(3, 1)))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(3, 1)))
 
-                self.height = torch.hstack((self.height, height.repeat(3)))
-                self.width = torch.hstack((self.width, width.repeat(3)))
+                if height is not None:
+                    self.height = torch.hstack((self.height, height.repeat(3)))
+                    self.width = torch.hstack((self.width, width.repeat(3)))
 
 
     def get_top_k_predictions(self, top_k):
@@ -916,7 +920,7 @@ class Evaluator_SGD:
 
 
     def accumulate_pred(self, which_in_batch, relation_pred, super_relation_pred, subject_cat_pred, object_cat_pred, subject_bbox_pred, object_bbox_pred,
-                        cat_subject_confidence, cat_object_confidence, connectivity):
+                        cat_subject_confidence, cat_object_confidence, connectivity, height, width):
         if self.relation_pred is None:
             self.which_in_batch = which_in_batch.repeat(3)
 
@@ -935,8 +939,9 @@ class Evaluator_SGD:
             self.subject_bbox_pred = subject_bbox_pred.repeat(3, 1)
             self.object_bbox_pred = object_bbox_pred.repeat(3, 1)
 
-            self.height = height.repeat(3)
-            self.width = width.repeat(3)
+            if height is not None:
+                self.height = height.repeat(3)
+                self.width = width.repeat(3)
 
         else:
             self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(3)))
@@ -958,8 +963,9 @@ class Evaluator_SGD:
             self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred.repeat(3, 1)))
             self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat(3, 1)))
 
-            self.height = torch.hstack((self.height, height.repeat(3)))
-            self.width = torch.hstack((self.width, width.repeat(3)))
+            if height is not None:
+                self.height = torch.hstack((self.height, height.repeat(3)))
+                self.width = torch.hstack((self.width, width.repeat(3)))
 
 
     def accumulate_target(self, relation_target, subject_cat_target, object_cat_target, subject_bbox_target, object_bbox_target):
@@ -988,7 +994,6 @@ class Evaluator_SGD:
         dict_relation_names = relation_by_super_class_int2str()
         dict_object_names = object_class_int2str()
 
-        # print('torch.unique(self.which_in_batch)', len(torch.unique(self.which_in_batch)), torch.unique(self.which_in_batch))
         for image in torch.unique(self.which_in_batch):  # image-wise
             curr_image = self.which_in_batch == image
             curr_confidence = self.confidence[curr_image]
@@ -1009,7 +1014,7 @@ class Evaluator_SGD:
 
                 subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
                 object_bbox = self.object_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
-                height, width = self.height[curr_image][ind], self.width[curr_image][ind]
+                height, width = self.height[curr_image][ind].cpu(), self.width[curr_image][ind].cpu()
                 subject_bbox[:2] *= height
                 subject_bbox[2:] *= width
                 object_bbox[:2] *= height
@@ -1033,7 +1038,7 @@ class Evaluator_SGD:
             self.skipped = None
         else:
             self.skipped = skipped
-        return top_k_predictions, top_k_image_graphs
+        return top_k_predictions, top_k_image_graphs, torch.unique(self.which_in_batch)
 
 
     def global_refine(self, refined_relation_pred, refined_confidence, batch_idx, top_k, rank):
