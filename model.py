@@ -344,14 +344,10 @@ class RelationshipRefiner(nn.Module):
 
         hidden_txt = torch.cat((sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
         hidden_txt = F.relu(self.fc_txt(hidden_txt))
-        hidden_txt = self.dropout(hidden_txt)
+        hidden_txt = self.dropout(hidden_txt) + current_txt_embed  # skip connection
 
         hidden = torch.cat((hidden_img, hidden_txt), dim=-1)
         hidden = self.fc_out(hidden)# + current_txt_embed  # skip connection
-        # hidden = self.fc2(hidden)
-
-        # init_pred = F.one_hot(init_pred_rel, num_classes=self.num_classes)
-        # hidden = self.fc2(hidden) + init_pred
 
         return hidden
 

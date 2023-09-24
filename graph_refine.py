@@ -335,7 +335,7 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     neighbor_text_embeds = pad_sequence(neighbor_text_embeds, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
 
     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
-    current_text_embeds = neighbor_text_embeds[0, :, :]  # [batch_size, hidden_dim]
+    # current_text_embeds = neighbor_text_embeds[0, :, :]  # [batch_size, hidden_dim]
     neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach(), key_padding_mask=key_padding_mask)
 
     # fuse all neighbor_text_embeds after the attention layer
@@ -350,24 +350,29 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     # extract current subject and object to condition the relation prediction
     queries_sub = []
     queries_obj = []
+    curr_rel = []
     for edge in current_edges:
         subject, relation, object = extract_words_from_edge(edge[-1], all_labels)
         queries_sub.append(f"{subject}")
         queries_obj.append(f"{object}")
+        curr_rel.append(f"{relation}")
     inputs_sub = tokenizer(queries_sub, padding=True, return_tensors="pt").to(rank)
     inputs_obj = tokenizer(queries_obj, padding=True, return_tensors="pt").to(rank)
+    inputs_rel = tokenizer(curr_rel, padding=True, return_tensors="pt").to(rank)
 
     with torch.no_grad():
         sub_txt_embed = clip_model.module.get_text_features(**inputs_sub)
         obj_txt_embed = clip_model.module.get_text_features(**inputs_obj)
+        curr_rel_txt_embed = clip_model.module.get_text_features(**inputs_rel)
 
     if verbose:
         print('sub_txt_embed', sub_txt_embed.shape)
         print('obj_txt_embed', obj_txt_embed.shape)
+        print('curr_rel_txt_embed', curr_rel_txt_embed.shape)
     # ---------------------------------------------------------------------------- #
 
     # forward to the learnable layers
-    predicted_txt_embed = relationship_refiner(image_embeds_glob.detach(), image_embeds_sub.detach(), image_embeds_obj.detach(), current_text_embeds.detach(),
+    predicted_txt_embed = relationship_refiner(image_embeds_glob.detach(), image_embeds_sub.detach(), image_embeds_obj.detach(), curr_rel_txt_embed.detach(),
                                                sub_txt_embed.detach(), obj_txt_embed.detach(), neighbor_text_embeds)
     if verbose:
         print('predicted_txt_embed', predicted_txt_embed.shape)
@@ -470,20 +475,20 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edg
         if args['models']['hierarchical_pred']:
             relation_id = current_edge[1]
             if relation_id < num_geom:
-                subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_geometric)
-                queries.extend([f"{subject} {label} {object}" for label in all_labels_geometric])
+                # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_geometric)
+                queries.extend([f"{label}" for label in all_labels_geometric])
                 num_candidate_labels.append(num_geom)
             elif num_geom <= relation_id < num_geom + num_poss:
-                subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_possessive)
-                queries.extend([f"{subject} {label} {object}" for label in all_labels_possessive])
+                # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_possessive)
+                queries.extend([f"{label}" for label in all_labels_possessive])
                 num_candidate_labels.append(num_poss)
             else:
-                subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_semantic)
-                queries.extend([f"{subject} {label} {object}" for label in all_labels_semantic])
+                # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_semantic)
+                queries.extend([f"{label}" for label in all_labels_semantic])
                 num_candidate_labels.append(num_sem)
         else:
-            subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
-            queries.extend([f"{subject} {label} {object}" for label in all_labels])
+            # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
+            queries.extend([f"{label}" for label in all_labels])
 
     predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=1)
 
@@ -743,10 +748,9 @@ def find_negative_targets(current_subject, current_object, target_label, target_
 
 
 def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                   optimizer, scheduler, criterion,
+                   optimizer, scheduler, criterion, running_loss, running_loss_counter,
                    images, graphs, target_triplets, data_len, batch_count, rank, args, training=True, verbose=False):
 
-    running_loss = 0.0
     all_current_edges = []
     all_neighbor_edges = []
     all_target_txt_embeds = []
@@ -777,7 +781,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                     if condition:
                         target_subject, target_relation, target_object = extract_words_from_edge(target[-1], all_labels)
                         if target_subject == current_subject and target_object == current_object:
-                            phrase = [f"{target_subject} {target_relation} {target_object}"]
+                            phrase = [f"{target_relation}"]
                             inputs = tokenizer(phrase, padding=True, return_tensors="pt").to(rank)
                             with torch.no_grad():
                                 target_txt_embed = clip_model.module.get_text_features(**inputs)
@@ -840,13 +844,13 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
         loss = criterion(input1_positive, input2_positive, labels_positive)
         running_loss += loss.item()
+        running_loss_counter += 1
         loss.backward()
 
         optimizer.step()
         scheduler.step()
 
     updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, all_current_edges, rank, args, verbose=verbose)
-    counter = 0
 
     # saved_name = 'results/visualization_results/init_predicates_' + str(batch_count) + '.pt'
     # print('saved_name', saved_name)
@@ -854,6 +858,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
     # old_graph = graphs[0].edges.copy()
     # print('old graphs[0].edges', graphs[0].edges[:5])
 
+    counter = 0
     for idx, graph in enumerate(graphs):
         graph.edges = updated_edges[counter:counter + edges_per_image[idx]]
         graph.confidence = confidences[counter:counter + edges_per_image[idx]]
@@ -867,7 +872,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
     #     print('new graphs[0].edges', graphs[0].edges[:5])
 
     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
-        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss}, lr {optimizer.param_groups[0]["lr"]}')
+        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss / (running_loss_counter + 1e-5)}, lr {optimizer.param_groups[0]["lr"]}')
 
     return graphs, attention_layer, relationship_refiner
 
@@ -929,8 +934,10 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
     else:
         graphs = prev_graphs
 
+    running_loss = 0.0
+    running_loss_counter = 0
     updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                                           optimizer, scheduler, criterion, # optimizer, scheduler,
+                                                                           optimizer, scheduler, criterion, running_loss, running_loss_counter, # optimizer, scheduler,
                                                                            images, graphs, target_triplets, data_len, batch_count, rank, args, training=training, verbose=verbose)
     # updated_graphs, multimodal_transformer_encoder = batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
     #                                                                        images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
