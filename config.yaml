@@ -1,9 +1,9 @@
 dataset:
     image_dir: '/tmp/datasets/vg/images'
-    annot_dir: '/tmp/datasets/vg_scene_graph_annot'
+    annot_dir: '/tmp/datasets/vg_scene_graph_annot_old'
     raw_annot_dir: '/tmp/datasets/vg/annotations/'
-    annotation_train: '/tmp/datasets/vg/annotations/instances_vg_train.json'
-    annotation_test: '/tmp/datasets/vg/annotations/instances_vg_test.json'
+    annotation_train: '/tmp/datasets/vg/annotations_old/instances_vg_train.json'
+    annotation_test: '/tmp/datasets/vg/annotations_old/instances_vg_test.json'
     object_alias: 'datasets/vg_scene_graph_annot/object_alias.txt'
     predicate_alias: 'datasets/vg_scene_graph_annot/predicate_alias.txt'
     object_types: 'datasets/vg_scene_graph_annot/object_types.txt'
@@ -46,9 +46,9 @@ training:
     run_mode: 'clip_train'      # train, eval, caption, clip_zs, clip_train
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.00001
-    refine_learning_rate: 0.001
+    refine_learning_rate: 0.0001
     weight_decay: 0.0001
-    batch_size: 16
+    batch_size: 12
     num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'

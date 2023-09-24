@@ -327,6 +327,51 @@ class MultimodalTransformerEncoder(nn.Module):
         return output
 
 
+class GATLayer(nn.Module):
+    def __init__(self, hidden_dim, num_heads=1, alpha=0.2, concat=False):
+        super(GATLayer, self).__init__()
+        self.num_heads = num_heads
+        self.concat = concat
+        self.W = nn.ParameterList([nn.Parameter(torch.Tensor(hidden_dim, hidden_dim)) for _ in range(num_heads)])
+        self.a = nn.ParameterList([nn.Parameter(torch.Tensor(1, 2 * hidden_dim)) for _ in range(num_heads)])
+        self.leakyrelu = nn.LeakyReLU(alpha)
+
+        for i in range(num_heads):
+            nn.init.xavier_uniform_(self.W[i].data)
+            nn.init.xavier_uniform_(self.a[i].data)
+
+    def forward(self, x, key_padding_mask=None):
+        # x shape: (batch_size, seq_len, hidden_dim)
+        batch_size, seq_len, hidden_dim = x.size()
+        # if key_padding_mask is not None:
+        #     # print('key_padding_mask', key_padding_mask.shape)
+        #     key_padding_mask = key_padding_mask.transpose(0, 1)  # swap seq_len and batch_size dimensions
+        #     key_padding_mask = key_padding_mask.unsqueeze(-1).repeat(1, 1, seq_len).view(batch_size, -1)
+
+        outputs = []
+        for i in range(self.num_heads):
+            h = torch.matmul(x, self.W[i].t())  # (batch_size, seq_len, hidden_dim)
+            # print('h', h.shape, 'x', x.shape, 'W', self.W[i].t().shape)
+            a_input = torch.cat([h.repeat(1, 1, seq_len).view(batch_size, seq_len * seq_len, -1),
+                                 h.repeat(1, seq_len, 1)], dim=2)  # (batch_size, seq_len * seq_len, 2 * hidden_dim)
+            e = self.leakyrelu(torch.matmul(a_input, self.a[i].t()).squeeze(2))  # (batch_size, seq_len * seq_len)
+            # print('e', e.shape, 'key_padding_mask', key_padding_mask.shape)
+
+            # if key_padding_mask is not None:
+            #     e = e.masked_fill(key_padding_mask, float('-inf'))  # mask out the padded elements
+            #     # print('e', e.shape, 'key_padding_mask', key_padding_mask.shape)
+
+            attention = F.softmax(e.view(-1, seq_len), dim=1).view(batch_size, seq_len, seq_len)
+            # print('attention', attention.shape, 'h', h.shape)
+            output = torch.matmul(attention, h)  # (batch_size, seq_len, hidden_dim)
+            # print('output', output.shape)
+            outputs.append(output)
+        if self.concat:
+            return torch.cat(outputs, dim=2)  # (batch_size, seq_len, num_heads * hidden_dim)
+        else:
+            return sum(outputs) / self.num_heads  # (batch_size, seq_len, hidden_dim)
+
+
 class RelationshipRefiner(nn.Module):
     def __init__(self, hidden_dim):
         super(RelationshipRefiner, self).__init__()
@@ -334,8 +379,13 @@ class RelationshipRefiner(nn.Module):
         # additional layers to predict relationship
         self.fc_img = nn.Linear(hidden_dim * 3, hidden_dim)
         self.fc_txt = nn.Linear(hidden_dim * 3, hidden_dim)
-        self.fc_out = nn.Linear(2 * hidden_dim, hidden_dim)
+        # self.fc_out = nn.Linear(2 * hidden_dim, hidden_dim)
         self.dropout = nn.Dropout(p=0.3)
+
+        # learnable parameters to balance contributions
+        self.alpha = nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        self.beta = nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        self.gamma = nn.Parameter(torch.tensor(1.0), requires_grad=True)
 
     def forward(self, glob_imge_embed, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
         hidden_img = torch.cat((glob_imge_embed, sub_img_embed, obj_img_embed), dim=-1)
@@ -344,10 +394,15 @@ class RelationshipRefiner(nn.Module):
 
         hidden_txt = torch.cat((sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
         hidden_txt = F.relu(self.fc_txt(hidden_txt))
-        hidden_txt = self.dropout(hidden_txt) + current_txt_embed  # skip connection
+        hidden_txt = self.dropout(hidden_txt) #+ current_txt_embed  # skip connection
 
-        hidden = torch.cat((hidden_img, hidden_txt), dim=-1)
-        hidden = self.fc_out(hidden)# + current_txt_embed  # skip connection
+        # Balance contributions with learnable parameters
+        hidden = self.alpha * hidden_img + self.beta * hidden_txt + self.gamma * current_txt_embed
+        # hidden = hidden_img + hidden_txt + current_txt_embed
+
+        # hidden = hidden_img + hidden_txt + self.dropout(current_txt_embed)
+        # hidden = torch.cat((hidden_img, hidden_txt), dim=-1)
+        # hidden = self.fc_out(hidden)# + current_txt_embed  # skip connection
 
         return hidden
 

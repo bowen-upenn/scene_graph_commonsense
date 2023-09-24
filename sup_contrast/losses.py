@@ -1,11 +1,85 @@
-"""
-Author: Yonglong Tian (yonglong@mit.edu)
-Date: May 07, 2020
-"""
 from __future__ import print_function
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
+class SupConLossGraph(nn.Module):
+    def __init__(self, clip_model, tokenizer, all_labels_geometric, all_labels_possessive, all_labels_semantic, rank,
+                 num_geom=15, num_poss=11, num_sem=24, base_temperature=0.07):
+        super(SupConLossGraph, self).__init__()
+
+        self.clip_model = clip_model
+        self.tokenizer = tokenizer
+        self.base_temperature = base_temperature
+
+        self.num_geom = num_geom
+        self.num_poss = num_poss
+        self.num_sem = num_sem
+
+        # Initialize all possible embeddings under each supercategory
+        self.all_embeddings_geometric, self.all_embeddings_possessive, self.all_embeddings_semantic = self._initialize_embeddings(
+            all_labels_geometric, all_labels_possessive, all_labels_semantic, rank)
+
+    def _initialize_embeddings(self, all_labels_geometric, all_labels_possessive, all_labels_semantic, rank):
+        # Geometric embeddings
+        queries_geom = [f"{label}" for label in all_labels_geometric]
+        inputs_geom = self.tokenizer(queries_geom, padding=True, return_tensors="pt").to(rank)
+        with torch.no_grad():
+            embeddings_geometric = self.clip_model.module.get_text_features(**inputs_geom)
+        embeddings_geometric = F.normalize(embeddings_geometric, p=2, dim=1)
+
+        # Possessive embeddings
+        queries_poss = [f"{label}" for label in all_labels_possessive]
+        inputs_poss = self.tokenizer(queries_poss, padding=True, return_tensors="pt").to(rank)
+        with torch.no_grad():
+            embeddings_possessive = self.clip_model.module.get_text_features(**inputs_poss)
+        embeddings_possessive = F.normalize(embeddings_possessive, p=2, dim=1)
+
+        # Semantic embeddings
+        queries_sem = [f"{label}" for label in all_labels_semantic]
+        inputs_sem = self.tokenizer(queries_sem, padding=True, return_tensors="pt").to(rank)
+        with torch.no_grad():
+            embeddings_semantic = self.clip_model.module.get_text_features(**inputs_sem)
+        embeddings_semantic = F.normalize(embeddings_semantic, p=2, dim=1)
+
+        return embeddings_geometric, embeddings_possessive, embeddings_semantic
+
+    def forward(self, predicted_txt_embeds, curr_relation_ids, rank, temperature=0.07):
+        batch_size = len(predicted_txt_embeds)
+        mean_log_contrasts = 0.0
+
+        for bid in range(batch_size):
+            curr_features = predicted_txt_embeds[bid].to(rank)
+            curr_features = F.normalize(curr_features, p=2, dim=0)  # without normalization, the exponential will be numerically too large
+            relation_id = curr_relation_ids[bid]
+
+            # Retrieve the initialized embeddings based on the relation_id
+            if relation_id < self.num_geom:
+                positive_anchors = self.all_embeddings_geometric[relation_id].to(rank)
+                negative_anchors = self.all_embeddings_geometric[~torch.isin(torch.arange(self.num_geom), relation_id)].to(rank)
+            elif self.num_geom <= relation_id < self.num_geom + self.num_poss:
+                positive_anchors = self.all_embeddings_possessive[relation_id - self.num_geom].to(rank)
+                negative_anchors = self.all_embeddings_possessive[~torch.isin(torch.arange(self.num_poss), relation_id - self.num_geom)].to(rank)
+            else:
+                positive_anchors = self.all_embeddings_semantic[relation_id - self.num_geom - self.num_poss].to(rank)
+                negative_anchors = self.all_embeddings_semantic[~torch.isin(torch.arange(self.num_sem), relation_id - self.num_geom - self.num_poss)].to(rank)
+
+            num_negative = negative_anchors.shape[0]
+
+            contrast_numerator = torch.sum(curr_features * positive_anchors)
+            contrast_numerator = torch.exp(contrast_numerator / temperature)
+
+            contrast_denominator = curr_features @ negative_anchors.T
+            contrast_denominator = torch.sum(torch.exp(contrast_denominator / temperature), dim=0)
+
+            log_contrasts = torch.sum(torch.log(contrast_numerator + 1e-7) - torch.log(contrast_denominator + 1e-7))
+            log_contrasts *= -1 * num_negative
+            mean_log_contrasts += log_contrasts
+
+        loss = (temperature / self.base_temperature) * mean_log_contrasts
+        return loss
 
 
 class SupConLossHierar(nn.Module):

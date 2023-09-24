@@ -20,7 +20,8 @@ import re
 from evaluate import *
 from utils import *
 from dataset_utils import relation_by_super_class_int2str
-from model import SimpleSelfAttention, RelationshipRefiner, MultimodalTransformerEncoder
+from model import *
+from sup_contrast.losses import SupConLossGraph
 
 
 # define some global lists
@@ -325,6 +326,7 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     with torch.no_grad():
         neighbor_text_embeds = clip_model.module.get_text_features(**inputs)
     neighbor_text_embeds = torch.split(neighbor_text_embeds, num_neighbor_edges)
+    # print('neighbor_text_embeds', len(neighbor_text_embeds), [embed.shape for embed in neighbor_text_embeds])
 
     # pad the sequences to make them the same length (max_seq_len)
     seq_len = [len(embed) for embed in neighbor_text_embeds]
@@ -332,16 +334,19 @@ def prepare_training(clip_model, attention_layer, relationship_refiner, tokenize
     for i, length in enumerate(seq_len):
         key_padding_mask[i, length:] = 1  # a True value indicates that the corresponding key value will be ignored
 
-    neighbor_text_embeds = pad_sequence(neighbor_text_embeds, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
+    neighbor_text_embeds = pad_sequence(neighbor_text_embeds, batch_first=True, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
 
     # feed neighbor_text_embeds to a self-attention layer to get learnable weights
     # current_text_embeds = neighbor_text_embeds[0, :, :]  # [batch_size, hidden_dim]
+    # print('neighbor_text_embeds padded', neighbor_text_embeds.shape)
     neighbor_text_embeds = attention_layer(neighbor_text_embeds.to(rank).detach(), key_padding_mask=key_padding_mask)
 
     # fuse all neighbor_text_embeds after the attention layer
-    neighbor_text_embeds = neighbor_text_embeds.permute(1, 0, 2)  # size [batch_size, seq_len, hidden_dim]
+    # neighbor_text_embeds = neighbor_text_embeds.permute(1, 0, 2)  # size [batch_size, seq_len, hidden_dim]
     neighbor_text_embeds = neighbor_text_embeds * key_padding_mask.unsqueeze(-1)
+    # print('neighbor_text_embeds 2', neighbor_text_embeds.shape)
     neighbor_text_embeds = neighbor_text_embeds.sum(dim=1)
+    # print('neighbor_text_embeds 3', neighbor_text_embeds.shape)
 
     if verbose:
         print('neighbor_text_embeds', neighbor_text_embeds.shape)
@@ -748,7 +753,7 @@ def find_negative_targets(current_subject, current_object, target_label, target_
 
 
 def batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                   optimizer, scheduler, criterion, running_loss, running_loss_counter,
+                   optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
                    images, graphs, target_triplets, data_len, batch_count, rank, args, training=True, verbose=False):
 
     all_current_edges = []
@@ -842,8 +847,12 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
         optimizer.zero_grad()
 
-        loss = criterion(input1_positive, input2_positive, labels_positive)
-        running_loss += loss.item()
+        cos_loss = criterion(input1_positive, input2_positive, labels_positive)
+        con_loss = contrast_loss(input1_positive, [all_current_edges[i][1] for i in target_mask], rank)
+        loss = cos_loss + con_loss
+
+        running_loss_cos += cos_loss.item()
+        running_loss_con += con_loss.item()
         running_loss_counter += 1
         loss.backward()
 
@@ -872,9 +881,10 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
     #     print('new graphs[0].edges', graphs[0].edges[:5])
 
     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
-        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss / (running_loss_counter + 1e-5)}, lr {optimizer.param_groups[0]["lr"]}')
+        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss_cos / (running_loss_counter + 1e-5)}, {running_loss_con / (running_loss_counter + 1e-5)}, '
+              f'lr {optimizer.param_groups[0]["lr"]}')
 
-    return graphs, attention_layer, relationship_refiner, running_loss, running_loss_counter,
+    return graphs, attention_layer, relationship_refiner, running_loss_cos, running_loss_con, running_loss_counter,
 
 
 def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
@@ -908,7 +918,8 @@ def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relat
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
 
-def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, scheduler, criterion, running_loss, running_loss_counter,
+def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
+                              optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
                               rank, batch_count, args, sgg_results, top_k, data_len, training=True, multiple_eval_iter=False, prev_graphs=None, verbose=False):
 # def process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
 #                               rank, args, sgg_results, top_k, data_len, verbose=False):
@@ -934,9 +945,10 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
     else:
         graphs = prev_graphs
 
-    updated_graphs, attention_layer, relationship_refiner, running_loss, running_loss_counter = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                                           optimizer, scheduler, criterion, running_loss, running_loss_counter, # optimizer, scheduler,
-                                                                           images, graphs, target_triplets, data_len, batch_count, rank, args, training=training, verbose=verbose)
+    updated_graphs, attention_layer, relationship_refiner, running_loss_cos, running_loss_con, running_loss_counter = \
+            batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
+                           optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
+                           images, graphs, target_triplets, data_len, batch_count, rank, args, training=training, verbose=verbose)
     # updated_graphs, multimodal_transformer_encoder = batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
     #                                                                        images, graphs, target_triplets, data_len, rank, args, verbose=verbose)
 
@@ -946,7 +958,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
     if training:
-        return attention_layer, relationship_refiner, running_loss, running_loss_counter
+        return attention_layer, relationship_refiner, running_loss_cos, running_loss_con, running_loss_counter
     else:
         return updated_graphs
 
@@ -968,7 +980,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
-    attention_layer = DDP(SimpleSelfAttention(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
+    attention_layer = DDP(GATLayer(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
     attention_layer.train()
     relationship_refiner = DDP(RelationshipRefiner(hidden_dim=clip_model.module.text_embed_dim)).to(rank)
     relationship_refiner.train()
@@ -984,11 +996,12 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     # criterion = nn.MSELoss()
     criterion = nn.CosineEmbeddingLoss(margin=0.8)
+    contrast_loss = SupConLossGraph(clip_model, tokenizer, all_labels_geometric, all_labels_possessive, all_labels_semantic, rank)
 
     # optimizer = optim.Adam(attention_layer.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     # optimizer_refiner = optim.SGD(relationship_refiner.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'], momentum=0.9)
     num_training_steps = 1 * len(train_loader)
-    scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.05 * num_training_steps, num_training_steps=num_training_steps)
+    scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
     # scheduler_refiner = StepLR(optimizer_refiner, step_size=750, gamma=0.1)
 
     # relation_count = get_num_each_class_reordered(args)
@@ -1007,7 +1020,8 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             raise NotImplementedError
 
         # iterate through the generator to receive results
-        running_loss = 0.0
+        running_loss_cos = 0.0
+        running_loss_con = 0.0
         running_loss_counter = 0
 
         for batch_count, batch_sgg_results in enumerate(sgg_results):
@@ -1017,10 +1031,11 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             # process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
             #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
-            attention_layer, relationship_refiner, running_loss, running_loss_counter = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                                    optimizer, scheduler, criterion, running_loss, running_loss_counter, #optimizer, scheduler,
-                                                                    rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
-                                                                    verbose=args['training']['verbose_global_refine'])
+            attention_layer, relationship_refiner, running_loss_cos, running_loss_con, running_loss_counter = \
+                    process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
+                                              optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
+                                              rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                                              verbose=args['training']['verbose_global_refine'])
             # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
             #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
@@ -1066,7 +1081,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
                 #     print('eval_iter', eval_iter)
                 if eval_iter == 0:
                     updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                               optimizer, scheduler, criterion, 0.0, 0, #optimizer, scheduler,
+                                                               optimizer, scheduler, criterion, contrast_loss, 0.0, 0.0, 0,
                                                                rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=False, verbose=args['training']['verbose_global_refine'])
                     # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
@@ -1074,7 +1089,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
                     #                     verbose=args['training']['verbose_global_refine'])
                 else:
                     updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                               optimizer, scheduler, criterion, 0.0, 0, #optimizer, scheduler,
+                                                               optimizer, scheduler, criterion, contrast_loss, 0.0, 0.0, 0,
                                                                rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=True, prev_graphs=updated_graphs, verbose=args['training']['verbose_global_refine'])
 
