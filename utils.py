@@ -415,8 +415,6 @@ def record_test_results(args, test_record, rank, epoch, recall_top3, recall, mea
                                     'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
                                     'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
                                     'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
-                                    'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5),
-                                    'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
                                     'num_connected': num_connected, 'num_not_connected': num_not_connected})
         else:
             if global_refine:

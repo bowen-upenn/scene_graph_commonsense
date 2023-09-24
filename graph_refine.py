@@ -458,6 +458,8 @@ def prepare_training_multimodal_transformer(clip_model, multimodal_transformer_e
 
 
 def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edges, rank, args, verbose=False):
+    # print('predicted_txt_embeds', torch.min(predicted_txt_embeds), torch.max(predicted_txt_embeds), torch.mean(predicted_txt_embeds))
+
     # pre-compute common arguments
     num_geom, num_poss, num_sem = args['models']['num_geometric'], args['models']['num_possessive'], args['models']['num_semantic']
 
@@ -556,7 +558,7 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edg
             predicted_rel_id = max_indices[idx].item()
 
         subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
-        updated_phrase = subject + ' ' + predicted_rel + ' ' + object
+        updated_phrase = subject + predicted_rel + object
         updated_edge = (current_edge[0], predicted_rel_id, current_edge[2], updated_phrase)
         updated_edges.append(updated_edge)
 
@@ -566,12 +568,13 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edg
             light_pink_code = 95
             text_blue_colored = colored_text(predicted_rel, light_blue_code)
             text_pink_colored = colored_text(relation, light_pink_code)
-            print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Old label: '{text_pink_colored}'")
+            print(f"Predicted label: '{text_blue_colored}' with confidence {max_vals[idx]}, Old label: '{text_pink_colored}'")
 
             dark_blue_code = 34
             text_blue_colored = colored_text(updated_edge, dark_blue_code)
             print('Updated_edge', text_blue_colored, '\n')
 
+    # print('max_vals', max_vals, 'max_indices', max_indices)
     return updated_edges, max_vals
 
 
@@ -772,6 +775,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                     else:
                         condition = iou(target_subject_bbox, subject_node) >= 0.5 and iou(target_object_bbox, object_node) >= 0.5
                     if condition:
+                        target_subject, target_relation, target_object = extract_words_from_edge(target[-1], all_labels)
                         if target_subject == current_subject and target_object == current_object:
                             phrase = [f"{target_subject} {target_relation} {target_object}"]
                             inputs = tokenizer(phrase, padding=True, return_tensors="pt").to(rank)
@@ -841,12 +845,26 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         optimizer.step()
         scheduler.step()
 
-        updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, all_current_edges, rank, args, verbose=verbose)
-        counter = 0
-        for idx, graph in enumerate(graphs):
-            graph.edges = updated_edges[counter:counter + edges_per_image[idx]]
-            graph.confidence = confidences[counter:counter + edges_per_image[idx]]
-            counter += edges_per_image[idx]
+    updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, all_current_edges, rank, args, verbose=verbose)
+    counter = 0
+
+    # saved_name = 'results/visualization_results/init_predicates_' + str(batch_count) + '.pt'
+    # print('saved_name', saved_name)
+    # torch.save(graphs[0].edges, saved_name)
+    # old_graph = graphs[0].edges.copy()
+    # print('old graphs[0].edges', graphs[0].edges[:5])
+
+    for idx, graph in enumerate(graphs):
+        graph.edges = updated_edges[counter:counter + edges_per_image[idx]]
+        graph.confidence = confidences[counter:counter + edges_per_image[idx]]
+        counter += edges_per_image[idx]
+
+    # saved_name = 'results/visualization_results/refined_predicates_' + str(batch_count) + '.pt'
+    # print('saved_name', saved_name)
+    # torch.save(graphs[0].edges, saved_name)
+    # if graphs[0].edges != old_graph:
+    #     print('old graphs[0].edges', old_graph[:5])
+    #     print('new graphs[0].edges', graphs[0].edges[:5])
 
     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss}, lr {optimizer.param_groups[0]["lr"]}')
@@ -999,22 +1017,22 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
         if args['models']['hierarchical_pred']:
-            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth')
-            torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefinerHierar' + '_' + str(rank) + '.pth')
+            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerHierarNoSkip' + '_' + str(rank) + '.pth')
+            torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefinerHierarNoSkip' + '_' + str(rank) + '.pth')
         else:
-            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
-            torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth')
+            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerNoSkip' + '_' + str(rank) + '.pth')
+            torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefinerNoSkip' + '_' + str(rank) + '.pth')
             # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
     # evaluate on test datasettr
     map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
     if args['models']['hierarchical_pred']:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
-        relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefinerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierarNoSkip' + '_' + str(rank) + '.pth', map_location=map_location))
+        relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefinerHierarNoSkip' + '_' + str(rank) + '.pth', map_location=map_location))
     else:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth', map_location=map_location))
-        relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefiner' + '_' + str(rank) + '.pth', map_location=map_location))
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerNoSkip' + '_' + str(rank) + '.pth', map_location=map_location))
+        relationship_refiner.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'RelationshipRefinerNoSkip' + '_' + str(rank) + '.pth', map_location=map_location))
     attention_layer.eval()
     relationship_refiner.eval()
     # updated_graphs = torch.load(args['training']['checkpoint_path'] + 'updated_graphs_0.pt', map_location=map_location)

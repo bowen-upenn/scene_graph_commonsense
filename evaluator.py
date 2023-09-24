@@ -354,13 +354,21 @@ class Evaluator_PC:
         # self.object_bbox_pred[curr_image][keep_inds] = self.object_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
         # self.subject_bbox_target[curr_image][keep_inds] = self.subject_bbox_target[curr_image][keep_inds][reorder_topk_inds]
         # self.object_bbox_target[curr_image][keep_inds] = self.object_bbox_target[curr_image][keep_inds][reorder_topk_inds]
-        
+
 
     def compute(self, per_class=False):
         """
         A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,
         the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
         """
+
+        """
+        We calculate the recall scores for each image in a moving average fashion across the test dataset.
+        Otherwise, uncomment the following two lines and select batch size = 1 in the config file to view the recall on each individual image.
+        """
+        # self.result_dict = {20: 0.0, 50: 0.0, 100: 0.0}
+        # self.num_connected_target = 0.0
+
         recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs = None, None, None
         self.confidence += self.connectivity
 

@@ -250,7 +250,6 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
 
     print('Start Testing PC...')
     for epoch in range(1):
-        print('epoch', epoch)
         for batch_count, data in enumerate(tqdm(test_loader), 0):
             """
             PREPARE INPUT DATA
@@ -392,29 +391,34 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
-                    top_k_predictions, top_k_image_graphs, _ = Recall.get_top_k_predictions(top_k=topk_global_refine)
+                    top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
                     sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall}
+
+                    ##############################
+                    # Comment out the following lines if you are simply evaluating the local predictor and do not run the graphical refinement
                     yield sgg_results
+                    ##############################
 
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=True)
-                    # clean up the evaluator
-                    Recall.clear_data()
-            else:
-                if args['dataset']['dataset'] == 'vg':
-                    recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                    if args['models']['hierarchical_pred']:
-                        recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
-                        Recall_top3.clear_data()
                 else:
-                    recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
-                    wmap_rel, wmap_phrase = Recall.compute_precision()
+                    if args['dataset']['dataset'] == 'vg':
+                        recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                        if args['models']['hierarchical_pred']:
+                            recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                            Recall_top3.clear_data()
+                    else:
+                        recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
+                        wmap_rel, wmap_phrase = Recall.compute_precision()
 
-                if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                    record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
-                                        connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+                    if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                        record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                            connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+
+                # clean up the evaluator
+                Recall.clear_data()
 
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
@@ -689,28 +693,27 @@ def eval_sgd(gpu, args, test_subset, topk_global_refine=50):
                     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=True)
+                    # clean up the evaluator
+                    Recall.clear_data()
+                else:
+                    recall, _, mean_recall, recall_k_wrong_label_corr_rel = Recall.compute(per_class=True)
+                    recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                    Recall.clear_data()
+                    Recall_top3.clear_data()
 
-                # clean up the evaluator
-                Recall.clear_data()
-            else:
-                recall, _, mean_recall, recall_k_wrong_label_corr_rel = Recall.compute(per_class=True)
-                recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
-                Recall.clear_data()
-                Recall_top3.clear_data()
+                    if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                        print('TESTING, rank: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), %.4f, %.4f, %.4f'
+                              % (rank, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
+                                 mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                                 recall_k_wrong_label_corr_rel[0], recall_k_wrong_label_corr_rel[1], recall_k_wrong_label_corr_rel[2]))
 
-                if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                    print('TESTING, rank: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), %.4f, %.4f, %.4f'
-                          % (rank, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
-                             mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                             recall_k_wrong_label_corr_rel[0], recall_k_wrong_label_corr_rel[1], recall_k_wrong_label_corr_rel[2]))
-
-                    test_record.append({'rank': rank, 'recall_relationship': [recall[0], recall[1], recall[2]],
-                                       'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
-                                       'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
-                                       'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
-                                       'num_objs_average': torch.mean(num_graph_iter.float()).item(), 'num_objs_max': max(num_graph_iter).item()})
-                    with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'w') as f:  # append current logs
-                        json.dump(test_record, f)
+                        test_record.append({'rank': rank, 'recall_relationship': [recall[0], recall[1], recall[2]],
+                                           'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
+                                           'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                                           'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
+                                           'num_objs_average': torch.mean(num_graph_iter.float()).item(), 'num_objs_max': max(num_graph_iter).item()})
+                        with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'w') as f:  # append current logs
+                            json.dump(test_record, f)
 
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
