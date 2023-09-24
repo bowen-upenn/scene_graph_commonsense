@@ -874,7 +874,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss / (running_loss_counter + 1e-5)}, lr {optimizer.param_groups[0]["lr"]}')
 
-    return graphs, attention_layer, relationship_refiner
+    return graphs, attention_layer, relationship_refiner, running_loss, running_loss_counter,
 
 
 def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
@@ -908,7 +908,7 @@ def process_sgg_results(clip_model, processor, tokenizer, attention_layer, relat
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
 
-def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, scheduler, criterion,
+def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, scheduler, criterion, running_loss, running_loss_counter,
                               rank, batch_count, args, sgg_results, top_k, data_len, training=True, multiple_eval_iter=False, prev_graphs=None, verbose=False):
 # def process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
 #                               rank, args, sgg_results, top_k, data_len, verbose=False):
@@ -934,9 +934,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
     else:
         graphs = prev_graphs
 
-    running_loss = 0.0
-    running_loss_counter = 0
-    updated_graphs, attention_layer, relationship_refiner = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
+    updated_graphs, attention_layer, relationship_refiner, running_loss, running_loss_counter = batch_training(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
                                                                            optimizer, scheduler, criterion, running_loss, running_loss_counter, # optimizer, scheduler,
                                                                            images, graphs, target_triplets, data_len, batch_count, rank, args, training=training, verbose=verbose)
     # updated_graphs, multimodal_transformer_encoder = batch_training(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
@@ -948,7 +946,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
         Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
 
     if training:
-        return attention_layer, relationship_refiner
+        return attention_layer, relationship_refiner, running_loss, running_loss_counter
     else:
         return updated_graphs
 
@@ -990,7 +988,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # optimizer = optim.Adam(attention_layer.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     # optimizer_refiner = optim.SGD(relationship_refiner.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'], momentum=0.9)
     num_training_steps = 1 * len(train_loader)
-    scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
+    scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.05 * num_training_steps, num_training_steps=num_training_steps)
     # scheduler_refiner = StepLR(optimizer_refiner, step_size=750, gamma=0.1)
 
     # relation_count = get_num_each_class_reordered(args)
@@ -1009,6 +1007,9 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             raise NotImplementedError
 
         # iterate through the generator to receive results
+        running_loss = 0.0
+        running_loss_counter = 0
+
         for batch_count, batch_sgg_results in enumerate(sgg_results):
             if args['training']['verbose_global_refine']:
                 print('batch_count', batch_count)
@@ -1016,10 +1017,10 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             # process_batch_sgg_results(clip_model, processor, tokenizer, multimodal_transformer_encoder, optimizer, criterion,
             #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
-            attention_layer, relationship_refiner = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                                              optimizer, scheduler, criterion, #optimizer, scheduler,
-                                                                              rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
-                                                                              verbose=args['training']['verbose_global_refine'])
+            attention_layer, relationship_refiner, running_loss, running_loss_counter = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
+                                                                    optimizer, scheduler, criterion, running_loss, running_loss_counter, #optimizer, scheduler,
+                                                                    rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                                                                    verbose=args['training']['verbose_global_refine'])
             # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
             #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
@@ -1046,11 +1047,11 @@ def query_clip(gpu, args, train_dataset, test_dataset):
 
     with torch.no_grad():
         if args['training']['eval_mode'] == 'pc':
-            test_sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+            test_sgg_results = eval_pc(rank, args, test_loader, topk_global_refine=args['training']['topk_global_refine'])
         elif args['training']['eval_mode'] == 'sgc':
-            test_sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+            test_sgg_results = eval_sgc(rank, args, test_loader, topk_global_refine=args['training']['topk_global_refine'])
         elif args['training']['eval_mode'] == 'sgd':
-            test_sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'])
+            test_sgg_results = eval_sgd(rank, args, test_loader, topk_global_refine=args['training']['topk_global_refine'])
         else:
             raise NotImplementedError
 
@@ -1065,16 +1066,16 @@ def query_clip(gpu, args, train_dataset, test_dataset):
                 #     print('eval_iter', eval_iter)
                 if eval_iter == 0:
                     updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                               optimizer, scheduler, criterion, #optimizer, scheduler,
-                                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                                                               optimizer, scheduler, criterion, 0.0, 0, #optimizer, scheduler,
+                                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=False, verbose=args['training']['verbose_global_refine'])
                     # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                    #                     rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                    #                     rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                     #                     verbose=args['training']['verbose_global_refine'])
                 else:
                     updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner,
-                                                               optimizer, scheduler, criterion, #optimizer, scheduler,
-                                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
+                                                               optimizer, scheduler, criterion, 0.0, 0, #optimizer, scheduler,
+                                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=True, prev_graphs=updated_graphs, verbose=args['training']['verbose_global_refine'])
 
                 # torch.save(updated_graphs, args['training']['checkpoint_path'] + 'updated_graphs_' + str(eval_iter) + '_' + str(rank) + '.pt')
