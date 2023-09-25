@@ -379,13 +379,13 @@ class RelationshipRefiner(nn.Module):
         # additional layers to predict relationship
         self.fc_img = nn.Linear(hidden_dim * 3, hidden_dim)
         self.fc_txt = nn.Linear(hidden_dim * 3, hidden_dim)
-        # self.fc_out = nn.Linear(2 * hidden_dim, hidden_dim)
+        self.fc_out = nn.Linear(2 * hidden_dim, hidden_dim)
         self.dropout = nn.Dropout(p=0.3)
 
         # learnable parameters to balance contributions
-        self.alpha = nn.Parameter(torch.tensor(1.0), requires_grad=True)
-        self.beta = nn.Parameter(torch.tensor(1.0), requires_grad=True)
-        self.gamma = nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        # self.alpha = nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        # self.beta = nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        # self.gamma = nn.Parameter(torch.tensor(1.0), requires_grad=True)
 
     def forward(self, glob_imge_embed, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
         hidden_img = torch.cat((glob_imge_embed, sub_img_embed, obj_img_embed), dim=-1)
@@ -397,12 +397,12 @@ class RelationshipRefiner(nn.Module):
         hidden_txt = self.dropout(hidden_txt) #+ current_txt_embed  # skip connection
 
         # Balance contributions with learnable parameters
-        hidden = self.alpha * hidden_img + self.beta * hidden_txt + self.gamma * current_txt_embed
+        # hidden = self.alpha * hidden_img + self.beta * hidden_txt + self.gamma * current_txt_embed
         # hidden = hidden_img + hidden_txt + current_txt_embed
 
         # hidden = hidden_img + hidden_txt + self.dropout(current_txt_embed)
-        # hidden = torch.cat((hidden_img, hidden_txt), dim=-1)
-        # hidden = self.fc_out(hidden)# + current_txt_embed  # skip connection
+        hidden = torch.cat((hidden_img, hidden_txt), dim=-1)
+        hidden = self.fc_out(hidden) + current_txt_embed  # skip connection
 
         return hidden
 

@@ -848,7 +848,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         optimizer.zero_grad()
 
         cos_loss = criterion(input1_positive, input2_positive, labels_positive)
-        con_loss = contrast_loss(input1_positive, [all_current_edges[i][1] for i in target_mask], rank)
+        con_loss = 0.01 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
         loss = cos_loss + con_loss
 
         running_loss_cos += cos_loss.item()
@@ -1001,8 +1001,8 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # optimizer = optim.Adam(attention_layer.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     # optimizer_refiner = optim.SGD(relationship_refiner.module.parameters(), lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'], momentum=0.9)
     num_training_steps = 1 * len(train_loader)
-    scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
-    # scheduler_refiner = StepLR(optimizer_refiner, step_size=750, gamma=0.1)
+    # scheduler = transformers.get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.1 * num_training_steps, num_training_steps=num_training_steps)
+    scheduler = StepLR(optimizer, step_size=750, gamma=0.1)
 
     # relation_count = get_num_each_class_reordered(args)
     # class_weight = 1 - relation_count / torch.sum(relation_count)
