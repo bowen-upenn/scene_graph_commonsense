@@ -801,8 +801,8 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                             break
 
             # find neighbor edges for the current edge
-            subject_neighbor_edges = graph.adj_list[subject_node]
-            object_neighbor_edges = graph.adj_list[object_node]
+            subject_neighbor_edges = graph.adj_list[subject_node][:20]  # maximum 20 neighbors each edge for more efficient training
+            object_neighbor_edges = graph.adj_list[object_node][:20]
             if not training or current_target is None:
                 if current_edge in subject_neighbor_edges:
                     subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
@@ -882,7 +882,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
     if training and ((batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == data_len)):
         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss_cos / (running_loss_counter + 1e-5)}, {running_loss_con / (running_loss_counter + 1e-5)}, '
-              f'lr {optimizer.param_groups[0]["lr"]}')
+              f'lr {scheduler.get_last_lr()}')
 
     return graphs, attention_layer, relationship_refiner, running_loss_cos, running_loss_con, running_loss_counter,
 
@@ -1038,6 +1038,16 @@ def query_clip(gpu, args, train_dataset, test_dataset):
                                               verbose=args['training']['verbose_global_refine'])
             # process_sgg_results(clip_model, processor, tokenizer, attention_layer, relationship_refiner, optimizer, criterion,
             #                     rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
+
+            if batch_count == 1000:
+                if args['models']['hierarchical_pred']:
+                    torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerHierarNoSkip' + '_ckpt1000_' + str(rank) + '.pth')
+                    torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefinerHierarNoSkip' + '_ckpt1000_' + str(rank) + '.pth')
+                else:
+                    torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerNoSkip' + '_ckpt1000_' + str(rank) + '.pth')
+                    torch.save(relationship_refiner.state_dict(), args['training']['checkpoint_path'] + 'RelationshipRefinerNoSkip' + '_ckpt1000_' + str(rank) + '.pth')
+                    # torch.save(multimodal_transformer_encoder.state_dict(), args['training']['checkpoint_path'] + 'MultimodalTransformerEncoder' + '_' + str(rank) + '.pth')
+                dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
         if args['models']['hierarchical_pred']:
             torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerHierarNoSkip' + '_' + str(rank) + '.pth')
