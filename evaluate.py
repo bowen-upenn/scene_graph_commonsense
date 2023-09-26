@@ -196,7 +196,7 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
     return sgg_results
 
 
-def eval_pc(gpu, args, test_subset, topk_global_refine=50):
+def eval_pc(gpu, args, test_subset, topk_global_refine=50, training_clip=False):
     """
     This function evaluates the module on predicate classification tasks.
     :param gpu: current gpu index
@@ -237,7 +237,8 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'old_model.pth', map_location=map_location))
+        # local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
     else:
         local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
@@ -249,7 +250,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Testing PC...')
-    for epoch in range(1):
+    for epoch in range(3):
         for batch_count, data in enumerate(tqdm(test_loader), 0):
             """
             PREPARE INPUT DATA
@@ -348,7 +349,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
                     relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
                     relations_target_directed[not_connected] = -1
 
-                    if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_subset)):
+                    if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, height, width)
                         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
@@ -379,7 +380,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
                     relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
                     relations_target_directed[not_connected] = -1
 
-                    if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_subset)):
+                    if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_edge, bbox_graph, bbox_edge, bbox_graph, height, width)
                         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
@@ -392,17 +393,21 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
                     top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
-                    sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall}
+                    sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs,
+                                   'target_triplets': triplets, 'Recall': Recall, 'batch_count': batch_count}
 
                     ##############################
                     # Comment out the following lines if you are simply evaluating the local predictor and do not run the graphical refinement
                     yield sgg_results
                     ##############################
 
-                    recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
-                    if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                    if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(test_loader)):
+                        recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=True)
+                    # clean up the evaluator
+                    Recall.clear_data()
+
                 else:
                     if args['dataset']['dataset'] == 'vg':
                         recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
@@ -413,12 +418,12 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50):
                         recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                         wmap_rel, wmap_phrase = Recall.compute_precision()
 
+                    # clean up the evaluator
+                    Recall.clear_data()
+
                     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
-
-                # clean up the evaluator
-                Recall.clear_data()
 
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
