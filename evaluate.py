@@ -196,7 +196,7 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
     return sgg_results
 
 
-def eval_pc(gpu, args, test_subset, topk_global_refine=50, training_clip=False):
+def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
     """
     This function evaluates the module on predicate classification tasks.
     :param gpu: current gpu index
@@ -250,7 +250,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, training_clip=False):
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Testing PC...')
-    for epoch in range(3):
+    for epoch in range(epochs):
         for batch_count, data in enumerate(tqdm(test_loader), 0):
             """
             PREPARE INPUT DATA
@@ -687,10 +687,10 @@ def eval_sgd(gpu, args, test_subset, topk_global_refine=50):
                     top_k_predictions, top_k_image_graphs, all_images_ids = Recall.get_top_k_predictions(top_k=topk_global_refine)
                     if len(all_images_ids) < len(images_raw):
                         sgg_results = {'images': [img for i, img in enumerate(images_raw) if i in all_images_ids], 'top_k_predictions': top_k_predictions,
-                                       'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall}
+                                       'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall, 'batch_count': batch_count}
                     else:
                         sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions,
-                                       'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall}
+                                       'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall, 'batch_count': batch_count}
                     yield sgg_results
 
                     # evaluate again after global refinement

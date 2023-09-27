@@ -63,7 +63,7 @@ training:
     lambda_connectivity: 0.1
     lambda_not_connected: 1
     print_freq: 20
-    eval_freq: 20
+    eval_freq: 1
     print_freq_test: 20
     eval_freq_test: 1
     topk_global_refine: 50

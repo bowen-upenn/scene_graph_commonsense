@@ -963,7 +963,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         optimizer.zero_grad()
 
         cos_loss = criterion(input1_positive, input2_positive, labels_positive)
-        con_loss = 0.01 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
+        con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
         loss = cos_loss + con_loss
 
         running_loss_cos += cos_loss.item()
@@ -972,7 +972,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         loss.backward()
 
         optimizer.step()
-        scheduler.step()
+    scheduler.step()
 
     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
         # updated_edges, confidences = eval_refined_output(all_possible_embeds, predicted_txt_embeds, all_current_edges, rank, args, verbose=verbose)
@@ -1131,11 +1131,11 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     if not args['training']['run_mode'] == 'clip_eval':
         # receive current SGG predictions from a baseline model
         if args['training']['eval_mode'] == 'pc':
-            sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], training_clip=True)
+            sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=3)
         elif args['training']['eval_mode'] == 'sgc':
-            sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], training_clip=True)
+            sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=3)
         elif args['training']['eval_mode'] == 'sgd':
-            sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], training_clip=True)
+            sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=3)
         else:
             raise NotImplementedError
 
