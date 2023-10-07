@@ -178,7 +178,7 @@ def train_local(gpu, args, train_subset, test_subset):
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
                 keep_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1).to(rank)
-                optimizer.param_groups[0]["lr"] = original_lr * lr_decay * math.sqrt(len(keep_in_batch) / len(num_graph_iter))  # dynamic batch size needs dynamic learning rate
+                optimizer.param_groups[0]["lr"] = original_lr * lr_decay #* math.sqrt(len(keep_in_batch) / len(num_graph_iter))  # dynamic batch size needs dynamic learning rate
 
                 curr_graph_masks = torch.stack([torch.unsqueeze(masks[i][graph_iter], dim=0) for i in keep_in_batch])
                 h_graph = torch.cat((image_feature[keep_in_batch] * curr_graph_masks, image_depth[keep_in_batch] * curr_graph_masks), dim=1)  # (bs, 256, 64, 64), (bs, 1, 64, 64)
@@ -406,7 +406,8 @@ def train_local(gpu, args, train_subset, test_subset):
         test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank)
 
     dist.destroy_process_group()  # clean up
-    writer.close()
+    if rank == 0:
+        writer.close()
     print('FINISHED TRAINING\n')
 
 
