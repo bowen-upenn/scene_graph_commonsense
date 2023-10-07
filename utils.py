@@ -347,7 +347,6 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
                            'zero_shot_recall': [recall_zs[0], recall_zs[1], recall_zs[2]],
                            'mean_zero_shot_recall': [mean_recall_zs[0].item(), mean_recall_zs[1].item(), mean_recall_zs[2].item()],
                            'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size'])})
-
         else:
             print('TRAIN, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
                   'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f,loss: %.4f, %.4f, conn: %.4f, %.4f.'
@@ -405,17 +404,35 @@ def record_test_results(args, test_record, rank, epoch, recall_top3, recall, mea
                                     'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
                                     'num_connected': num_connected, 'num_not_connected': num_not_connected})
             else:
-                print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
-                      'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f.'
-                      % (rank, epoch, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
-                         mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                         recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2]))
+                if recall_top3 is None:
+                    if recall_zs is None:
+                        print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f.'
+                              % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2]))
 
-                test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
-                                    'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
-                                    'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
-                                    'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
-                                    'num_connected': num_connected, 'num_not_connected': num_not_connected})
+                        test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
+                                            'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                                            'num_connected': num_connected, 'num_not_connected': num_not_connected})
+                    else:
+                        print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
+                              'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f.'
+                              % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                                 recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2]))
+
+                        test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
+                                            'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                                            'num_connected': num_connected, 'num_not_connected': num_not_connected})
+                else:
+                    print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
+                          'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f.'
+                          % (rank, epoch, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
+                             mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                             recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2]))
+
+                    test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
+                                        'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
+                                        'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+                                        'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
+                                        'num_connected': num_connected, 'num_not_connected': num_not_connected})
         else:
             if global_refine:
                 if recall_zs is None:
@@ -428,10 +445,14 @@ def record_test_results(args, test_record, rank, epoch, recall_top3, recall, mea
                              recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
                              connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
             else:
-                print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
-                      % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                         recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
-                         connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
+                if recall_zs is None:
+                    print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f.'
+                          % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2]))
+                else:
+                    print('TEST, rank: %d, epoch: %d, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f, conn: %.4f, %.4f.'
+                          % (rank, epoch, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
+                             recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
+                             connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
 
             test_record.append({'rank': rank, 'epoch': epoch, 'recall_relationship': [recall[0], recall[1], recall[2]],
                                 'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],

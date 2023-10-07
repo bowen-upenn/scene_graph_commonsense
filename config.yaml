@@ -1,9 +1,9 @@
 dataset:
     image_dir: '/tmp/datasets/vg/images'
-    annot_dir: '/tmp/datasets/vg_scene_graph_annot_old'
+    annot_dir: '/tmp/datasets/vg_scene_graph_annot'
     raw_annot_dir: '/tmp/datasets/vg/annotations/'
-    annotation_train: '/tmp/datasets/vg/annotations_old/instances_vg_train.json'
-    annotation_test: '/tmp/datasets/vg/annotations_old/instances_vg_test.json'
+    annotation_train: '/tmp/datasets/vg/annotations/instances_vg_train.json'
+    annotation_test: '/tmp/datasets/vg/annotations/instances_vg_test.json'
     object_alias: 'datasets/vg_scene_graph_annot/object_alias.txt'
     predicate_alias: 'datasets/vg_scene_graph_annot/predicate_alias.txt'
     object_types: 'datasets/vg_scene_graph_annot/object_types.txt'
@@ -33,9 +33,9 @@ models:
     num_super_classes: 17
     hidden_dim: 128
     faster_rcnn_hidden_dim: 2048
-    use_depth: True
+    use_depth: False
     depth_model_type: 'DPT_Large'
-    hierarchical_pred: False
+    hierarchical_pred: True
     topk_cat: 2
     nms: 0.5
     num_geometric: 15
@@ -43,10 +43,10 @@ models:
     num_semantic: 24
     num_negatives: 49
 training:
-    run_mode: 'clip_train'      # train, eval, caption, clip_zs, clip_train
+    run_mode: 'train'      # train, eval, caption, clip_zs, clip_train
     eval_mode: 'pc'        # pc sgc or sgd
     learning_rate: 0.00001
-    refine_learning_rate: 0.00001
+    refine_learning_rate: 0.0001
     weight_decay: 0.0001
     batch_size: 12
     num_epoch: 3
@@ -62,9 +62,9 @@ training:
     lambda_contrast: 1
     lambda_connectivity: 0.1
     lambda_not_connected: 1
-    print_freq: 20
-    eval_freq: 1
-    print_freq_test: 20
+    print_freq: 100
+    eval_freq: 100
+    print_freq_test: 50
     eval_freq_test: 1
     topk_global_refine: 50
     verbose_global_refine: False

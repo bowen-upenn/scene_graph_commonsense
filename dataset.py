@@ -159,7 +159,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                 return image, image_nonsq, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
         else:
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
-
+        
 
     def load_one_image(self, file_name=None, idx=None, return_annot=False):
         # only return the image for inference

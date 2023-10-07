@@ -98,7 +98,7 @@ class Evaluator_PC:
 
     def accumulate(self, which_in_batch, relation_pred, relation_target, super_relation_pred, connectivity,
                    subject_cat_pred, object_cat_pred, subject_cat_target, object_cat_target,
-                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target, height, width):
+                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target, height=None, width=None):
 
         if self.relation_pred is None:
             if not self.hierar:     # flat relationship prediction
@@ -928,7 +928,7 @@ class Evaluator_SGD:
 
 
     def accumulate_pred(self, which_in_batch, relation_pred, super_relation_pred, subject_cat_pred, object_cat_pred, subject_bbox_pred, object_bbox_pred,
-                        cat_subject_confidence, cat_object_confidence, connectivity, height, width):
+                        cat_subject_confidence, cat_object_confidence, connectivity, height=None, width=None):
         if self.relation_pred is None:
             self.which_in_batch = which_in_batch.repeat(3)
 

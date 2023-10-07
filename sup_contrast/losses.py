@@ -74,8 +74,8 @@ class SupConLossGraph(nn.Module):
             contrast_denominator = curr_features @ negative_anchors.T
             contrast_denominator = torch.sum(torch.exp(contrast_denominator / temperature), dim=0)
 
-            log_contrasts = torch.sum(torch.log(contrast_numerator + 1e-7) - torch.log(contrast_denominator + 1e-7))
-            log_contrasts /= -1 * num_negative
+            log_contrasts = -1 * torch.sum(torch.log(contrast_numerator + 1e-7) - torch.log(contrast_denominator + 1e-7))
+            # log_contrasts /= -1 * num_negative
             mean_log_contrasts += log_contrasts
 
         loss = (temperature / self.base_temperature) * mean_log_contrasts

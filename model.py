@@ -377,9 +377,24 @@ class RelationshipRefiner(nn.Module):
         super(RelationshipRefiner, self).__init__()
 
         # additional layers to predict relationship
-        self.fc_img = nn.Linear(hidden_dim * 3, hidden_dim)
-        self.fc_txt = nn.Linear(hidden_dim * 3, hidden_dim)
-        self.fc_out = nn.Linear(2 * hidden_dim, hidden_dim)
+        # self.fc_img = nn.Linear(hidden_dim * 3, hidden_dim)
+        # self.fc_txt = nn.Linear(hidden_dim * 3, hidden_dim)
+        # self.fc_out = nn.Linear(2 * hidden_dim, hidden_dim)
+        # self.dropout = nn.Dropout(p=0.3)
+        # self.fc_glo_img = nn.Linear(hidden_dim, hidden_dim)
+        # self.fc_sub_img = nn.Linear(hidden_dim, hidden_dim)
+        # self.fc_obj_img = nn.Linear(hidden_dim, hidden_dim)
+        # self.fc_img = nn.Linear(hidden_dim, hidden_dim)
+        #
+        # self.fc_glo_txt = nn.Linear(hidden_dim, hidden_dim)
+        # self.fc_sub_txt = nn.Linear(hidden_dim, hidden_dim)
+        # self.fc_obj_txt = nn.Linear(hidden_dim, hidden_dim)
+        # self.fc_txt = nn.Linear(hidden_dim, hidden_dim)
+
+        self.fc_sub = nn.Linear(2 * hidden_dim, hidden_dim)
+        self.fc_obj = nn.Linear(2 * hidden_dim, hidden_dim)
+        self.fc_fuse = nn.Linear(3 * hidden_dim, hidden_dim)
+        self.fc_out = nn.Linear(hidden_dim, hidden_dim)
         self.dropout = nn.Dropout(p=0.3)
 
         # learnable parameters to balance contributions
@@ -388,21 +403,39 @@ class RelationshipRefiner(nn.Module):
         # self.gamma = nn.Parameter(torch.tensor(1.0), requires_grad=True)
 
     def forward(self, glob_imge_embed, sub_img_embed, obj_img_embed, current_txt_embed, sub_txt_embed, obj_txt_embed, neighbor_txt_embed):
-        hidden_img = torch.cat((glob_imge_embed, sub_img_embed, obj_img_embed), dim=-1)
-        hidden_img = F.relu(self.fc_img(hidden_img))
-        hidden_img = self.dropout(hidden_img)
+        hidden_sub = torch.cat((sub_img_embed, sub_txt_embed), dim=-1)
+        hidden_sub = F.relu(self.fc_sub(hidden_sub))
+        hidden_sub = self.dropout(hidden_sub)
 
-        hidden_txt = torch.cat((sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
-        hidden_txt = F.relu(self.fc_txt(hidden_txt))
-        hidden_txt = self.dropout(hidden_txt) #+ current_txt_embed  # skip connection
+        hidden_obj = torch.cat((obj_img_embed, obj_txt_embed), dim=-1)
+        hidden_obj = F.relu(self.fc_obj(hidden_obj))
+        hidden_obj = self.dropout(hidden_obj)
+
+        # hidden_img = self.fc_img(self.fc_glo_img(glob_imge_embed) - self.fc_sub_img(sub_img_embed) - self.fc_obj_img(obj_img_embed))
+        # hidden_img = self.dropout(F.relu(hidden_img))
+        #
+        # hidden_txt = self.fc_txt(self.fc_glo_txt(neighbor_txt_embed) - self.fc_sub_txt(sub_txt_embed) - self.fc_obj_txt(obj_txt_embed))
+        # hidden_txt = self.dropout(F.relu(hidden_txt))
+
+        # hidden_img = torch.cat((glob_imge_embed, sub_img_embed, obj_img_embed), dim=-1)
+        # hidden_img = F.relu(self.fc_img(hidden_img))
+        # hidden_img = self.dropout(hidden_img)
+        #
+        # hidden_txt = torch.cat((sub_txt_embed, obj_txt_embed, neighbor_txt_embed), dim=-1)
+        # hidden_txt = F.relu(self.fc_txt(hidden_txt))
+        # hidden_txt = self.dropout(hidden_txt) #+ current_txt_embed  # skip connection
 
         # Balance contributions with learnable parameters
         # hidden = self.alpha * hidden_img + self.beta * hidden_txt + self.gamma * current_txt_embed
         # hidden = hidden_img + hidden_txt + current_txt_embed
 
         # hidden = hidden_img + hidden_txt + self.dropout(current_txt_embed)
-        hidden = torch.cat((hidden_img, hidden_txt), dim=-1)
-        hidden = self.fc_out(hidden) + current_txt_embed  # skip connection
+        hidden = torch.cat((hidden_sub, hidden_obj, neighbor_txt_embed), dim=-1)
+        hidden = F.relu(self.fc_fuse(hidden))
+        hidden = self.dropout(hidden)
+        hidden = self.fc_out(hidden)
+
+        hidden += F.normalize(current_txt_embed, dim=1, p=2)  # skip connection
 
         return hidden
 

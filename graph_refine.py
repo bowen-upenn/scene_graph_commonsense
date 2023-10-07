@@ -615,6 +615,7 @@ def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edg
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
     with torch.no_grad():
         all_possible_embeds = clip_model.module.get_text_features(**inputs)     # size [num_edges * 50, hidden_embed]
+    all_possible_embeds = F.normalize(all_possible_embeds, dim=1, p=2)
 
     if args['models']['hierarchical_pred']:
         # split out each data sample in the batch
@@ -904,7 +905,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
                             inputs = tokenizer(phrase, padding=True, return_tensors="pt").to(rank)
                             with torch.no_grad():
                                 target_txt_embed = clip_model.module.get_text_features(**inputs)
-                                # target_txt_embed = F.normalize(target_txt_embed)
+                                target_txt_embed = F.normalize(target_txt_embed, dim=1, p=2)
 
                             all_target_txt_embeds.append(target_txt_embed)
                             target_mask.append(edge_idx)
@@ -962,11 +963,14 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
 
         optimizer.zero_grad()
 
-        cos_loss = criterion(input1_positive, input2_positive, labels_positive)
-        con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
-        loss = cos_loss + con_loss
+        # cos_loss = criterion(input1_positive, input2_positive, labels_positive)
+        # cos_loss = criterion(input1_positive, input2_positive)
+        # con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
+        cos_loss = 0
+        con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
+        loss = con_loss
 
-        running_loss_cos += cos_loss.item()
+        # running_loss_cos += cos_loss.item()
         running_loss_con += con_loss.item()
         running_loss_counter += 1
         loss.backward()
@@ -981,21 +985,26 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, relationsh
         # saved_name = 'results/visualization_results/init_predicates_' + str(batch_count) + '.pt'
         # print('saved_name', saved_name)
         # torch.save(graphs[0].edges, saved_name)
-        # old_graph = graphs[0].edges.copy()
-        # print('old graphs[0].edges', graphs[0].edges[:5])
 
         counter = 0
         for idx, graph in enumerate(graphs):
+            # old_graph = graph.edges.copy()
+            # print('old graphs.edges', graph.edges[:5])
+
             graph.edges = updated_edges[counter:counter + edges_per_image[idx]]
             graph.confidence = confidences[counter:counter + edges_per_image[idx]]
             counter += edges_per_image[idx]
 
+            # # print('new graphs.edges', graph.edges[:5])
+            # if graph.edges != old_graph:
+            #     print('!!!!!!!!!!!new graph != old graph')
+            #     print('old_graph', old_graph[:5])
+            #     print('new_graph', graph.edges[:5])
+
         # saved_name = 'results/visualization_results/refined_predicates_' + str(batch_count) + '.pt'
         # print('saved_name', saved_name)
         # torch.save(graphs[0].edges, saved_name)
-        # if graphs[0].edges != old_graph:
-        #     print('old graphs[0].edges', old_graph[:5])
-        #     print('new graphs[0].edges', graphs[0].edges[:5])
+
 
     if training and ((batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == data_len)):
         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss_cos / (running_loss_counter + 1e-5)}, {running_loss_con / (running_loss_counter + 1e-5)}, '

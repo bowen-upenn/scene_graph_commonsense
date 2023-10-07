@@ -237,8 +237,8 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'old_model.pth', map_location=map_location))
-        # local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        # local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'old_model.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
     else:
         local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
@@ -398,10 +398,11 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
 
                     ##############################
                     # Comment out the following lines if you are simply evaluating the local predictor and do not run the graphical refinement
-                    yield sgg_results
+                    # yield sgg_results
                     ##############################
 
-                    if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(test_loader)):
+                    # epochs == 1 means we are evaluating the graphical refinement results, otherwise we are training the graphical refinement module
+                    if epochs == 1 or (epochs > 1 and ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(test_loader)))):
                         recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=True)
@@ -651,11 +652,17 @@ def eval_sgd(gpu, args, test_subset, topk_global_refine=50):
                                                                                                          scat_graph_pred, scat_edge_pred, rank)
                             relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         else:
-                            relation, connectivity = local_predictor(h_graph[iou_mask], h_edge[iou_mask], cat_graph_pred[iou_mask], cat_edge_pred[iou_mask], scat_graph_pred, scat_edge_pred, rank)
+                            relation, connectivity, _, _ = local_predictor(h_graph[iou_mask], h_edge[iou_mask], cat_graph_pred[iou_mask], cat_edge_pred[iou_mask], scat_graph_pred, scat_edge_pred, rank)
+                            super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                        Recall.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_graph_pred[iou_mask], cat_edge_pred[iou_mask], bbox_graph_pred[iou_mask], bbox_edge_pred[iou_mask],
-                                               cat_graph_confidence[iou_mask], cat_edge_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])), height[iou_mask], width[iou_mask])
+                        if height is not None:
+                            Recall.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_graph_pred[iou_mask], cat_edge_pred[iou_mask], bbox_graph_pred[iou_mask], bbox_edge_pred[iou_mask],
+                                                   cat_graph_confidence[iou_mask], cat_edge_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])), height[iou_mask], width[iou_mask])
+                        else:
+                            Recall.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_graph_pred[iou_mask], cat_edge_pred[iou_mask], bbox_graph_pred[iou_mask],
+                                                   bbox_edge_pred[iou_mask],
+                                                   cat_graph_confidence[iou_mask], cat_edge_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])))
                         # Recall_top3.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_graph_pred[iou_mask], cat_edge_pred[iou_mask], bbox_graph_pred[iou_mask], bbox_edge_pred[iou_mask],
                         #                             cat_graph_confidence[iou_mask], cat_edge_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])))
                     """
@@ -667,11 +674,16 @@ def eval_sgd(gpu, args, test_subset, topk_global_refine=50):
                                                                                                          scat_edge_pred, scat_graph_pred, rank)
                             relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         else:
-                            relation, connectivity = local_predictor(h_edge[iou_mask], h_graph[iou_mask], cat_edge_pred[iou_mask], cat_graph_pred[iou_mask], scat_edge_pred, scat_graph_pred, rank)
+                            relation, connectivity, _, _ = local_predictor(h_edge[iou_mask], h_graph[iou_mask], cat_edge_pred[iou_mask], cat_graph_pred[iou_mask], scat_edge_pred, scat_graph_pred, rank)
+                            super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                        Recall.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_edge_pred[iou_mask], cat_graph_pred[iou_mask], bbox_edge_pred[iou_mask], bbox_graph_pred[iou_mask],
-                                               cat_edge_confidence[iou_mask], cat_graph_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])), height[iou_mask], width[iou_mask])
+                        if height is not None:
+                            Recall.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_edge_pred[iou_mask], cat_graph_pred[iou_mask], bbox_edge_pred[iou_mask], bbox_graph_pred[iou_mask],
+                                                   cat_edge_confidence[iou_mask], cat_graph_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])), height[iou_mask], width[iou_mask])
+                        else:
+                            Recall.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_edge_pred[iou_mask], cat_graph_pred[iou_mask], bbox_edge_pred[iou_mask],
+                                                   bbox_graph_pred[iou_mask], cat_edge_confidence[iou_mask], cat_graph_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])))
                         # Recall_top3.accumulate_pred(which_in_batch[iou_mask], relation, super_relation, cat_edge_pred[iou_mask], cat_graph_pred[iou_mask], bbox_edge_pred[iou_mask], bbox_graph_pred[iou_mask],
                         #                             cat_edge_confidence[iou_mask], cat_graph_confidence[iou_mask], torch.log(torch.sigmoid(connectivity[:, 0])))
 
@@ -691,7 +703,7 @@ def eval_sgd(gpu, args, test_subset, topk_global_refine=50):
                     else:
                         sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions,
                                        'top_k_image_graphs': top_k_image_graphs, 'target_triplets': triplets, 'Recall': Recall, 'batch_count': batch_count}
-                    yield sgg_results
+                    # yield sgg_results
 
                     # evaluate again after global refinement
                     recall, _, mean_recall, _ = Recall.compute(per_class=True)
@@ -702,23 +714,13 @@ def eval_sgd(gpu, args, test_subset, topk_global_refine=50):
                     Recall.clear_data()
                 else:
                     recall, _, mean_recall, recall_k_wrong_label_corr_rel = Recall.compute(per_class=True)
-                    recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                    # recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                     Recall.clear_data()
-                    Recall_top3.clear_data()
+                    # Recall_top3.clear_data()
 
                     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                        print('TESTING, rank: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), %.4f, %.4f, %.4f'
-                              % (rank, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
-                                 mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                                 recall_k_wrong_label_corr_rel[0], recall_k_wrong_label_corr_rel[1], recall_k_wrong_label_corr_rel[2]))
-
-                        test_record.append({'rank': rank, 'recall_relationship': [recall[0], recall[1], recall[2]],
-                                           'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
-                                           'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
-                                           'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
-                                           'num_objs_average': torch.mean(num_graph_iter.float()).item(), 'num_objs_max': max(num_graph_iter).item()})
-                        with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'w') as f:  # append current logs
-                            json.dump(test_record, f)
+                        record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                            connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
 
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
@@ -753,12 +755,11 @@ def eval_sgc(gpu, args, test_subset):
 
     if args['models']['hierarchical_pred']:
         local_predictor = DDP(HierMotif(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
-                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
-                                     num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+                                        num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                        num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
     else:
         local_predictor = DDP(FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
-                                 num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
-                                 num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+                                        num_classes=args['models']['num_classes'])).to(rank)
 
     detr = DDP(build_detr101(args)).to(rank)
     backbone = DDP(detr.module.backbone).to(rank)
@@ -777,7 +778,10 @@ def eval_sgc(gpu, args, test_subset):
         local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
     Recall = Evaluator_SGD(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
-    Recall_top3 = Evaluator_SGD_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    # Recall_top3 = Evaluator_SGD_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+
+    connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
+    recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
     sub2super_cat_dict = torch.load(args['dataset']['sub2super_cat_dict'])
     object_class_alp2fre_dict = object_class_alp2fre()
@@ -925,13 +929,14 @@ def eval_sgc(gpu, args, test_subset):
                                                                                                      scat_graph_pred, scat_edge_pred, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, scat_graph_pred, scat_edge_pred, rank)
+                        relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, scat_graph_pred, scat_edge_pred, rank)
+                        super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate_pred(which_in_batch, relation, super_relation, cat_graph_pred, cat_edge_pred, bbox_graph_pred, bbox_edge_pred,
                                                cat_graph_confidence, cat_edge_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
-                        Recall_top3.accumulate_pred(which_in_batch, relation, super_relation, cat_graph_pred, cat_edge_pred, bbox_graph_pred, bbox_edge_pred,
-                                                    cat_graph_confidence, cat_edge_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
+                        # Recall_top3.accumulate_pred(which_in_batch, relation, super_relation, cat_graph_pred, cat_edge_pred, bbox_graph_pred, bbox_edge_pred,
+                        #                             cat_graph_confidence, cat_edge_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
                     """
                     SECOND DIRECTION
                     """
@@ -940,40 +945,31 @@ def eval_sgc(gpu, args, test_subset):
                                                                                                      scat_edge_pred, scat_graph_pred, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, scat_edge_pred, scat_graph_pred, rank)
+                        relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, scat_edge_pred, scat_graph_pred, rank)
+                        super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate_pred(which_in_batch, relation, super_relation, cat_edge_pred, cat_graph_pred, bbox_edge_pred, bbox_graph_pred,
                                                cat_edge_confidence, cat_graph_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
-                        Recall_top3.accumulate_pred(which_in_batch, relation, super_relation, cat_edge_pred, cat_graph_pred, bbox_edge_pred, bbox_graph_pred,
-                                                    cat_edge_confidence, cat_graph_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
+                        # Recall_top3.accumulate_pred(which_in_batch, relation, super_relation, cat_edge_pred, cat_graph_pred, bbox_edge_pred, bbox_graph_pred,
+                        #                             cat_edge_confidence, cat_graph_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
 
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 Recall.accumulate_target(relation_target, cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target)
-                Recall_top3.accumulate_target(relation_target, cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target)
+                # Recall_top3.accumulate_target(relation_target, cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target)
 
             """
             EVALUATE AND PRINT CURRENT RESULTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 recall, _, mean_recall, recall_k_wrong_label_corr_rel = Recall.compute(per_class=True)
-                recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                # recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                 Recall.clear_data()
-                Recall_top3.clear_data()
+                # Recall_top3.clear_data()
 
             if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                print('TESTING, rank: %d, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), %.4f, %.4f, %.4f'
-                      % (rank, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
-                         mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                         recall_k_wrong_label_corr_rel[0], recall_k_wrong_label_corr_rel[1], recall_k_wrong_label_corr_rel[2]))
-
-                test_record.append({'rank': rank, 'recall_relationship': [recall[0], recall[1], recall[2]],
-                                   'recall_relationship_top3': [recall_top3[0], recall_top3[1], recall_top3[2]],
-                                   'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
-                                   'mean_recall_top3': [mean_recall_top3[0].item(), mean_recall_top3[1].item(), mean_recall_top3[2].item()],
-                                   'num_objs_average': torch.mean(num_graph_iter.float()).item(), 'num_objs_max': max(num_graph_iter).item()})
-                with open(args['training']['result_path'] + 'test_results_' + str(rank) + '.json', 'w') as f:  # append current logs
-                    json.dump(test_record, f)
+                record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                    connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
 
     dist.monitored_barrier()
     print('FINISHED TESTING SGC\n')
