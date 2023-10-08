@@ -12,6 +12,7 @@ from torchvision import transforms
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
+import shutil
 
 from evaluator import Evaluator_PC, Evaluator_PC_Top3
 from model import *
@@ -39,7 +40,10 @@ def train_local(gpu, args, train_subset, test_subset):
     print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
 
     if rank == 0:
-        writer = SummaryWriter('runs/train_sg')
+        log_dir = 'runs/train_sg'
+        if os.path.exists(log_dir):
+            shutil.rmtree(log_dir)  # remove the old log directory if it exists
+        writer = SummaryWriter(log_dir)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_subset, num_replicas=world_size, rank=rank)
     train_loader = torch.utils.data.DataLoader(train_subset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=train_sampler)
