@@ -398,7 +398,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
 
                     ##############################
                     # Comment out the following lines if you are simply evaluating the local predictor and do not run the graphical refinement
-                    # yield sgg_results
+                    yield sgg_results
                     ##############################
 
                     # epochs == 1 means we are evaluating the graphical refinement results, otherwise we are training the graphical refinement module
