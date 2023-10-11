@@ -585,7 +585,7 @@ def batch_training(clip_model, tokenizer, attention_layer,
         optimizer.step()
 
         if writer is not None:  # rank == 0
-            global_step = batch_count + len(train_loader)
+            global_step = batch_count
             writer.add_scalar('train/running_loss_cos', running_loss_cos, global_step)
             writer.add_scalar('train/running_loss_con', running_loss_con, global_step)
             writer.add_scalar('train/running_loss', running_loss_con + running_loss_cos, global_step)
@@ -673,6 +673,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     setup(rank, world_size)
     print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
 
+    writer = None
     if rank == 0:
         log_dir = 'runs/train_sg'
         if os.path.exists(log_dir):
