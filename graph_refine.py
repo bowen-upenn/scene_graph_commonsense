@@ -16,6 +16,8 @@ from itertools import repeat
 import datetime
 import yaml
 import re
+from torch.utils.tensorboard import SummaryWriter
+import shutil
 
 from evaluate import *
 from utils import *
@@ -465,9 +467,9 @@ def prepare_training(attention_layer, current_edge_embeds, neighbor_edge_embeds,
     return predicted_txt_embeds.squeeze(dim=0)
 
 
-def batch_training(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
+def batch_training(clip_model, tokenizer, attention_layer,
                    optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
-                   images, graphs, target_triplets, data_len, batch_count, rank, args, training=True, verbose=False):
+                   graphs, target_triplets, data_len, batch_count, rank, args, writer=None, training=True, verbose=False):
 
     all_current_edges = []
     all_neighbor_edges = []
@@ -517,8 +519,8 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
                             break
 
             # find neighbor edges for the current edge
-            subject_neighbor_edges = graph.adj_list[subject_node][:20]  # maximum 20 neighbors each edge for more efficient training
-            object_neighbor_edges = graph.adj_list[object_node][:20]
+            subject_neighbor_edges = graph.adj_list[subject_node][:15]  # maximum 15 neighbors each edge for more efficient training
+            object_neighbor_edges = graph.adj_list[object_node][:15]
             if not training or current_target is None:
                 if current_edge in subject_neighbor_edges:
                     subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
@@ -573,7 +575,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
         # cos_loss = criterion(input1_positive, input2_positive)
         # con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
         con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
-        loss = con_loss
+        loss = cos_loss + con_loss
 
         running_loss_cos += cos_loss.item()
         running_loss_con += con_loss.item()
@@ -581,6 +583,13 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
         loss.backward()
 
         optimizer.step()
+
+        if writer is not None:  # rank == 0
+            global_step = batch_count + len(train_loader)
+            writer.add_scalar('train/running_loss_cos', running_loss_cos, global_step)
+            writer.add_scalar('train/running_loss_con', running_loss_con, global_step)
+            writer.add_scalar('train/running_loss', running_loss_con + running_loss_cos, global_step)
+
     scheduler.step()
 
     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
@@ -618,9 +627,9 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
     return graphs, attention_layer, running_loss_cos, running_loss_con, running_loss_counter
 
 
-def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
+def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
                               optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
-                              rank, batch_count, args, sgg_results, top_k, data_len, training=True, multiple_eval_iter=False, prev_graphs=None, verbose=False):
+                              rank, batch_count, args, sgg_results, top_k, data_len, writer=None, training=True, multiple_eval_iter=False, prev_graphs=None, verbose=False):
     if not multiple_eval_iter:
         top_k_predictions = sgg_results['top_k_predictions']
         if verbose:
@@ -643,9 +652,9 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
         graphs = prev_graphs
 
     updated_graphs, attention_layer, running_loss_cos, running_loss_con, running_loss_counter = \
-            batch_training(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
+            batch_training(clip_model, tokenizer, attention_layer,
                            optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
-                           images, graphs, target_triplets, data_len, batch_count, rank, args, training=training, verbose=verbose)
+                           graphs, target_triplets, data_len, batch_count, rank, args, writer=writer, training=training, verbose=verbose)
 
     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
         for batch_idx in range(len(images)):
@@ -664,6 +673,12 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     setup(rank, world_size)
     print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
 
+    if rank == 0:
+        log_dir = 'runs/train_sg'
+        if os.path.exists(log_dir):
+            shutil.rmtree(log_dir)  # remove the old log directory if it exists
+        writer = SummaryWriter(log_dir)
+
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=train_sampler)
     test_sampler = torch.utils.data.distributed.DistributedSampler(test_dataset, num_replicas=world_size, rank=rank)
@@ -678,7 +693,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     attention_layer = DDP(EdgeAttentionModel(d_model=clip_model.module.text_embed_dim)).to(rank)
     attention_layer.train()
 
-    all_possible_embeds = prepare_target_txt_embeds(clip_model, tokenizer, rank)
+    # all_possible_embeds = prepare_target_txt_embeds(clip_model, tokenizer, rank)
 
     optimizer = optim.Adam([
         {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
@@ -693,11 +708,11 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     if not args['training']['run_mode'] == 'clip_eval':
         # receive current SGG predictions from a baseline model
         if args['training']['eval_mode'] == 'pc':
-            sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=3)
+            sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1)
         elif args['training']['eval_mode'] == 'sgc':
-            sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=3)
+            sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1)
         elif args['training']['eval_mode'] == 'sgd':
-            sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=3)
+            sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1)
         else:
             raise NotImplementedError
 
@@ -713,10 +728,10 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
             attention_layer, running_loss_cos, running_loss_con, running_loss_counter = \
-                    process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
+                    process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
                                               optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
-                                              verbose=args['training']['verbose_global_refine'])
+                                              writer=writer, verbose=args['training']['verbose_global_refine'])
 
             if batch_count + 1 == num_training_steps:
                 if args['models']['hierarchical_pred']:
@@ -730,6 +745,9 @@ def query_clip(gpu, args, train_dataset, test_dataset):
         else:
             torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerNoSkip' + '_' + str(rank) + '.pth')
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
+
+    if rank == 0:
+        writer.close()
 
     # evaluate on test datasettr
     map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
@@ -756,12 +774,12 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             # use attention_layer trained just now
             for eval_iter in range(1):
                 if eval_iter == 0:
-                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
+                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
                                                                optimizer, scheduler, criterion, contrast_loss, 0.0, 0.0, 0,
                                                                rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=False, verbose=args['training']['verbose_global_refine'])
                 else:
-                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
+                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
                                                                optimizer, scheduler, criterion, contrast_loss, 0.0, 0.0, 0,
                                                                rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=True, prev_graphs=updated_graphs, verbose=args['training']['verbose_global_refine'])

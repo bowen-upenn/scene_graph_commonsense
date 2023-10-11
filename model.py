@@ -441,7 +441,7 @@ class RelationshipRefiner(nn.Module):
 
 
 class EdgeAttentionModel(nn.Module):
-    def __init__(self, d_model, nhead=16, num_decoder_layers=6):
+    def __init__(self, d_model, nhead=8, num_decoder_layers=3):
         super(EdgeAttentionModel, self).__init__()
         self.d_model = d_model
 
