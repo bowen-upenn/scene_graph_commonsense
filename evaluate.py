@@ -402,7 +402,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
                     ##############################
 
                     # epochs == 1 means we are evaluating the graphical refinement results, otherwise we are training the graphical refinement module
-                    if epochs == 1 or (epochs > 1 and ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(test_loader)))):
+                    if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=True)
