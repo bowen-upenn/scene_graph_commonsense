@@ -56,14 +56,18 @@ class ImageGraph:
         # store all nodes and their degree
         self.nodes = []
         self.edges = []
-        self.edge_embeddings = {}   # key: edge, value: concatenated clip text and vision embedding
+        self.edge_embeddings = {}   # key: edge, value: concatenated clip text and vision embedding of the edge
+        self.rel_embeddings = {}    # key: edge, value: clip text embedding of the relationship on the edge
         self.confidence = []    # only record new confidence after refinement
 
     def prepare_clip_embeds(self, subject_bbox, object_bbox, string, image):
         with torch.no_grad():
+            _, relation, _ = extract_words_from_edge(string, all_labels)
             inputs = self.tokenizer([string], padding=False, return_tensors="pt").to(self.rank)
             txt_embed = self.clip_model.module.get_text_features(**inputs)
             txt_embed = F.normalize(txt_embed, dim=1, p=2)
+            inputs = self.tokenizer([relation], padding=False, return_tensors="pt").to(self.rank)
+            relation_embed = self.clip_model.module.get_text_features(**inputs)
 
             image = image.to(self.rank)
             mask_sub = torch.zeros((1, image.shape[1], image.shape[2]), dtype=torch.bool).to(self.rank)
@@ -80,7 +84,7 @@ class ImageGraph:
             img_embed = img_embed.view(1, -1)
 
         edge_embed = torch.cat([txt_embed, img_embed], dim=1)
-        return edge_embed
+        return edge_embed, relation_embed
 
     def add_edge(self, subject_bbox, object_bbox, relation_id, string, image, training=True, verbose=False):
         subject_bbox, object_bbox = tuple(subject_bbox), tuple(object_bbox)
@@ -92,8 +96,9 @@ class ImageGraph:
             self.confidence.append(-1)
 
             # add clip text and image embeddings of this edge
-            edge_embed = self.prepare_clip_embeds(subject_bbox, object_bbox, string, image)
+            edge_embed, relation_embed = self.prepare_clip_embeds(subject_bbox, object_bbox, string, image)
             self.edge_embeddings[edge] = edge_embed
+            self.rel_embeddings[edge] = relation_embed
 
         if subject_bbox not in self.nodes:
             self.nodes.append(subject_bbox)
@@ -121,8 +126,9 @@ class ImageGraph:
             # if matched_target_edge is different from the current edge
             if matched_target_edge not in self.edge_embeddings:
                 matched_subject_bbox, matched_object_bbox, matched_string = matched_target_edge[0], matched_target_edge[2], matched_target_edge[3]
-                matched_edge_embed = self.prepare_clip_embeds(matched_subject_bbox, matched_object_bbox, matched_string, image)
+                matched_edge_embed, matched_relation_embed = self.prepare_clip_embeds(matched_subject_bbox, matched_object_bbox, matched_string, image)
                 self.edge_embeddings[matched_target_edge] = matched_edge_embed
+                self.rel_embeddings[matched_target_edge] = matched_relation_embed
 
         else:
             self.adj_list[subject_bbox].append(edge)
@@ -428,7 +434,7 @@ def find_negative_targets(current_subject, current_object, target_label, target_
     return candidate_txt_embeds
 
 
-def prepare_training(attention_layer, current_edges, neighbor_edges, current_edge_embeds, neighbor_edge_embeds, rank, verbose=False):
+def prepare_training(attention_layer, current_edge_embeds, neighbor_edge_embeds, all_relation_embeds, rank, verbose=False):
     """
     - tgt::math: `(T, E)`, for unbatched input,: math: `(T, N, E)` if `batch_first = False ` by default or `(N, T, E)` if `batch_first = True.
     - tgt_mask: `(T, T)`
@@ -439,7 +445,9 @@ def prepare_training(attention_layer, current_edges, neighbor_edges, current_edg
     # ---------------------------------------------------------------------------- #
     query = torch.stack(current_edge_embeds).permute(1, 0, 2)  # size [seq_len, batch_size, hidden_dim]
     memory = [torch.stack(embeds).squeeze(dim=1) for embeds in neighbor_edge_embeds]
-    print('query', query.shape, 'memory', len(memory), memory[0].shape)
+    init_pred = torch.stack(all_relation_embeds).permute(1, 0, 2)
+    if verbose:
+        print('query', query.shape, 'init_pred', init_pred.shape, 'memory', len(memory), memory[0].shape)
 
     # generate memory_key_padding_mask to handle paddings in the memories
     seq_len = [len(embed) for embed in neighbor_edge_embeds]
@@ -449,12 +457,14 @@ def prepare_training(attention_layer, current_edges, neighbor_edges, current_edg
 
     # pad all memories in the batch
     memory = pad_sequence(memory, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
-    print('memory', memory.shape)
+    if verbose:
+        print('memory', memory.shape)
 
-    predicted_txt_embeds = attention_layer(query.to(rank), memory.to(rank), memory_key_padding_mask=memory_key_padding_mask)
-    print('predicted_txt_embeds', predicted_txt_embeds.shape)
+    predicted_txt_embeds = attention_layer(query.to(rank), memory.to(rank), init_pred.to(rank), memory_key_padding_mask=memory_key_padding_mask)
+    if verbose:
+        print('predicted_txt_embeds', predicted_txt_embeds.shape)
 
-    return predicted_txt_embeds
+    return predicted_txt_embeds.squeeze(dim=0)
 
 
 def batch_training(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
@@ -465,6 +475,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
     all_neighbor_edges = []
     all_current_edge_embeds = []
     all_neighbor_edge_embeds = []
+    all_relation_embeds = []
     all_target_txt_embeds = []
     all_negative_target_txt_embeds = []
     all_targets = []
@@ -526,12 +537,13 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
 
             all_current_edges.append(current_edge)
             all_current_edge_embeds.append(graphs[graph_idx].edge_embeddings[current_edge])
+            all_relation_embeds.append(graphs[graph_idx].rel_embeddings[current_edge])
             all_neighbor_edges.append(neighbor_edges)
             all_neighbor_edge_embeds.append(neighbor_edge_embeds)
 
     # forward pass
     if len(all_targets) > 0 or (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
-        predicted_txt_embeds = prepare_training(attention_layer, all_current_edges, all_neighbor_edges, all_current_edge_embeds, all_neighbor_edge_embeds, rank, verbose=verbose)
+        predicted_txt_embeds = prepare_training(attention_layer, all_current_edge_embeds, all_neighbor_edge_embeds, all_relation_embeds, rank, verbose=verbose)
 
     target_mask = torch.tensor(target_mask).to(rank)
     if training and len(all_targets) > 0:
@@ -557,13 +569,13 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
 
         optimizer.zero_grad()
 
-        # cos_loss = criterion(input1_positive, input2_positive, labels_positive)
+        cos_loss = criterion(input1_positive, input2_positive, labels_positive)
         # cos_loss = criterion(input1_positive, input2_positive)
         # con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
         con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
         loss = con_loss
 
-        # running_loss_cos += cos_loss.item()
+        running_loss_cos += cos_loss.item()
         running_loss_con += con_loss.item()
         running_loss_counter += 1
         loss.backward()
@@ -603,7 +615,7 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss_cos / (running_loss_counter + 1e-5)}, {running_loss_con / (running_loss_counter + 1e-5)}, '
               f'lr {scheduler.get_last_lr()[0]}')
 
-    return graphs, attention_layer, relationship_refiner, running_loss_cos, running_loss_con, running_loss_counter,
+    return graphs, attention_layer, running_loss_cos, running_loss_con, running_loss_counter
 
 
 def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_possible_embeds,
@@ -663,7 +675,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
-    attention_layer = DDP(EdgeAttentionModel(d_model=clip_model.module.text_embed_dim * 3)).to(rank)
+    attention_layer = DDP(EdgeAttentionModel(d_model=clip_model.module.text_embed_dim)).to(rank)
     attention_layer.train()
 
     all_possible_embeds = prepare_target_txt_embeds(clip_model, tokenizer, rank)

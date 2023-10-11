@@ -441,15 +441,18 @@ class RelationshipRefiner(nn.Module):
 
 
 class EdgeAttentionModel(nn.Module):
-    def __init__(self, d_model, nhead=8, num_decoder_layers=6):
+    def __init__(self, d_model, nhead=16, num_decoder_layers=6):
         super(EdgeAttentionModel, self).__init__()
+        self.d_model = d_model
 
         # Transformer components
-        decoder_layer = nn.TransformerDecoderLayer(d_model, nhead)
+        decoder_layer = nn.TransformerDecoderLayer(d_model * 3, nhead)
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_decoder_layers)
+        self.output = nn.Linear(d_model * 3, d_model)
 
-    def forward(self, tgt, memory, memory_key_padding_mask=None):
+    def forward(self, tgt, memory, init_pred, memory_key_padding_mask=None):
         # tgt: (1, batch_size, d_model) for the query embedding
         # memory: (max_neighbors, batch_size, d_model) for the neighbor embeddings
         output = self.transformer_decoder(tgt, memory, memory_key_padding_mask=memory_key_padding_mask)
+        output = self.output(output) + init_pred  # skip connection
         return output
