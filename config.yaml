@@ -62,8 +62,8 @@ training:
     lambda_contrast: 1
     lambda_connectivity: 0.1
     lambda_not_connected: 1
-    print_freq: 100
-    eval_freq: 100
+    print_freq: 50
+    eval_freq: 50
     print_freq_test: 50
     eval_freq_test: 1
     topk_global_refine: 50

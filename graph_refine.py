@@ -292,8 +292,6 @@ def prepare_target_txt_embeds(clip_model, tokenizer, rank):
 
 
 def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edges, rank, args, verbose=False):
-    # print('predicted_txt_embeds', torch.min(predicted_txt_embeds), torch.max(predicted_txt_embeds), torch.mean(predicted_txt_embeds))
-
     # pre-compute common arguments
     num_geom, num_poss, num_sem = args['models']['num_geometric'], args['models']['num_possessive'], args['models']['num_semantic']
 
@@ -548,10 +546,12 @@ def batch_training(clip_model, processor, tokenizer, attention_layer, all_possib
     target_mask = torch.tensor(target_mask).to(rank)
     if training and len(all_targets) > 0:
         all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
+        # print('all_target_txt_embeds', torch.min(all_target_txt_embeds), torch.mean(all_target_txt_embeds), torch.max(all_target_txt_embeds))
+        # print('predicted_txt_embeds', torch.min(predicted_txt_embeds[target_mask]), torch.mean(predicted_txt_embeds[target_mask]), torch.max(predicted_txt_embeds[target_mask]))
         # all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
         # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
 
-        input1_positive = predicted_txt_embeds[target_mask]
+        input1_positive = F.normalize(predicted_txt_embeds[target_mask], dim=1, p=2)
         input2_positive = all_target_txt_embeds
         labels_positive = torch.ones(len(all_targets)).to(rank)
         # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
