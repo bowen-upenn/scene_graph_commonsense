@@ -475,12 +475,15 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
     all_target_txt_embeds = []
     all_negative_target_txt_embeds = []
     all_targets = []
+    all_edge_indices = []
     target_mask = []    # mask of predicate that has matched with a target
     edges_per_image = []
 
     for graph_idx, (graph, targets) in enumerate(zip(graphs, target_triplets)):
-        edges_per_image.append(len(graph.edges))
+        # edges_per_image.append(len(graph.edges))
+        old_all_current_edges_len = len(all_current_edges)
 
+        edge_indices = []
         for edge_idx, current_edge in enumerate(graph.edges):
             subject_node, object_node = current_edge[0], current_edge[2]
             current_subject, _, current_object = extract_words_from_edge(current_edge[-1], all_labels)
@@ -514,83 +517,91 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
                             #                                                             clip_model, tokenizer, rank, args))
                             break
 
-            # find neighbor edges for the current edge
-            subject_neighbor_edges = graph.adj_list[subject_node][:15]  # maximum 15 neighbors each edge for more efficient training
-            object_neighbor_edges = graph.adj_list[object_node][:15]
-            if not training or current_target is None:
-                if current_edge in subject_neighbor_edges:
-                    subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
-                if current_edge in object_neighbor_edges:
-                    object_neighbor_edges.remove(current_edge)
-            else:
-                if current_target in subject_neighbor_edges:
-                    subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
-                if current_target in object_neighbor_edges:
-                    object_neighbor_edges.remove(current_target)
+                if current_target is not None:
+                    edge_indices.append(edge_idx)
+                    # find neighbor edges for the current edge
+                    subject_neighbor_edges = graph.adj_list[subject_node][:15]  # maximum 15 neighbors each edge for more efficient training
+                    object_neighbor_edges = graph.adj_list[object_node][:15]
+                    # if not training:
+                    if current_edge in subject_neighbor_edges:
+                        subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
+                    if current_edge in object_neighbor_edges:
+                        object_neighbor_edges.remove(current_edge)
+                    # else:
+                    #     if current_target in subject_neighbor_edges:
+                    #         subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
+                    #     if current_target in object_neighbor_edges:
+                    #         object_neighbor_edges.remove(current_target)
 
-            neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
-            neighbor_edge_embeds = [graphs[graph_idx].edge_embeddings[edge] for edge in neighbor_edges]
-            neighbor_rel_embeds = [graphs[graph_idx].rel_embeddings[edge] for edge in neighbor_edges]
+                    neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
+                    neighbor_edge_embeds = [graphs[graph_idx].edge_embeddings[edge] for edge in neighbor_edges]
+                    neighbor_rel_embeds = [graphs[graph_idx].rel_embeddings[edge] for edge in neighbor_edges]
 
-            all_current_edges.append(current_edge)
-            all_current_edge_embeds.append(graphs[graph_idx].edge_embeddings[current_edge])
-            all_current_rel_embeds.append(graphs[graph_idx].rel_embeddings[current_edge])
-            all_neighbor_edges.append(neighbor_edges)
-            all_neighbor_edge_embeds.append(neighbor_edge_embeds)
-            all_neighbor_rel_embeds.append(neighbor_rel_embeds)
+                    all_current_edges.append(current_edge)
+                    all_current_edge_embeds.append(graphs[graph_idx].edge_embeddings[current_edge])
+                    all_current_rel_embeds.append(graphs[graph_idx].rel_embeddings[current_edge])
+                    all_neighbor_edges.append(neighbor_edges)
+                    all_neighbor_edge_embeds.append(neighbor_edge_embeds)
+                    all_neighbor_rel_embeds.append(neighbor_rel_embeds)
+
+        all_edge_indices.append(edge_indices)
+        edges_per_image.append(len(all_current_edges) - old_all_current_edges_len)
 
     # forward pass
-    if len(all_targets) > 0 or (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
+    if len(all_targets) > 0 and ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len)):
         predicted_txt_embeds = prepare_training(attention_layer, all_current_edge_embeds, all_neighbor_edge_embeds, all_neighbor_rel_embeds, all_current_rel_embeds, rank, verbose=verbose)
+        if predicted_txt_embeds.ndimension() == 1:
+            predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=0)
 
-    target_mask = torch.tensor(target_mask).to(rank)
-    if training and len(all_targets) > 0:
-        all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
-        # print('all_target_txt_embeds', torch.min(all_target_txt_embeds), torch.mean(all_target_txt_embeds), torch.max(all_target_txt_embeds))
-        # print('predicted_txt_embeds', torch.min(predicted_txt_embeds[target_mask]), torch.mean(predicted_txt_embeds[target_mask]), torch.max(predicted_txt_embeds[target_mask]))
-        # all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
-        # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
+        # target_mask = torch.tensor(target_mask).to(rank)
+        if training:
+            all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
+            # print('all_target_txt_embeds', torch.min(all_target_txt_embeds), torch.mean(all_target_txt_embeds), torch.max(all_target_txt_embeds))
+            # print('predicted_txt_embeds', torch.min(predicted_txt_embeds[target_mask]), torch.mean(predicted_txt_embeds[target_mask]), torch.max(predicted_txt_embeds[target_mask]))
+            # all_negative_target_txt_embeds = torch.stack(all_negative_target_txt_embeds)  # size [batch_size, num_rel-1, hidden_embed]
+            # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
 
-        input1_positive = F.normalize(predicted_txt_embeds[target_mask], dim=1, p=2)
-        input2_positive = all_target_txt_embeds
-        # labels_positive = torch.ones(len(all_targets)).to(rank)
-        # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
-        # print('before', input1_positive[:, 0], all_negative_target_txt_embeds[0, :, 0])
+            # input1_positive = F.normalize(predicted_txt_embeds[target_mask], dim=1, p=2)
+            input1_positive = F.normalize(predicted_txt_embeds, dim=1, p=2)
+            input2_positive = all_target_txt_embeds
+            # labels_positive = torch.ones(len(all_targets)).to(rank)
+            # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
+            # print('before', input1_positive[:, 0], all_negative_target_txt_embeds[0, :, 0])
 
-        # input1_negative = predicted_txt_embeds[target_mask].repeat_interleave(args['models']['num_negatives'], dim=0)
-        # input2_negative = all_negative_target_txt_embeds.reshape(-1, input1_negative.shape[1])
-        # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
-        # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
-        # labels_negative = torch.full((len(all_targets) * args['models']['num_negatives'],), -1).to(rank)
-        #
-        # input1 = torch.cat([input1_positive, input1_negative], dim=0)
-        # input2 = torch.cat([input2_positive, input2_negative], dim=0)
-        # labels = torch.cat([labels_positive, labels_negative], dim=0)
+            # input1_negative = predicted_txt_embeds[target_mask].repeat_interleave(args['models']['num_negatives'], dim=0)
+            # input2_negative = all_negative_target_txt_embeds.reshape(-1, input1_negative.shape[1])
+            # # print('input1_negative', input1_negative.shape, 'input2_negative', input2_negative.shape)
+            # # print('after', input1_negative[:, 0], all_negative_target_txt_embeds[:49, 0])
+            # labels_negative = torch.full((len(all_targets) * args['models']['num_negatives'],), -1).to(rank)
+            #
+            # input1 = torch.cat([input1_positive, input1_negative], dim=0)
+            # input2 = torch.cat([input2_positive, input2_negative], dim=0)
+            # labels = torch.cat([labels_positive, labels_negative], dim=0)
 
-        optimizer.zero_grad()
+            optimizer.zero_grad()
 
-        # cos_loss = criterion(input1_positive, input2_positive, labels_positive)
-        cos_loss = criterion(input1_positive, input2_positive)
-        # con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
-        # con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
-        loss = cos_loss #+ con_loss
+            # cos_loss = criterion(input1_positive, input2_positive, labels_positive)
+            cos_loss = criterion(input1_positive, input2_positive)
+            # con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
+            # con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
+            loss = cos_loss #+ con_loss
 
-        running_loss_cos += cos_loss.item()
-        # running_loss_con += con_loss.item()
-        running_loss_counter += 1
-        loss.backward()
+            running_loss_cos += cos_loss.item()
+            # running_loss_con += con_loss.item()
+            running_loss_counter += 1
+            loss.backward()
 
-        optimizer.step()
+            optimizer.step()
 
-        if rank == 0:
-            global_step = batch_count
-            writer.add_scalar('train/running_loss_cos', running_loss_cos, global_step)
-            # writer.add_scalar('train/running_loss_con', running_loss_con, global_step)
-            # writer.add_scalar('train/running_loss', running_loss_con + running_loss_cos, global_step)
+            if rank == 0:
+                global_step = batch_count
+                writer.add_scalar('train/running_loss_cos', running_loss_cos, global_step)
+                # writer.add_scalar('train/running_loss_con', running_loss_con, global_step)
+                # writer.add_scalar('train/running_loss', running_loss_con + running_loss_cos, global_step)
 
-    scheduler.step()
+            scheduler.step()
 
-    if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
+    if len(all_targets) > 0 and ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len)):
         updated_edges = eval_refined_output(predicted_txt_embeds, all_current_edges, all_relation_embeds, args, verbose=verbose)
 
         # saved_name = 'results/visualization_results/init_predicates_' + str(batch_count) + '.pt'
@@ -602,8 +613,13 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
             # old_graph = graph.edges.copy()
             # print('old graphs.edges', graph.edges[:5])
 
-            graph.edges = updated_edges[counter:counter + edges_per_image[idx]]
-            # graph.confidence = confidences[counter:counter + edges_per_image[idx]]
+            if edges_per_image[idx] > 0:
+                updated_indices = torch.as_tensor(all_edge_indices[idx])
+                # print('updated_indices', len(updated_indices), updated_indices)
+                # print('updated_edges[counter:counter + edges_per_image[idx]]', updated_edges[counter:counter + edges_per_image[idx]])
+                for i, id in enumerate(updated_indices):
+                    graph.edges[id] = updated_edges[counter:counter + edges_per_image[idx]][i]
+            # # graph.confidence = confidences[counter:counter + edges_per_image[idx]]
             counter += edges_per_image[idx]
 
             # # print('new graphs.edges', graph.edges[:5])
@@ -615,7 +631,6 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
         # saved_name = 'results/visualization_results/refined_predicates_' + str(batch_count) + '.pt'
         # print('saved_name', saved_name)
         # torch.save(graphs[0].edges, saved_name)
-
 
     if training and ((batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == data_len)):
         print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss_cos / (running_loss_counter + 1e-5)}, ' #{running_loss_con / (running_loss_counter + 1e-5)}, '

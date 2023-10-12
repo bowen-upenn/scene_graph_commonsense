@@ -332,6 +332,7 @@ class Evaluator_PC:
 
         # assign new relation predictions
         # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
+        # print('self.relation_pred', len(self.relation_pred[curr_image]), len(self.relation_pred[curr_image][keep_inds]), 'refined_relation_pred', len(refined_relation_pred))
         tmp = self.relation_pred[curr_image].clone()
         for i, idx in enumerate(keep_inds):
             tmp[idx] = refined_relation_pred[i]
