@@ -441,18 +441,48 @@ class RelationshipRefiner(nn.Module):
 
 
 class EdgeAttentionModel(nn.Module):
-    def __init__(self, d_model, nhead=8, num_decoder_layers=3):
+    def __init__(self, d_model, nhead=8):
         super(EdgeAttentionModel, self).__init__()
         self.d_model = d_model
 
         # Transformer components
-        decoder_layer = nn.TransformerDecoderLayer(d_model * 3, nhead)
-        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_decoder_layers)
-        self.output = nn.Linear(d_model * 3, d_model)
+        self.multihead_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=nhead, dropout=0.1)
 
-    def forward(self, tgt, memory, init_pred, memory_key_padding_mask=None):
-        # tgt: (1, batch_size, d_model) for the query embedding
-        # memory: (max_neighbors, batch_size, d_model) for the neighbor embeddings
-        output = self.transformer_decoder(tgt, memory, memory_key_padding_mask=memory_key_padding_mask)
-        output = self.output(output) + init_pred  # skip connection
+        # Feedforward layers for transformation
+        self.in_proj_query = nn.Linear(d_model * 3, d_model)
+        self.in_proj_key = nn.Linear(d_model * 3, d_model)
+        self.feed_forward = nn.Sequential(
+            nn.Linear(d_model, 2 * d_model),
+            nn.ReLU(),
+            nn.Linear(2 * d_model, d_model)
+        )
+
+    def forward(self, queries, keys, values, init_pred, key_padding_mask=None):
+        """
+        queries: (1, batch_size, d_model * 3) for the current edge embeddings
+        keys: (max_neighbors, batch_size, d_model * 3) for the neighbor edge embeddings
+        values: (max_neighbors, batch_size, d_model) for the neighbor relation embeddings
+        init_pred: (1, batch_size, d_model) for the current relation embeddings from initial predictions
+        """
+        queries = self.in_proj_query(queries)
+        keys = self.in_proj_key(keys)
+        attn_output, attn_output_weights = self.multihead_attn(query=queries, key=keys, value=values, key_padding_mask=key_padding_mask)
+        output = self.feed_forward(attn_output.squeeze(dim=0)) + init_pred.squeeze(dim=0)  # skip connection
         return output
+
+# class EdgeAttentionModel(nn.Module):
+#     def __init__(self, d_model, nhead=8, num_decoder_layers=3):
+#         super(EdgeAttentionModel, self).__init__()
+#         self.d_model = d_model
+#
+#         # Transformer components
+#         decoder_layer = nn.TransformerDecoderLayer(d_model * 3, nhead)
+#         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_decoder_layers)
+#         self.output = nn.Linear(d_model * 3, d_model)
+#
+#     def forward(self, tgt, memory, init_pred, memory_key_padding_mask=None):
+#         # tgt: (1, batch_size, d_model) for the query embedding
+#         # memory: (max_neighbors, batch_size, d_model) for the neighbor embeddings
+#         output = self.transformer_decoder(tgt, memory, memory_key_padding_mask=memory_key_padding_mask)
+#         output = self.output(output) + init_pred  # skip connection
+#         return output

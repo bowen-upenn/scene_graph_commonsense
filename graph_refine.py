@@ -179,6 +179,15 @@ class ImageGraph:
         return degrees
 
 
+class CosineSimilarityLoss(nn.Module):
+    def __init__(self):
+        super(CosineSimilarityLoss, self).__init__()
+        self.cosine_similarity = nn.CosineSimilarity(dim=1, eps=1e-6)
+
+    def forward(self, x, y):
+        return 1 - self.cosine_similarity(x, y).mean()
+
+
 def colored_text(text, color_code):
     return f"\033[{color_code}m{text}\033[0m"
 
@@ -289,128 +298,112 @@ def prepare_target_txt_embeds(clip_model, tokenizer, rank):
     inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
     with torch.no_grad():
         all_possible_embeds = clip_model.module.get_text_features(**inputs)  # size [num_edges * 50, hidden_embed]
+    all_possible_embeds = F.normalize(all_possible_embeds, dim=1, p=2)
 
     return all_possible_embeds
 
 
-def eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, current_edges, rank, args, verbose=False):
+def eval_refined_output(predicted_txt_embeds, current_edges, all_relation_embeds, args, verbose=False):
     # pre-compute common arguments
     num_geom, num_poss, num_sem = args['models']['num_geometric'], args['models']['num_possessive'], args['models']['num_semantic']
 
-    # extract current subject and object from the edge
-    queries = []
-    num_candidate_labels = []
-    for current_edge in current_edges:
-        if args['models']['hierarchical_pred']:
-            relation_id = current_edge[1]
-            if relation_id < num_geom:
-                # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_geometric)
-                queries.extend([f"{label}" for label in all_labels_geometric])
-                num_candidate_labels.append(num_geom)
-            elif num_geom <= relation_id < num_geom + num_poss:
-                # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_possessive)
-                queries.extend([f"{label}" for label in all_labels_possessive])
-                num_candidate_labels.append(num_poss)
-            else:
-                # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels_semantic)
-                queries.extend([f"{label}" for label in all_labels_semantic])
-                num_candidate_labels.append(num_sem)
-        else:
-            # subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
-            queries.extend([f"{label}" for label in all_labels])
+    # Compute all cosine similarities in one go using matrix multiplication
+    predicted_txt_embeds = F.normalize(predicted_txt_embeds, p=2, dim=1)
+    all_relation_embeds = F.normalize(all_relation_embeds, p=2, dim=1)
+    cos_sims_all = torch.mm(predicted_txt_embeds, all_relation_embeds.t())
+    cos_sims_all = F.softmax(cos_sims_all, dim=1)
 
-    predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=1)
-
-    # collect text_embeds for all possible labels
-    inputs = tokenizer(queries, padding=True, return_tensors="pt").to(rank)
-    with torch.no_grad():
-        all_possible_embeds = clip_model.module.get_text_features(**inputs)     # size [num_edges * 50, hidden_embed]
-    all_possible_embeds = F.normalize(all_possible_embeds, dim=1, p=2)
-
-    if args['models']['hierarchical_pred']:
-        # split out each data sample in the batch
-        all_possible_embeds = torch.split(all_possible_embeds, [num for num in num_candidate_labels])
-
-        num_candidate_labels = torch.tensor(num_candidate_labels).to(rank)
-        max_vals = -torch.ones(len(current_edges), dtype=torch.float32).to(rank)
-        max_indices = -torch.ones(len(current_edges), dtype=torch.int64).to(rank)
-
-        mask_geom = num_candidate_labels == num_geom
-        mask_poss = num_candidate_labels == num_poss
-        mask_sem = num_candidate_labels == num_sem
-
-        # get integer indices for each label type
-        ids_geometric = torch.nonzero(mask_geom).flatten()
-        ids_possessive = torch.nonzero(mask_poss).flatten()
-        ids_semantic = torch.nonzero(mask_sem).flatten()
-        all_possible_embeds_geom = torch.stack([all_possible_embeds[i] for i in ids_geometric]) if torch.sum(ids_geometric) > 0 else None
-        all_possible_embeds_poss = torch.stack([all_possible_embeds[i] for i in ids_possessive]) if torch.sum(ids_possessive) > 0 else None
-        all_possible_embeds_sem = torch.stack([all_possible_embeds[i] for i in ids_semantic]) if torch.sum(ids_semantic) > 0 else None
-
-        # calculate Cosine Similarities
-        CosSim = nn.CosineSimilarity(dim=2)
-        for label_type, masked_ids, embeds in [("geometric", mask_geom, all_possible_embeds_geom),
-                                               ("possessive", mask_poss, all_possible_embeds_poss),
-                                               ("semantic", mask_sem, all_possible_embeds_sem)]:
-            if embeds is not None:
-                cos_sims = CosSim(predicted_txt_embeds[masked_ids], embeds)
-                cos_sims = F.softmax(cos_sims, dim=1)
-                max_vals_cur, max_indices_cur = cos_sims.max(dim=1)
-
-                max_vals[masked_ids] = max_vals_cur
-                max_indices[masked_ids] = max_indices_cur
-
-        if verbose:
-            print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds_geom', all_possible_embeds_geom.shape,
-                  'all_possible_embeds_poss', all_possible_embeds_poss.shape, 'all_possible_embeds_sem', all_possible_embeds_sem.shape)
-    else:
-        all_possible_embeds = torch.split(all_possible_embeds, [len(all_labels) for _ in range(len(current_edges))])    # size [[50, hidden_embed] * num_edges]
-        all_possible_embeds = torch.stack(all_possible_embeds)    # size [num_edges, 50, hidden_embed]
-
-        # compute cosine similarity between predicted embedding and all query embeddings
-        CosSim = nn.CosineSimilarity(dim=2)  # Set dim=2 to compute cosine similarity across the embedding dimension
-        cos_sims = CosSim(predicted_txt_embeds, all_possible_embeds)
-        cos_sims = F.softmax(cos_sims, dim=1)
-        max_vals, max_indices = cos_sims.max(dim=1)
-
-        if verbose:
-            print('predicted_txt_embeds', predicted_txt_embeds.shape, 'all_possible_embeds', all_possible_embeds.shape)
-
+    # Initialize updated edges
     updated_edges = []
-    for idx, current_edge in enumerate(current_edges):
-        if args['models']['hierarchical_pred']:
-            if num_candidate_labels[idx] == num_geom:
-                predicted_rel = all_labels_geometric[max_indices[idx]]
-                predicted_rel_id = max_indices[idx].item()
-            elif num_candidate_labels[idx] == num_poss:
-                predicted_rel = all_labels_possessive[max_indices[idx]]
-                predicted_rel_id = max_indices[idx].item() + num_geom
-            else:
-                predicted_rel = all_labels_semantic[max_indices[idx]]
-                predicted_rel_id = max_indices[idx].item() + num_geom + num_poss
-        else:
-            predicted_rel = all_labels[max_indices[idx]]
-            predicted_rel_id = max_indices[idx].item()
 
+    for idx, (current_edge, predicted_txt_embed) in enumerate(zip(current_edges, predicted_txt_embeds)):
         subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
+        relation_id = current_edge[1]
+
+        if args['models']['hierarchical_pred']:
+            # Use masks to compute the required values
+            if relation_id < num_geom:
+                mask = torch.zeros_like(cos_sims_all[idx])
+                mask[:num_geom] = 1
+            elif num_geom <= relation_id < num_geom + num_poss:
+                mask = torch.zeros_like(cos_sims_all[idx])
+                mask[num_geom:num_geom + num_poss] = 1
+            else:
+                mask = torch.zeros_like(cos_sims_all[idx])
+                mask[num_geom + num_poss:] = 1
+            cos_sims = cos_sims_all[idx] * mask
+        else:
+            cos_sims = cos_sims_all[idx]
+
+        max_val, max_ind = cos_sims.max(dim=0)
+        predicted_rel = all_labels[max_ind]
         updated_phrase = subject + predicted_rel + object
-        updated_edge = (current_edge[0], predicted_rel_id, current_edge[2], updated_phrase)
+        updated_edge = (current_edge[0], max_ind.item(), current_edge[2], updated_phrase)
         updated_edges.append(updated_edge)
 
-        # show the results
         if verbose:
             light_blue_code = 94
             light_pink_code = 95
             text_blue_colored = colored_text(predicted_rel, light_blue_code)
             text_pink_colored = colored_text(relation, light_pink_code)
-            print(f"Predicted label: '{text_blue_colored}' with confidence {max_vals[idx]}, Old label: '{text_pink_colored}'")
+            print(f"Predicted label: '{text_blue_colored}' with confidence {max_val}, Old label: '{text_pink_colored}'")
 
             dark_blue_code = 34
             text_blue_colored = colored_text(updated_edge, dark_blue_code)
             print('Updated_edge', text_blue_colored, '\n')
 
-    # print('max_vals', max_vals, 'max_indices', max_indices)
-    return updated_edges, max_vals
+    return updated_edges
+# def eval_refined_output(predicted_txt_embeds, current_edges, all_relation_embeds, args, verbose=False):
+#     # pre-compute common arguments
+#     num_geom, num_poss, num_sem = args['models']['num_geometric'], args['models']['num_possessive'], args['models']['num_semantic']
+#     CosSim = nn.CosineSimilarity(dim=1)
+#
+#     updated_edges = []
+#     if args['models']['hierarchical_pred']:
+#         for current_edge, predicted_txt_embed in zip(current_edges, predicted_txt_embeds):
+#             subject, relation, object = extract_words_from_edge(current_edge[-1], all_labels)
+#             relation_id = current_edge[1]
+#             if relation_id < num_geom:
+#                 cos_sims = CosSim(predicted_txt_embed, all_relation_embeds[:num_geom])
+#                 cos_sims = F.softmax(cos_sims, dim=0)
+#                 max_val, max_ind = cos_sims.max(dim=0)
+#
+#                 predicted_rel = all_labels[max_ind]
+#                 predicted_rel_id = max_ind.item()
+#
+#             elif num_geom <= relation_id < num_geom + num_poss:
+#                 cos_sims = CosSim(predicted_txt_embed, all_relation_embeds[num_geom:num_geom + num_poss])
+#                 cos_sims = F.softmax(cos_sims, dim=0)
+#                 max_val, max_ind = cos_sims.max(dim=0)
+#
+#                 predicted_rel = all_labels[num_geom + max_ind]
+#                 predicted_rel_id = max_ind.item() + num_geom
+#
+#             else:
+#                 cos_sims = CosSim(predicted_txt_embed, all_relation_embeds[num_geom + num_poss:])
+#                 cos_sims = F.softmax(cos_sims, dim=0)
+#                 max_val, max_ind = cos_sims.max(dim=0)
+#
+#                 predicted_rel = all_labels[num_geom + num_poss + max_ind]
+#                 predicted_rel_id = max_ind.item() + num_geom + num_poss
+#
+#             updated_phrase = subject + predicted_rel + object
+#             updated_edge = (current_edge[0], predicted_rel_id, current_edge[2], updated_phrase)
+#             updated_edges.append(updated_edge)
+#
+#             # show the results
+#             if verbose:
+#                 light_blue_code = 94
+#                 light_pink_code = 95
+#                 text_blue_colored = colored_text(predicted_rel, light_blue_code)
+#                 text_pink_colored = colored_text(relation, light_pink_code)
+#                 print(f"Predicted label: '{text_blue_colored}' with confidence {max_vals[idx]}, Old label: '{text_pink_colored}'")
+#
+#                 dark_blue_code = 34
+#                 text_blue_colored = colored_text(updated_edge, dark_blue_code)
+#                 print('Updated_edge', text_blue_colored, '\n')
+#
+#     return updated_edges
 
 
 def find_negative_targets(current_subject, current_object, target_label, target_txt_embed, clip_model, tokenizer, rank, args):
@@ -434,7 +427,7 @@ def find_negative_targets(current_subject, current_object, target_label, target_
     return candidate_txt_embeds
 
 
-def prepare_training(attention_layer, current_edge_embeds, neighbor_edge_embeds, all_relation_embeds, rank, verbose=False):
+def prepare_training(attention_layer, current_edge_embeds, neighbor_edge_embeds, neighbor_rel_embeds, relation_embeds, rank, verbose=False):
     """
     - tgt::math: `(T, E)`, for unbatched input,: math: `(T, N, E)` if `batch_first = False ` by default or `(N, T, E)` if `batch_first = True.
     - tgt_mask: `(T, T)`
@@ -443,31 +436,33 @@ def prepare_training(attention_layer, current_edge_embeds, neighbor_edge_embeds,
     - memory_key_padding_mask: `(S)`, for unbatched input otherwise: `(N, S)`.
     """
     # ---------------------------------------------------------------------------- #
-    query = torch.stack(current_edge_embeds).permute(1, 0, 2)  # size [seq_len, batch_size, hidden_dim]
-    memory = [torch.stack(embeds).squeeze(dim=1) for embeds in neighbor_edge_embeds]
-    init_pred = torch.stack(all_relation_embeds).permute(1, 0, 2)
+    queries = torch.stack(current_edge_embeds).permute(1, 0, 2)  # size [seq_len, batch_size, hidden_dim]
+    keys = [torch.stack(embeds).squeeze(dim=1) for embeds in neighbor_edge_embeds]
+    values = [torch.stack(embeds).squeeze(dim=1) for embeds in neighbor_rel_embeds]
+    init_pred = torch.stack(relation_embeds).permute(1, 0, 2)
     if verbose:
-        print('query', query.shape, 'init_pred', init_pred.shape, 'memory', len(memory), memory[0].shape)
+        print('queries', queries.shape, 'init_pred', init_pred.shape, 'keys', len(keys), keys[0].shape, 'values', len(values), values[0].shape)
 
-    # generate memory_key_padding_mask to handle paddings in the memories
+    # generate key_padding_mask to handle paddings in the memories
     seq_len = [len(embed) for embed in neighbor_edge_embeds]
-    memory_key_padding_mask = torch.zeros(len(seq_len), max(seq_len), dtype=torch.bool).to(rank)
+    key_padding_mask = torch.zeros(len(seq_len), max(seq_len), dtype=torch.bool).to(rank)
     for i, length in enumerate(seq_len):
-        memory_key_padding_mask[i, length:] = 1  # a True value indicates that the corresponding key value will be ignored
+        key_padding_mask[i, length:] = 1  # a True value indicates that the corresponding key value will be ignored
 
     # pad all memories in the batch
-    memory = pad_sequence(memory, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
+    keys = pad_sequence(keys, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
+    values = pad_sequence(values, batch_first=False, padding_value=0.0)  # size [seq_len, batch_size, hidden_dim]
     if verbose:
-        print('memory', memory.shape)
+        print('after padding, keys', keys.shape, 'values', values.shape)
 
-    predicted_txt_embeds = attention_layer(query.to(rank), memory.to(rank), init_pred.to(rank), memory_key_padding_mask=memory_key_padding_mask)
+    predicted_txt_embeds = attention_layer(queries.to(rank), keys.to(rank), values.to(rank), init_pred.to(rank), key_padding_mask=key_padding_mask)
     if verbose:
         print('predicted_txt_embeds', predicted_txt_embeds.shape)
 
     return predicted_txt_embeds.squeeze(dim=0)
 
 
-def batch_training(clip_model, tokenizer, attention_layer,
+def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
                    optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
                    graphs, target_triplets, data_len, batch_count, rank, args, writer=None, training=True, verbose=False):
 
@@ -475,7 +470,8 @@ def batch_training(clip_model, tokenizer, attention_layer,
     all_neighbor_edges = []
     all_current_edge_embeds = []
     all_neighbor_edge_embeds = []
-    all_relation_embeds = []
+    all_neighbor_rel_embeds = []
+    all_current_rel_embeds = []
     all_target_txt_embeds = []
     all_negative_target_txt_embeds = []
     all_targets = []
@@ -534,16 +530,18 @@ def batch_training(clip_model, tokenizer, attention_layer,
 
             neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
             neighbor_edge_embeds = [graphs[graph_idx].edge_embeddings[edge] for edge in neighbor_edges]
+            neighbor_rel_embeds = [graphs[graph_idx].rel_embeddings[edge] for edge in neighbor_edges]
 
             all_current_edges.append(current_edge)
             all_current_edge_embeds.append(graphs[graph_idx].edge_embeddings[current_edge])
-            all_relation_embeds.append(graphs[graph_idx].rel_embeddings[current_edge])
+            all_current_rel_embeds.append(graphs[graph_idx].rel_embeddings[current_edge])
             all_neighbor_edges.append(neighbor_edges)
             all_neighbor_edge_embeds.append(neighbor_edge_embeds)
+            all_neighbor_rel_embeds.append(neighbor_rel_embeds)
 
     # forward pass
     if len(all_targets) > 0 or (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
-        predicted_txt_embeds = prepare_training(attention_layer, all_current_edge_embeds, all_neighbor_edge_embeds, all_relation_embeds, rank, verbose=verbose)
+        predicted_txt_embeds = prepare_training(attention_layer, all_current_edge_embeds, all_neighbor_edge_embeds, all_neighbor_rel_embeds, all_current_rel_embeds, rank, verbose=verbose)
 
     target_mask = torch.tensor(target_mask).to(rank)
     if training and len(all_targets) > 0:
@@ -555,7 +553,7 @@ def batch_training(clip_model, tokenizer, attention_layer,
 
         input1_positive = F.normalize(predicted_txt_embeds[target_mask], dim=1, p=2)
         input2_positive = all_target_txt_embeds
-        labels_positive = torch.ones(len(all_targets)).to(rank)
+        # labels_positive = torch.ones(len(all_targets)).to(rank)
         # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
         # print('before', input1_positive[:, 0], all_negative_target_txt_embeds[0, :, 0])
 
@@ -571,30 +569,29 @@ def batch_training(clip_model, tokenizer, attention_layer,
 
         optimizer.zero_grad()
 
-        cos_loss = criterion(input1_positive, input2_positive, labels_positive)
-        # cos_loss = criterion(input1_positive, input2_positive)
+        # cos_loss = criterion(input1_positive, input2_positive, labels_positive)
+        cos_loss = criterion(input1_positive, input2_positive)
         # con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
-        con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
-        loss = cos_loss + con_loss
+        # con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
+        loss = cos_loss #+ con_loss
 
         running_loss_cos += cos_loss.item()
-        running_loss_con += con_loss.item()
+        # running_loss_con += con_loss.item()
         running_loss_counter += 1
         loss.backward()
 
         optimizer.step()
 
-        if writer is not None:  # rank == 0
+        if rank == 0:
             global_step = batch_count
             writer.add_scalar('train/running_loss_cos', running_loss_cos, global_step)
-            writer.add_scalar('train/running_loss_con', running_loss_con, global_step)
-            writer.add_scalar('train/running_loss', running_loss_con + running_loss_cos, global_step)
+            # writer.add_scalar('train/running_loss_con', running_loss_con, global_step)
+            # writer.add_scalar('train/running_loss', running_loss_con + running_loss_cos, global_step)
 
     scheduler.step()
 
     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
-        # updated_edges, confidences = eval_refined_output(all_possible_embeds, predicted_txt_embeds, all_current_edges, rank, args, verbose=verbose)
-        updated_edges, confidences = eval_refined_output(clip_model, tokenizer, predicted_txt_embeds, all_current_edges, rank, args, verbose=verbose)
+        updated_edges = eval_refined_output(predicted_txt_embeds, all_current_edges, all_relation_embeds, args, verbose=verbose)
 
         # saved_name = 'results/visualization_results/init_predicates_' + str(batch_count) + '.pt'
         # print('saved_name', saved_name)
@@ -606,7 +603,7 @@ def batch_training(clip_model, tokenizer, attention_layer,
             # print('old graphs.edges', graph.edges[:5])
 
             graph.edges = updated_edges[counter:counter + edges_per_image[idx]]
-            graph.confidence = confidences[counter:counter + edges_per_image[idx]]
+            # graph.confidence = confidences[counter:counter + edges_per_image[idx]]
             counter += edges_per_image[idx]
 
             # # print('new graphs.edges', graph.edges[:5])
@@ -621,13 +618,13 @@ def batch_training(clip_model, tokenizer, attention_layer,
 
 
     if training and ((batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == data_len)):
-        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss_cos / (running_loss_counter + 1e-5)}, {running_loss_con / (running_loss_counter + 1e-5)}, '
+        print(f'Rank {rank} batch {batch_count}, graphRefineLoss {running_loss_cos / (running_loss_counter + 1e-5)}, ' #{running_loss_con / (running_loss_counter + 1e-5)}, '
               f'lr {scheduler.get_last_lr()[0]}')
 
     return graphs, attention_layer, running_loss_cos, running_loss_con, running_loss_counter
 
 
-def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
+def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_relation_embeds,
                               optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
                               rank, batch_count, args, sgg_results, top_k, data_len, writer=None, training=True, multiple_eval_iter=False, prev_graphs=None, verbose=False):
     if not multiple_eval_iter:
@@ -652,7 +649,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
         graphs = prev_graphs
 
     updated_graphs, attention_layer, running_loss_cos, running_loss_con, running_loss_counter = \
-            batch_training(clip_model, tokenizer, attention_layer,
+            batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
                            optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
                            graphs, target_triplets, data_len, batch_count, rank, args, writer=writer, training=training, verbose=verbose)
 
@@ -675,9 +672,9 @@ def query_clip(gpu, args, train_dataset, test_dataset):
 
     writer = None
     if rank == 0:
-        log_dir = 'runs/train_sg'
-        if os.path.exists(log_dir):
-            shutil.rmtree(log_dir)  # remove the old log directory if it exists
+        log_dir = 'runs/graph_refine'
+        # if os.path.exists(log_dir):
+        #     shutil.rmtree(log_dir)  # remove the old log directory if it exists
         writer = SummaryWriter(log_dir)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
@@ -694,13 +691,14 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     attention_layer = DDP(EdgeAttentionModel(d_model=clip_model.module.text_embed_dim)).to(rank)
     attention_layer.train()
 
-    # all_possible_embeds = prepare_target_txt_embeds(clip_model, tokenizer, rank)
+    all_relation_embeds = prepare_target_txt_embeds(clip_model, tokenizer, rank)
 
     optimizer = optim.Adam([
         {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
     ], lr=args['training']['refine_learning_rate'], weight_decay=args['training']['weight_decay'])
     # criterion = nn.MSELoss()
-    criterion = nn.CosineEmbeddingLoss(margin=0.8)
+    # criterion = nn.CosineEmbeddingLoss(margin=0.8)
+    criterion = CosineSimilarityLoss()
     contrast_loss = SupConLossGraph(clip_model, tokenizer, all_labels_geometric, all_labels_possessive, all_labels_semantic, rank)
 
     num_training_steps = 1 * len(train_loader)
@@ -729,7 +727,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             #                           rank, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader), verbose=args['training']['verbose_global_refine'])
 
             attention_layer, running_loss_cos, running_loss_con, running_loss_counter = \
-                    process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
+                    process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_relation_embeds,
                                               optimizer, scheduler, criterion, contrast_loss, running_loss_cos, running_loss_con, running_loss_counter,
                                               rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(train_loader),
                                               writer=writer, verbose=args['training']['verbose_global_refine'])
@@ -775,12 +773,12 @@ def query_clip(gpu, args, train_dataset, test_dataset):
             # use attention_layer trained just now
             for eval_iter in range(1):
                 if eval_iter == 0:
-                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
+                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_relation_embeds,
                                                                optimizer, scheduler, criterion, contrast_loss, 0.0, 0.0, 0,
                                                                rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=False, verbose=args['training']['verbose_global_refine'])
                 else:
-                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
+                    updated_graphs = process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer, all_relation_embeds,
                                                                optimizer, scheduler, criterion, contrast_loss, 0.0, 0.0, 0,
                                                                rank, batch_count, args, batch_sgg_results, top_k=args['training']['topk_global_refine'], data_len=len(test_loader),
                                                                training=False, multiple_eval_iter=True, prev_graphs=updated_graphs, verbose=args['training']['verbose_global_refine'])
