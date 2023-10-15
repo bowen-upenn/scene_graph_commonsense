@@ -757,7 +757,7 @@ def query_clip(gpu, args, train_dataset, test_dataset):
         if args['models']['hierarchical_pred']:
             torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth')
         else:
-            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayerNoSkip' + '_' + str(rank) + '.pth')
+            torch.save(attention_layer.state_dict(), args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth')
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
     if rank == 0:
@@ -766,9 +766,9 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # evaluate on test datasettr
     map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
     if args['models']['hierarchical_pred']:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_final' + str(rank) + '.pth', map_location=map_location))
     else:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerNoSkip' + '_' + str(rank) + '.pth', map_location=map_location))
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_final' + str(rank) + '.pth', map_location=map_location))
     attention_layer.eval()
 
     with torch.no_grad():
