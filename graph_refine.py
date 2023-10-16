@@ -18,6 +18,7 @@ import yaml
 import re
 from torch.utils.tensorboard import SummaryWriter
 import shutil
+import time
 
 from evaluate import *
 from utils import *
@@ -58,35 +59,73 @@ class ImageGraph:
         # store all nodes and their degree
         self.nodes = []
         self.edges = []
+        self.images = []
         self.edge_embeddings = {}   # key: edge, value: concatenated clip text and vision embedding of the edge
         self.rel_embeddings = {}    # key: edge, value: clip text embedding of the relationship on the edge
         self.confidence = []    # only record new confidence after refinement
 
-    def prepare_clip_embeds(self, subject_bbox, object_bbox, string, image):
+    def prepare_clip_embeds(self, batch_subject_bbox, batch_object_bbox, batch_string, batch_image):
         with torch.no_grad():
-            _, relation, _ = extract_words_from_edge(string, all_labels)
-            inputs = self.tokenizer([string], padding=False, return_tensors="pt").to(self.rank)
+            batch_size = len(batch_string)
+            batch_relation = [extract_words_from_edge(s, all_labels)[1] for s in batch_string]
+
+            inputs = self.tokenizer(batch_string, padding=True, return_tensors="pt").to(self.rank)
             txt_embed = self.clip_model.module.get_text_features(**inputs)
             txt_embed = F.normalize(txt_embed, dim=1, p=2)
-            inputs = self.tokenizer([relation], padding=False, return_tensors="pt").to(self.rank)
-            relation_embed = self.clip_model.module.get_text_features(**inputs)
 
-            image = image.to(self.rank)
-            mask_sub = torch.zeros((1, image.shape[1], image.shape[2]), dtype=torch.bool).to(self.rank)
-            mask_obj = torch.zeros((1, image.shape[1], image.shape[2]), dtype=torch.bool).to(self.rank)
-            mask_sub[:, subject_bbox[2]:subject_bbox[3], subject_bbox[0]:subject_bbox[1]] = 1
-            mask_obj[:, object_bbox[2]:object_bbox[3], object_bbox[0]:object_bbox[1]] = 1
-            img_sub = image * mask_sub
-            img_obj = image * mask_obj
-            img_edge = torch.cat((img_sub.unsqueeze(dim=0), img_obj.unsqueeze(dim=0)), dim=0)
+            relation_inputs = self.tokenizer(batch_relation, padding=True, return_tensors="pt").to(self.rank)
+            relation_embed = self.clip_model.module.get_text_features(**relation_inputs)
+            relation_embed = F.normalize(relation_embed, dim=1, p=2)
 
+            batch_img_sub = []
+            batch_img_obj = []
+            for i in range(batch_size):
+                image = batch_image[i].to(self.rank)
+                subject_bbox, object_bbox = batch_subject_bbox[i], batch_object_bbox[i]
+                mask_sub = torch.zeros((1, image.shape[1], image.shape[2]), dtype=torch.bool).to(self.rank)
+                mask_obj = torch.zeros((1, image.shape[1], image.shape[2]), dtype=torch.bool).to(self.rank)
+                mask_sub[:, subject_bbox[2]:subject_bbox[3], subject_bbox[0]:subject_bbox[1]] = 1
+                mask_obj[:, object_bbox[2]:object_bbox[3], object_bbox[0]:object_bbox[1]] = 1
+                img_sub = image * mask_sub
+                img_obj = image * mask_obj
+                batch_img_sub.append(img_sub)
+                batch_img_obj.append(img_obj)
+
+            img_edge = torch.cat((torch.stack(batch_img_sub), torch.stack(batch_img_obj)), dim=0)
             inputs = self.processor(images=img_edge, return_tensors="pt").to(self.rank)
             img_embed = self.clip_model.module.get_image_features(**inputs)
             img_embed = F.normalize(img_embed, dim=1, p=2)
-            img_embed = img_embed.view(1, -1)
+            img_embed = img_embed.view(batch_size, -1)
 
-        edge_embed = torch.cat([txt_embed, img_embed], dim=1)
+            edge_embed = torch.cat([txt_embed, img_embed], dim=1)
         return edge_embed, relation_embed
+
+    # def prepare_clip_embeds(self, subject_bbox, object_bbox, string, image):
+    #     with torch.no_grad():
+    #         _, relation, _ = extract_words_from_edge(string, all_labels)
+    #         inputs = self.tokenizer([string], padding=False, return_tensors="pt").to(self.rank)
+    #         txt_embed = self.clip_model.module.get_text_features(**inputs)
+    #         txt_embed = F.normalize(txt_embed, dim=1, p=2)
+    #         inputs = self.tokenizer([relation], padding=False, return_tensors="pt").to(self.rank)
+    #         relation_embed = self.clip_model.module.get_text_features(**inputs)
+    #         relation_embed = F.normalize(relation_embed, dim=1, p=2)
+    #
+    #         image = image.to(self.rank)
+    #         mask_sub = torch.zeros((1, image.shape[1], image.shape[2]), dtype=torch.bool).to(self.rank)
+    #         mask_obj = torch.zeros((1, image.shape[1], image.shape[2]), dtype=torch.bool).to(self.rank)
+    #         mask_sub[:, subject_bbox[2]:subject_bbox[3], subject_bbox[0]:subject_bbox[1]] = 1
+    #         mask_obj[:, object_bbox[2]:object_bbox[3], object_bbox[0]:object_bbox[1]] = 1
+    #         img_sub = image * mask_sub
+    #         img_obj = image * mask_obj
+    #         img_edge = torch.cat((img_sub.unsqueeze(dim=0), img_obj.unsqueeze(dim=0)), dim=0)
+    #
+    #         inputs = self.processor(images=img_edge, return_tensors="pt").to(self.rank)
+    #         img_embed = self.clip_model.module.get_image_features(**inputs)
+    #         img_embed = F.normalize(img_embed, dim=1, p=2)
+    #         img_embed = img_embed.view(1, -1)
+    #
+    #     edge_embed = torch.cat([txt_embed, img_embed], dim=1)
+    #     return edge_embed, relation_embed
 
     def add_edge(self, subject_bbox, object_bbox, relation_id, string, image, training=True, verbose=False):
         subject_bbox, object_bbox = tuple(subject_bbox), tuple(object_bbox)
@@ -96,11 +135,12 @@ class ImageGraph:
         if edge not in self.edges:
             self.edges.append(edge)
             self.confidence.append(-1)
+            self.images.append(image)
 
-            # add clip text and image embeddings of this edge
-            edge_embed, relation_embed = self.prepare_clip_embeds(subject_bbox, object_bbox, string, image)
-            self.edge_embeddings[edge] = edge_embed
-            self.rel_embeddings[edge] = relation_embed
+            # # add clip text and image embeddings of this edge
+            # edge_embed, relation_embed = self.prepare_clip_embeds(subject_bbox, object_bbox, string, image)
+            # self.edge_embeddings[edge] = edge_embed
+            # self.rel_embeddings[edge] = relation_embed
 
         if subject_bbox not in self.nodes:
             self.nodes.append(subject_bbox)
@@ -119,22 +159,21 @@ class ImageGraph:
             self.adj_list[object_bbox] = []
 
         # in training, store ground truth neighbors if a target is matched
-        if training:
-            matched_target_edge = find_matched_target(self.args, edge, self.targets)
-            # if matched_target_edge is not None:
-            self.adj_list[subject_bbox].append(matched_target_edge)
-            self.adj_list[object_bbox].append(matched_target_edge)
-
-            # if matched_target_edge is different from the current edge
-            if matched_target_edge not in self.edge_embeddings:
-                matched_subject_bbox, matched_object_bbox, matched_string = matched_target_edge[0], matched_target_edge[2], matched_target_edge[3]
-                matched_edge_embed, matched_relation_embed = self.prepare_clip_embeds(matched_subject_bbox, matched_object_bbox, matched_string, image)
-                self.edge_embeddings[matched_target_edge] = matched_edge_embed
-                self.rel_embeddings[matched_target_edge] = matched_relation_embed
-
-        else:
-            self.adj_list[subject_bbox].append(edge)
-            self.adj_list[object_bbox].append(edge)
+        # if training:
+        #     matched_target_edge = find_matched_target(self.args, edge, self.targets)
+        #     # if matched_target_edge is not None:
+        #     self.adj_list[subject_bbox].append(matched_target_edge)
+        #     self.adj_list[object_bbox].append(matched_target_edge)
+        #
+        #     # if matched_target_edge is different from the current edge
+        #     if matched_target_edge not in self.edge_embeddings:
+        #         matched_subject_bbox, matched_object_bbox, matched_string = matched_target_edge[0], matched_target_edge[2], matched_target_edge[3]
+        #         matched_edge_embed, matched_relation_embed = self.prepare_clip_embeds(matched_subject_bbox, matched_object_bbox, matched_string, image)
+        #         self.edge_embeddings[matched_target_edge] = matched_edge_embed
+        #         self.rel_embeddings[matched_target_edge] = matched_relation_embed
+        # else:
+        self.adj_list[subject_bbox].append(edge)
+        self.adj_list[object_bbox].append(edge)
 
         self.edge_node_map[edge_wo_string] = (subject_bbox, object_bbox)
 
@@ -177,6 +216,20 @@ class ImageGraph:
     def get_node_degrees(self):
         degrees = {node: len(self.adj_list[node]) for node in self.adj_list}
         return degrees
+
+    def compute_all_clip_embeddings(self):
+        batch_subject_bbox = [edge[0] for edge in self.edges]
+        batch_object_bbox = [edge[2] for edge in self.edges]
+        batch_string = [edge[3] for edge in self.edges]
+        # Assuming all images are the same for simplicity. If not, you will need to maintain a list of images too.
+        batch_image = [image for image in self.images]
+
+        batch_edge_embed, batch_relation_embed = self.prepare_clip_embeds(batch_subject_bbox, batch_object_bbox, batch_string, batch_image)
+        self.images = None  # clean up
+
+        for i, edge in enumerate(self.edges):
+            self.edge_embeddings[edge] = batch_edge_embed[i]
+            self.rel_embeddings[edge] = batch_relation_embed[i]
 
 
 class CosineSimilarityLoss(nn.Module):
@@ -436,10 +489,12 @@ def prepare_training(attention_layer, current_edge_embeds, neighbor_edge_embeds,
     - memory_key_padding_mask: `(S)`, for unbatched input otherwise: `(N, S)`.
     """
     # ---------------------------------------------------------------------------- #
-    queries = torch.stack(current_edge_embeds).permute(1, 0, 2)  # size [seq_len, batch_size, hidden_dim]
+    # queries = torch.stack(current_edge_embeds).permute(1, 0, 2)  # size [seq_len, batch_size, hidden_dim]
+    queries = torch.stack(current_edge_embeds).unsqueeze(dim=0)  # size [seq_len, batch_size, hidden_dim]
     keys = [torch.stack(embeds).squeeze(dim=1) for embeds in neighbor_edge_embeds]
     values = [torch.stack(embeds).squeeze(dim=1) for embeds in neighbor_rel_embeds]
-    init_pred = torch.stack(relation_embeds).permute(1, 0, 2)
+    init_pred = torch.stack(relation_embeds).unsqueeze(dim=0)
+    # init_pred = torch.stack(relation_embeds).permute(1, 0, 2)
     if verbose:
         print('queries', queries.shape, 'init_pred', init_pred.shape, 'keys', len(keys), keys[0].shape, 'values', len(values), values[0].shape)
 
@@ -517,43 +572,43 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
                             #                                                             clip_model, tokenizer, rank, args))
                             break
 
-                if current_target is not None:
-                    edge_indices.append(edge_idx)
-                    # find neighbor edges for the current edge
-                    subject_neighbor_edges = graph.adj_list[subject_node][:15]  # maximum 15 neighbors each edge for more efficient training
-                    object_neighbor_edges = graph.adj_list[object_node][:15]
-                    # if not training:
-                    if current_edge in subject_neighbor_edges:
-                        subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
-                    if current_edge in object_neighbor_edges:
-                        object_neighbor_edges.remove(current_edge)
-                    # else:
-                    #     if current_target in subject_neighbor_edges:
-                    #         subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
-                    #     if current_target in object_neighbor_edges:
-                    #         object_neighbor_edges.remove(current_target)
+            # if current_target is not None:
+            edge_indices.append(edge_idx)
+            # find neighbor edges for the current edge
+            subject_neighbor_edges = graph.adj_list[subject_node][:15]  # maximum 15 neighbors each edge for more efficient training
+            object_neighbor_edges = graph.adj_list[object_node][:15]
+            # if not training:
+            if current_edge in subject_neighbor_edges:
+                subject_neighbor_edges.remove(current_edge)  # do not include the current edge redundantly
+            if current_edge in object_neighbor_edges:
+                object_neighbor_edges.remove(current_edge)
+            # else:
+            #     if current_target in subject_neighbor_edges:
+            #         subject_neighbor_edges.remove(current_target)   # current target should not be used to train the current edge
+            #     if current_target in object_neighbor_edges:
+            #         object_neighbor_edges.remove(current_target)
 
-                    neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
-                    neighbor_edge_embeds = [graphs[graph_idx].edge_embeddings[edge] for edge in neighbor_edges]
-                    neighbor_rel_embeds = [graphs[graph_idx].rel_embeddings[edge] for edge in neighbor_edges]
+            neighbor_edges = [current_edge] + subject_neighbor_edges + object_neighbor_edges
+            neighbor_edge_embeds = [graphs[graph_idx].edge_embeddings[edge] for edge in neighbor_edges]
+            neighbor_rel_embeds = [graphs[graph_idx].rel_embeddings[edge] for edge in neighbor_edges]
 
-                    all_current_edges.append(current_edge)
-                    all_current_edge_embeds.append(graphs[graph_idx].edge_embeddings[current_edge])
-                    all_current_rel_embeds.append(graphs[graph_idx].rel_embeddings[current_edge])
-                    all_neighbor_edges.append(neighbor_edges)
-                    all_neighbor_edge_embeds.append(neighbor_edge_embeds)
-                    all_neighbor_rel_embeds.append(neighbor_rel_embeds)
+            all_current_edges.append(current_edge)
+            all_current_edge_embeds.append(graphs[graph_idx].edge_embeddings[current_edge])
+            all_current_rel_embeds.append(graphs[graph_idx].rel_embeddings[current_edge])
+            all_neighbor_edges.append(neighbor_edges)
+            all_neighbor_edge_embeds.append(neighbor_edge_embeds)
+            all_neighbor_rel_embeds.append(neighbor_rel_embeds)
 
         all_edge_indices.append(edge_indices)
         edges_per_image.append(len(all_current_edges) - old_all_current_edges_len)
 
     # forward pass
-    if len(all_targets) > 0 and ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len)):
-        predicted_txt_embeds = prepare_training(attention_layer, all_current_edge_embeds, all_neighbor_edge_embeds, all_neighbor_rel_embeds, all_current_rel_embeds, rank, verbose=verbose)
-        if predicted_txt_embeds.ndimension() == 1:
-            predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=0)
+    predicted_txt_embeds = prepare_training(attention_layer, all_current_edge_embeds, all_neighbor_edge_embeds, all_neighbor_rel_embeds, all_current_rel_embeds, rank, verbose=verbose)
+    if predicted_txt_embeds.ndimension() == 1:
+        predicted_txt_embeds = predicted_txt_embeds.unsqueeze(dim=0)
 
-        # target_mask = torch.tensor(target_mask).to(rank)
+    if len(all_targets) > 0 and ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len)):
+        target_mask = torch.tensor(target_mask).to(rank)
         if training:
             all_target_txt_embeds = torch.stack(all_target_txt_embeds).squeeze(dim=1)
             # print('all_target_txt_embeds', torch.min(all_target_txt_embeds), torch.mean(all_target_txt_embeds), torch.max(all_target_txt_embeds))
@@ -562,7 +617,7 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
             # print('all_negative_target_txt_embeds', all_negative_target_txt_embeds.shape)
 
             # input1_positive = F.normalize(predicted_txt_embeds[target_mask], dim=1, p=2)
-            input1_positive = F.normalize(predicted_txt_embeds, dim=1, p=2)
+            input1_positive = F.normalize(predicted_txt_embeds[target_mask], dim=1, p=2)
             input2_positive = all_target_txt_embeds
             # labels_positive = torch.ones(len(all_targets)).to(rank)
             # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
@@ -601,7 +656,8 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
 
             scheduler.step()
 
-    if len(all_targets) > 0 and ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len)):
+    # print('len(all_targets)', len(all_targets), ((batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len)))
+    if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
         updated_edges = eval_refined_output(predicted_txt_embeds, all_current_edges, all_relation_embeds, args, verbose=verbose)
 
         # saved_name = 'results/visualization_results/init_predicates_' + str(batch_count) + '.pt'
@@ -659,6 +715,8 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
             for string, triplet in zip(curr_strings, curr_triplet):
                 subject_bbox, relation_id, object_bbox = triplet[0], triplet[1], triplet[2]
                 graph.add_edge(subject_bbox, object_bbox, relation_id, string, curr_image, training=training, verbose=verbose)
+
+            graph.compute_all_clip_embeddings()
             graphs.append(graph)
     else:
         graphs = prev_graphs
@@ -766,9 +824,9 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     # evaluate on test datasettr
     map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
     if args['models']['hierarchical_pred']:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_final' + str(rank) + '.pth', map_location=map_location))
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
     else:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_final' + str(rank) + '.pth', map_location=map_location))
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth', map_location=map_location))
     attention_layer.eval()
 
     with torch.no_grad():

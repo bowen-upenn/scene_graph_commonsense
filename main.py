@@ -86,6 +86,7 @@ if __name__ == "__main__":
     if args['training']['run_mode'] == 'train':
          mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
     elif args['training']['run_mode'] == 'eval':
+        print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
             mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
@@ -100,6 +101,7 @@ if __name__ == "__main__":
     elif args['training']['run_mode'] == 'caption':
         image_captioning(device, world_size, args, test_dataset)
     elif args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
+        print("Please manually uncomment 'yield sgg_results' at evaluate.py:401")
         if args['training']['eval_mode'] != 'pc' and args['training']['run_mode'] != 'clip_eval':
             print('Invalid arguments. You must set run_mode as clip_eval')
         mp.spawn(query_clip, nprocs=world_size, args=(args, train_subset, test_subset))

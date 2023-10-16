@@ -238,9 +238,9 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
         # local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'old_model.pth', map_location=map_location))
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif3' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
     else:
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif3' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
@@ -401,9 +401,10 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
                     # yield sgg_results
                     ##############################
 
+                    recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+
                     # epochs == 1 means we are evaluating the graphical refinement results, otherwise we are training the graphical refinement module
                     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                        recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase, global_refine=True)
                     # clean up the evaluator
@@ -411,7 +412,8 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
 
                 else:
                     if args['dataset']['dataset'] == 'vg':
-                        recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                        recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
+                        # print('R@k_per_class', recall_per_class)
                         if args['models']['hierarchical_pred']:
                             recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                             Recall_top3.clear_data()
@@ -419,12 +421,11 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
                         recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                         wmap_rel, wmap_phrase = Recall.compute_precision()
 
-                    # clean up the evaluator
-                    Recall.clear_data()
-
                     if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                             connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+                    # clean up the evaluator
+                    Recall.clear_data()
 
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
