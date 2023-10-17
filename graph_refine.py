@@ -746,8 +746,8 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     writer = None
     if rank == 0:
         log_dir = 'runs/graph_refine'
-        # if os.path.exists(log_dir):
-        #     shutil.rmtree(log_dir)  # remove the old log directory if it exists
+        if os.path.exists(log_dir):
+            shutil.rmtree(log_dir)  # remove the old log directory if it exists
         writer = SummaryWriter(log_dir)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)

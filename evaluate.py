@@ -398,7 +398,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1):
 
                     ##############################
                     # # Comment out the following lines if you are simply evaluating the local predictor and do not run the graphical refinement
-                    # yield sgg_results
+                    yield sgg_results
                     ##############################
 
                     recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)

@@ -454,9 +454,9 @@ class EdgeAttentionModel(nn.Module):
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, 2 * d_model),
             nn.ReLU(),
-            nn.Linear(2 * d_model, d_model),
-            # nn.Tanh()
+            nn.Linear(2 * d_model, d_model)
         )
+        self.tanh = nn.Tanh()
 
     def forward(self, queries, keys, values, init_pred, key_padding_mask=None):
         """
@@ -468,8 +468,8 @@ class EdgeAttentionModel(nn.Module):
         queries = self.in_proj_query(queries)
         keys = self.in_proj_key(keys)
         attn_output, attn_output_weights = self.multihead_attn(query=queries, key=keys, value=values, key_padding_mask=key_padding_mask)
-        output = self.feed_forward(attn_output.squeeze(dim=0))
-        output += init_pred.squeeze(dim=0)  # skip connection
+        output = self.tanh(self.feed_forward(attn_output.squeeze(dim=0)))
+        output = output + init_pred.squeeze(dim=0)  # skip connection
         return output
 
 # class EdgeAttentionModel(nn.Module):
