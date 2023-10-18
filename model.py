@@ -446,12 +446,19 @@ class EdgeAttentionModel(nn.Module):
         self.d_model = d_model
 
         # Transformer components
-        self.multihead_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=nhead, dropout=0.1)
+        self.multihead_attn_self = nn.MultiheadAttention(embed_dim=d_model, num_heads=nhead, dropout=0.1)
+        self.multihead_attn_cross = nn.MultiheadAttention(embed_dim=d_model, num_heads=nhead, dropout=0.1)
 
         # Feedforward layers for transformation
         self.in_proj_query = nn.Linear(d_model * 3, d_model)
         self.in_proj_key = nn.Linear(d_model * 3, d_model)
-        self.feed_forward = nn.Sequential(
+
+        self.feed_forward_self = nn.Sequential(
+            nn.Linear(d_model, 2 * d_model),
+            nn.ReLU(),
+            nn.Linear(2 * d_model, d_model)
+        )
+        self.feed_forward_cross = nn.Sequential(
             nn.Linear(d_model, 2 * d_model),
             nn.ReLU(),
             nn.Linear(2 * d_model, d_model)
@@ -467,9 +474,14 @@ class EdgeAttentionModel(nn.Module):
         """
         queries = self.in_proj_query(queries)
         keys = self.in_proj_key(keys)
-        attn_output, attn_output_weights = self.multihead_attn(query=queries, key=keys, value=values, key_padding_mask=key_padding_mask)
-        output = self.tanh(self.feed_forward(attn_output.squeeze(dim=0)))
-        output = output + init_pred.squeeze(dim=0)  # skip connection
+
+        memory, _ = self.multihead_attn_self(query=keys, key=keys, value=values, key_padding_mask=key_padding_mask)
+        memory = self.feed_forward_self(memory.squeeze(dim=0))
+
+        attn_output, _ = self.multihead_attn_cross(query=queries, key=memory, value=memory, key_padding_mask=key_padding_mask)
+        output = self.feed_forward_cross(attn_output.squeeze(dim=0))
+
+        output = self.tanh(output) + init_pred.squeeze(dim=0)  # skip connection
         return output
 
 # class EdgeAttentionModel(nn.Module):

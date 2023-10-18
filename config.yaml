@@ -14,8 +14,8 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 0.001
-    percent_test: 0.01
+    percent_train: 1 #0.001
+    percent_test: 1 #0.01
     dataset: 'vg' # vg, oiv6
     return_annot: True
 models:
@@ -66,5 +66,5 @@ training:
     eval_freq: 1
     print_freq_test: 20
     eval_freq_test: 1
-    topk_global_refine: 20
+    topk_global_refine: 50
     verbose_global_refine: False

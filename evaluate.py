@@ -392,10 +392,10 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
-                    if training:
-                        top_k_predictions, top_k_image_graphs = Recall.extract_matched_edges_with_neighbors(top_k=topk_global_refine)
-                    else:
-                        top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
+                    # if training:
+                    #     top_k_predictions, top_k_image_graphs = Recall.extract_matched_edges_with_neighbors(top_k=topk_global_refine)
+                    # else:
+                    top_k_predictions, top_k_image_graphs = Recall.get_top_k_predictions(top_k=topk_global_refine)
                     sgg_results = {'images': images_raw, 'top_k_predictions': top_k_predictions, 'top_k_image_graphs': top_k_image_graphs,
                                    'target_triplets': triplets, 'Recall': Recall, 'batch_count': batch_count}
 

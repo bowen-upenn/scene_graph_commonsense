@@ -396,42 +396,42 @@ class Evaluator_PC:
         to reorder the new top_k predictions, without actually
         """
         # correspond to the function extract_matched_edges_with_neighbors
-        if training:
-            image = torch.unique(self.which_in_batch)[batch_idx]
-            curr_image = self.which_in_batch == image
-            tmp = self.relation_pred[curr_image].clone()
-            curr_indices = self.selected_indices[batch_idx]
+        # if training:
+        #     image = torch.unique(self.which_in_batch)[batch_idx]
+        #     curr_image = self.which_in_batch == image
+        #     tmp = self.relation_pred[curr_image].clone()
+        #     curr_indices = self.selected_indices[batch_idx]
+        #
+        #     for i, idx in enumerate(curr_indices):
+        #         tmp[idx] = refined_relation_pred[i]
+        #     self.relation_pred[curr_image] = tmp
+        #
+        # # correspond to the function get_top_k_predictions, because we shall have no access to targets during the testing
+        # else:
+        # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
+        # find the top k predictions to be updated
+        image = torch.unique(self.which_in_batch)[batch_idx]
+        curr_image = self.which_in_batch == image
+        curr_confidence = self.confidence[curr_image]
+        sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
 
-            for i, idx in enumerate(curr_indices):
-                tmp[idx] = refined_relation_pred[i]
-            self.relation_pred[curr_image] = tmp
+        # select the top k predictions
+        this_k = min(top_k, len(self.relation_pred[curr_image]))
+        keep_inds = sorted_inds[:this_k]
+        if self.skipped is not None:
+            curr_skipped = self.skipped[image]
+            if len(curr_skipped) > 0:   # remove redundant edges
+                mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
+                keep_inds = keep_inds[mask]
 
-        # correspond to the function get_top_k_predictions, because we shall have no access to targets during the testing
-        else:
-            # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
-            # find the top k predictions to be updated
-            image = torch.unique(self.which_in_batch)[batch_idx]
-            curr_image = self.which_in_batch == image
-            curr_confidence = self.confidence[curr_image]
-            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
-
-            # select the top k predictions
-            this_k = min(top_k, len(self.relation_pred[curr_image]))
-            keep_inds = sorted_inds[:this_k]
-            if self.skipped is not None:
-                curr_skipped = self.skipped[image]
-                if len(curr_skipped) > 0:   # remove redundant edges
-                    mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
-                    keep_inds = keep_inds[mask]
-
-            # assign new relation predictions
-            # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
-            # print('self.relation_pred', len(self.relation_pred[curr_image]), len(self.relation_pred[curr_image][keep_inds]), 'refined_relation_pred', len(refined_relation_pred))
-            tmp = self.relation_pred[curr_image].clone()
-            for i, idx in enumerate(keep_inds):
-                tmp[idx] = refined_relation_pred[i]
-            self.relation_pred[curr_image] = tmp
-            # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
+        # assign new relation predictions
+        # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
+        # print('self.relation_pred', len(self.relation_pred[curr_image]), len(self.relation_pred[curr_image][keep_inds]), 'refined_relation_pred', len(refined_relation_pred))
+        tmp = self.relation_pred[curr_image].clone()
+        for i, idx in enumerate(keep_inds):
+            tmp[idx] = refined_relation_pred[i]
+        self.relation_pred[curr_image] = tmp
+        # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
 
         # # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
         # reorder_topk_inds = torch.argsort(refined_confidence, descending=True)

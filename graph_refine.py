@@ -639,8 +639,8 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
 
             # cos_loss = criterion(input1_positive, input2_positive, labels_positive)
             # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
-            cos_sims_all = torch.mm(input1_positive, all_relation_embeds.t())
-            cos_sims_all = F.softmax(cos_sims_all, dim=1)
+            # cos_sims_all = torch.mm(input1_positive, all_relation_embeds.t())
+            # cos_sims_all = F.softmax(cos_sims_all, dim=1)
             # print('all_targets', all_targets)
             # print('cos_sims_all', torch.argmax(cos_sims_all, dim=1))
             # print('target_mask', target_mask, 'len(all_current_edges)', len(all_current_edges))
