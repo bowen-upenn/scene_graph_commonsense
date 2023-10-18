@@ -659,7 +659,7 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
 
             if rank == 0:
                 global_step = batch_count
-                writer.add_scalar('train/running_loss_cos', running_loss_cos, global_step)
+                writer.add_scalar('train/running_loss_cos', cos_loss, global_step)
                 # writer.add_scalar('train/running_loss_con', running_loss_con, global_step)
                 # writer.add_scalar('train/running_loss', running_loss_con + running_loss_cos, global_step)
 

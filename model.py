@@ -481,7 +481,7 @@ class EdgeAttentionModel(nn.Module):
         attn_output, _ = self.multihead_attn_cross(query=queries, key=memory, value=memory, key_padding_mask=key_padding_mask)
         output = self.feed_forward_cross(attn_output.squeeze(dim=0))
 
-        output = self.tanh(output) + init_pred.squeeze(dim=0)  # skip connection
+        # output = self.tanh(output) + init_pred.squeeze(dim=0)  # skip connection
         return output
 
 # class EdgeAttentionModel(nn.Module):

@@ -28,9 +28,10 @@ class PrepareVisualGenomeDataset(torch.utils.data.Dataset):
 
 
 class VisualGenomeDataset(torch.utils.data.Dataset):
-    def __init__(self, args, device, annotations):
+    def __init__(self, args, device, annotations, semi_supervised=False):
         self.args = args
         self.device = device
+        self.semi_supervised = semi_supervised
         self.image_dir = self.args['dataset']['image_dir']
         self.annot_dir = self.args['dataset']['annot_dir']
         self.subset_indices = None
@@ -68,8 +69,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         """
         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
         annot_path = os.path.join(self.annot_dir, annot_name)
+        if self.semi_supervised:
+            annot_name_semi = self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+            annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
         try:
             curr_annot = torch.load(annot_path)
+            if self.semi_supervised:
+                curr_annot_semi = torch.load(annot_path_semi)
         except:
             return None
 
@@ -148,14 +154,14 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         """
 
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
-            return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+            return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
         elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             if self.args['training']['eval_mode'] == 'pc':
                 return image, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
             else:
                 return image, image_nonsq, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
         else:
-            return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+            return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
 
 
     def load_one_image(self, file_name=None, idx=None, return_annot=False):

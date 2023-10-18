@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 import math
+import os
 
 from utils import get_weight_oiv6
 from dataset_utils import relation_by_super_class_int2str, object_class_int2str
@@ -61,6 +62,7 @@ class Evaluator_PC:
         self.width = None
         self.skipped = None
         self.selected_indices = None
+        self.annotation_paths = None
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -272,12 +274,18 @@ class Evaluator_PC:
         return top_k_predictions, top_k_image_graphs
 
 
-    def get_unique_top_k_predictions(self, top_k):
+    def load_annotation_paths(self, annot_path):
+        self.annotation_paths = None    # reset
+        self.annotation_paths = annot_path
+
+
+    def get_unique_top_k_predictions(self, top_k, save_to_annot=True):
         """
         Returns the top k most confident predictions for each image in the format: (subject_id, relation_id, object_id).
         Ensures that one subject-object or object-subject pair appears only once in the predictions.
         """
         top_k_predictions = []
+        top_k_image_graphs = []
         dict_relation_names = relation_by_super_class_int2str()
         dict_object_names = object_class_int2str()
 
@@ -287,12 +295,15 @@ class Evaluator_PC:
             sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
 
             curr_predictions = []
+            curr_image_graph = []
             seen_pairs = set()
 
             for ind in sorted_inds:
                 subject_id = self.subject_cat_pred[curr_image][ind].item()
                 relation_id = self.relation_pred[curr_image][ind].item()
                 object_id = self.object_cat_pred[curr_image][ind].item()
+                subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu()
+                object_bbox = self.object_bbox_pred[curr_image][ind].cpu()
 
                 # Check if the pair (or its reverse) has been added to the predictions
                 if (subject_id, object_id) not in seen_pairs and (object_id, subject_id) not in seen_pairs:
@@ -300,13 +311,24 @@ class Evaluator_PC:
                     seen_pairs.add((subject_id, object_id))
                     seen_pairs.add((object_id, subject_id))
 
+                    edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
+                    curr_image_graph.append(edge)
+
                 # Stop when we have k predictions
                 if len(curr_predictions) == top_k:
                     break
 
-            top_k_predictions.append(curr_predictions)
+            if not save_to_annot:
+                top_k_predictions.append(curr_predictions)
+                top_k_image_graphs.append(curr_image_graph)
+            else:
+                annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
+                annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi', annot_name)
+                # print('annot_path', annot_path, self.annotation_paths[image])
+                torch.save(curr_image_graph, annot_path)
 
-        return top_k_predictions
+        if not save_to_annot:
+            return top_k_predictions, top_k_image_graphs
 
 
     def extract_matched_edges_with_neighbors(self, top_k=50):

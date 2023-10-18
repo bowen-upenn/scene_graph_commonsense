@@ -21,7 +21,7 @@ from dataset_utils import object_class_alp2fre
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = '12358'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -259,7 +259,8 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                 if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
                     images, images_raw, image_depth, categories, super_categories, bbox, heights, widths, relationships, subj_or_obj, triplets = data
                 else:
-                    images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
+                    images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_path = data
+                    Recall.load_annotation_paths(annot_path)
             except:
                 continue
 
@@ -401,7 +402,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
                     ##############################
                     # # Comment out the following lines if you are simply evaluating the local predictor and do not run the graphical refinement
-                    yield sgg_results
+                    # yield sgg_results
                     ##############################
 
                     recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
@@ -415,6 +416,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
                 else:
                     if args['dataset']['dataset'] == 'vg':
+                        Recall.get_unique_top_k_predictions(top_k=20)
                         recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # print('R@k_per_class', recall_per_class)
                         if args['models']['hierarchical_pred']:
