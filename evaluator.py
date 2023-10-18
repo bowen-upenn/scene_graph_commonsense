@@ -60,6 +60,7 @@ class Evaluator_PC:
         self.height = None
         self.width = None
         self.skipped = None
+        self.selected_indices = None
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -308,36 +309,129 @@ class Evaluator_PC:
         return top_k_predictions
 
 
+    def extract_matched_edges_with_neighbors(self, top_k=50):
+        matched_predictions = []    # in the format of strings
+        matched_image_graphs = []   # in the format of numbers
+        # related_predictions = []    # in the format of numbers
+        # related_image_graphs = []   # in the format of numbers
+        selected_indices = []
+
+        dict_relation_names = relation_by_super_class_int2str()
+        dict_object_names = object_class_int2str()
+
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            this_k = min(top_k, len(self.relation_pred[curr_image]))
+            top_k_inds = sorted_inds[:this_k]
+
+            curr_matched_predictions = []
+            curr_matched_image_graph = []
+            # curr_related_image_graph = []
+            # curr_related_predictions = []
+            curr_selected_indices = []
+
+            for i in range(len(self.subject_cat_target[curr_image])):
+                for j in top_k_inds:
+                    # Check if the subject and object match
+                    if (self.subject_cat_target[curr_image][i] == self.subject_cat_pred[curr_image][j]
+                            and self.object_cat_target[curr_image][i] == self.object_cat_pred[curr_image][j]):
+
+                        sub_iou = self.iou(self.subject_bbox_target[curr_image][i], self.subject_bbox_pred[curr_image][j])
+                        obj_iou = self.iou(self.object_bbox_target[curr_image][i], self.object_bbox_pred[curr_image][j])
+
+                        # If IOUs are above the threshold, add this edge
+                        if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
+                            subject_id = self.subject_cat_pred[curr_image][j].item()
+                            relation_id = self.relation_pred[curr_image][j].item()
+                            object_id = self.object_cat_pred[curr_image][j].item()
+
+                            subject_bbox = self.subject_bbox_pred[curr_image][j].cpu().tolist()
+                            object_bbox = self.object_bbox_pred[curr_image][j].cpu().tolist()
+
+                            edge = [subject_bbox, relation_id, object_bbox]
+
+                            if edge not in curr_matched_image_graph:  # remove redundant edges
+                                curr_matched_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
+                                curr_matched_image_graph.append(edge)
+
+                                curr_selected_indices.append(j.item())
+                            break
+
+            for edge in curr_matched_image_graph:
+                for j in top_k_inds:
+                    if (edge[0] == self.subject_bbox_pred[curr_image][j].cpu().tolist() or
+                            edge[2] == self.object_bbox_pred[curr_image][j].cpu().tolist()):
+
+                        subject_id = self.subject_cat_pred[curr_image][j].item()
+                        relation_id = self.relation_pred[curr_image][j].item()
+                        object_id = self.object_cat_pred[curr_image][j].item()
+
+                        subject_bbox = self.subject_bbox_pred[curr_image][j].cpu().tolist()
+                        object_bbox = self.object_bbox_pred[curr_image][j].cpu().tolist()
+
+                        rel_edge = [subject_bbox, relation_id, object_bbox]
+
+                        if rel_edge not in curr_matched_image_graph:  # remove redundant edges
+                            curr_matched_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
+                            curr_matched_image_graph.append(rel_edge)
+
+                            curr_selected_indices.append(j.item())
+                        break
+
+            matched_predictions.append(curr_matched_predictions)
+            matched_image_graphs.append(curr_matched_image_graph)
+            selected_indices.append(torch.as_tensor(curr_selected_indices))
+
+        self.selected_indices = selected_indices
+        return matched_predictions, matched_image_graphs
+
+
     def global_refine(self, refined_relation_pred, refined_confidence, batch_idx, top_k, rank):
         """
         For the batch_idx image in the batch, update the relation_pred and confidence of its top_k predictions.
         Because we calculate the confidence scores in a different way in global graphical refine, we only use new confidence scores
         to reorder the new top_k predictions, without actually
         """
-        # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
-        # find the top k predictions to be updated
         image = torch.unique(self.which_in_batch)[batch_idx]
         curr_image = self.which_in_batch == image
-        curr_confidence = self.confidence[curr_image]
-        sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
-
-        # select the top k predictions
-        this_k = min(top_k, len(self.relation_pred[curr_image]))
-        keep_inds = sorted_inds[:this_k]
-        if self.skipped is not None:
-            curr_skipped = self.skipped[image]
-            if len(curr_skipped) > 0:   # remove redundant edges
-                mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
-                keep_inds = keep_inds[mask]
-
-        # assign new relation predictions
-        # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
-        # print('self.relation_pred', len(self.relation_pred[curr_image]), len(self.relation_pred[curr_image][keep_inds]), 'refined_relation_pred', len(refined_relation_pred))
         tmp = self.relation_pred[curr_image].clone()
-        for i, idx in enumerate(keep_inds):
+        curr_indices = self.selected_indices[batch_idx]
+
+        print('curr_indices', len(curr_indices), 'refined_relation_pred', len(refined_relation_pred))
+        print('self.relation_pred before', self.relation_pred[curr_image][curr_indices])
+        print('refined_relation_pred', refined_relation_pred)
+        for i, idx in enumerate(curr_indices):
             tmp[idx] = refined_relation_pred[i]
         self.relation_pred[curr_image] = tmp
-        # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
+        print('self.relation_pred after', self.relation_pred[curr_image][curr_indices], '\n')
+
+        # # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
+        # # find the top k predictions to be updated
+        # image = torch.unique(self.which_in_batch)[batch_idx]
+        # curr_image = self.which_in_batch == image
+        # curr_confidence = self.confidence[curr_image]
+        # sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+        #
+        # # select the top k predictions
+        # this_k = min(top_k, len(self.relation_pred[curr_image]))
+        # keep_inds = sorted_inds[:this_k]
+        # if self.skipped is not None:
+        #     curr_skipped = self.skipped[image]
+        #     if len(curr_skipped) > 0:   # remove redundant edges
+        #         mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
+        #         keep_inds = keep_inds[mask]
+        #
+        # # assign new relation predictions
+        # # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
+        # # print('self.relation_pred', len(self.relation_pred[curr_image]), len(self.relation_pred[curr_image][keep_inds]), 'refined_relation_pred', len(refined_relation_pred))
+        # tmp = self.relation_pred[curr_image].clone()
+        # for i, idx in enumerate(keep_inds):
+        #     tmp[idx] = refined_relation_pred[i]
+        # self.relation_pred[curr_image] = tmp
+        # # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
 
         # # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
         # reorder_topk_inds = torch.argsort(refined_confidence, descending=True)

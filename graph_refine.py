@@ -773,12 +773,6 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     attention_layer = DDP(EdgeAttentionModel(d_model=clip_model.module.text_embed_dim)).to(rank)
     attention_layer.train()
 
-    map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
-    if args['models']['hierarchical_pred']:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
-    else:
-        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth', map_location=map_location))
-
     all_relation_embeds = prepare_target_txt_embeds(clip_model, tokenizer, rank)
     all_relation_embeds = F.normalize(all_relation_embeds, p=2, dim=1)
 
@@ -796,11 +790,11 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     if not args['training']['run_mode'] == 'clip_eval':
         # receive current SGG predictions from a baseline model
         if args['training']['eval_mode'] == 'pc':
-            sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1)
+            sgg_results = eval_pc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1, training=True)
         elif args['training']['eval_mode'] == 'sgc':
-            sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1)
+            sgg_results = eval_sgc(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1, training=True)
         elif args['training']['eval_mode'] == 'sgd':
-            sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1)
+            sgg_results = eval_sgd(rank, args, train_loader, topk_global_refine=args['training']['topk_global_refine'], epochs=1, training=True)
         else:
             raise NotImplementedError
 

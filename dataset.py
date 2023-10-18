@@ -114,6 +114,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         bbox_raw = bbox_raw.ceil().int()
         if torch.any(bbox_raw[:, 1] - bbox_raw[:, 0] <= 0) or torch.any(bbox_raw[:, 3] - bbox_raw[:, 2] <= 0):
             return None
+        bbox = bbox.int()
 
         subj_or_obj = curr_annot['subj_or_obj']
         relationships = curr_annot['relationships']
@@ -129,12 +130,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             triplets = []
             for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
                 for j, (rel, so) in enumerate(zip(rels, sos)):
-                    bbox_sub = bbox_raw[i + 1]#.clone() / self.args['models']['feature_size']
-                    bbox_obj = bbox_raw[j]#.clone() / self.args['models']['feature_size']
-                    # bbox_sub[:2] *= height
-                    # bbox_sub[2:] *= width
-                    # bbox_obj[:2] *= height
-                    # bbox_obj[2:] *= width
+                    bbox_sub = bbox_raw[i + 1]
+                    bbox_obj = bbox_raw[j]
 
                     if so == 1:  # if subject
                         triplets.append((tuple(bbox_sub.tolist()), rel.item(), tuple(bbox_obj.tolist()),
