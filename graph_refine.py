@@ -738,7 +738,7 @@ def process_batch_sgg_results(clip_model, processor, tokenizer, attention_layer,
     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == data_len):
         for batch_idx in range(len(images)):
             relation_pred, confidence = extract_updated_edges(updated_graphs[batch_idx], rank)
-            Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank)
+            Recall.global_refine(relation_pred, confidence, batch_idx, top_k, rank, training=training)
 
     if training:
         return attention_layer, running_loss_cos, running_loss_con, running_loss_counter
