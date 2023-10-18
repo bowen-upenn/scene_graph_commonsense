@@ -40,7 +40,7 @@ all_labels_semantic = all_labels[-args['models']['num_semantic']:]
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = '12357'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -362,7 +362,6 @@ def eval_refined_output(predicted_txt_embeds, current_edges, all_relation_embeds
 
     # Compute all cosine similarities in one go using matrix multiplication
     predicted_txt_embeds = F.normalize(predicted_txt_embeds, p=2, dim=1)
-    all_relation_embeds = F.normalize(all_relation_embeds, p=2, dim=1)
     cos_sims_all = torch.mm(predicted_txt_embeds, all_relation_embeds.t())
     cos_sims_all = F.softmax(cos_sims_all, dim=1)
 
@@ -533,6 +532,7 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
     all_edge_indices = []
     target_mask = []    # mask of predicate that has matched with a target
     edges_per_image = []
+    accumulated_edge_idx = 0
 
     for graph_idx, (graph, targets) in enumerate(zip(graphs, target_triplets)):
         # edges_per_image.append(len(graph.edges))
@@ -565,11 +565,12 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
                                 target_txt_embed = F.normalize(target_txt_embed, dim=1, p=2)
 
                             all_target_txt_embeds.append(target_txt_embed)
-                            target_mask.append(edge_idx)
+                            target_mask.append(edge_idx + accumulated_edge_idx)
                             current_target = target
                             all_targets.append(target)
                             # all_negative_target_txt_embeds.append(find_negative_targets(current_subject, current_object, target_relation, target_txt_embed,
                             #                                                             clip_model, tokenizer, rank, args))
+                            # print('found target', target, 'for edge', current_edge)
                             break
 
             # if current_target is not None:
@@ -601,6 +602,7 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
 
         all_edge_indices.append(edge_indices)
         edges_per_image.append(len(all_current_edges) - old_all_current_edges_len)
+        accumulated_edge_idx += len(graph.edges)
 
     # forward pass
     predicted_txt_embeds = prepare_training(attention_layer, all_current_edge_embeds, all_neighbor_edge_embeds, all_neighbor_rel_embeds, all_current_rel_embeds, rank, verbose=verbose)
@@ -636,6 +638,13 @@ def batch_training(clip_model, tokenizer, attention_layer, all_relation_embeds,
             optimizer.zero_grad()
 
             # cos_loss = criterion(input1_positive, input2_positive, labels_positive)
+            # print('input1_positive', input1_positive.shape, 'input2_positive', input2_positive.shape)
+            cos_sims_all = torch.mm(input1_positive, all_relation_embeds.t())
+            cos_sims_all = F.softmax(cos_sims_all, dim=1)
+            # print('all_targets', all_targets)
+            # print('cos_sims_all', torch.argmax(cos_sims_all, dim=1))
+            # print('target_mask', target_mask, 'len(all_current_edges)', len(all_current_edges))
+            # print('all_current_edges', [curr for i, curr in enumerate(all_current_edges) if i in target_mask])
             cos_loss = criterion(input1_positive, input2_positive)
             # con_loss = 0.1 * contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
             # con_loss = contrast_loss(input1_positive, [tar[1] for tar in all_targets], rank)
@@ -764,7 +773,14 @@ def query_clip(gpu, args, train_dataset, test_dataset):
     attention_layer = DDP(EdgeAttentionModel(d_model=clip_model.module.text_embed_dim)).to(rank)
     attention_layer.train()
 
+    map_location = {'cuda:%d' % rank: 'cuda:%d' % rank}
+    if args['models']['hierarchical_pred']:
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayerHierar' + '_' + str(rank) + '.pth', map_location=map_location))
+    else:
+        attention_layer.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'AttentionLayer' + '_' + str(rank) + '.pth', map_location=map_location))
+
     all_relation_embeds = prepare_target_txt_embeds(clip_model, tokenizer, rank)
+    all_relation_embeds = F.normalize(all_relation_embeds, p=2, dim=1)
 
     optimizer = optim.Adam([
         {'params': attention_layer.module.parameters(), 'initial_lr': args['training']['refine_learning_rate']},
