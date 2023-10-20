@@ -31,6 +31,7 @@ if __name__ == "__main__":
     parser.add_argument('--continue_train', type=bool, default=None, help='Override continue_train (True/False)')
     parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
     parser.add_argument('--hierar', type=bool, default=None, help='Override hierarchical_pred value')
+    parser.add_argument('--semi', type=bool, default=None, help='Override semi_supervised value')
     cmd_args = parser.parse_args()
 
     # Override args from config.yaml with command-line arguments if provided
@@ -39,6 +40,7 @@ if __name__ == "__main__":
     args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
     args['training']['start_epoch'] = cmd_args.start_epoch if cmd_args.start_epoch is not None else args['training']['start_epoch']
     args['models']['hierarchical_pred'] = cmd_args.hierar if cmd_args.hierar is not None else args['models']['hierarchical_pred']
+    args['training']['semi_supervised'] = cmd_args.semi if cmd_args.semi is not None else args['training']['semi_supervised']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world_size = torch.cuda.device_count()
@@ -58,8 +60,8 @@ if __name__ == "__main__":
         args['models']['detr101_pretrained'] = 'checkpoints/detr101_vg_ckpt.pth'
 
         print("Loading the datasets...")
-        train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'])
-        test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])
+        train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'], args['training']['semi_supervised'])
+        test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])    # always evaluate on the original testing dataset
 
     elif args['dataset']['dataset'] == 'oiv6':
         args['models']['num_classes'] = 601
@@ -89,6 +91,7 @@ if __name__ == "__main__":
         print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
+            # Change the next line to mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset)) to collect pseudo labels for semi-supervised learning
             mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
         elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
             args['models']['topk_cat'] = 1

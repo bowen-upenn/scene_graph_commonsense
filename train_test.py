@@ -22,7 +22,7 @@ from sup_contrast.losses import SupConLoss, SupConLossHierar
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -83,9 +83,9 @@ def train_local(gpu, args, train_subset, test_subset):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif3' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['start_epoch'] - 1) + '.pth', map_location=map_location))
         else:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif3' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['start_epoch'] - 1) + '.pth', map_location=map_location))
 
     optimizer = optim.SGD([{'params': local_predictor.parameters(), 'initial_lr': args['training']['learning_rate']}],
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
@@ -123,7 +123,7 @@ def train_local(gpu, args, train_subset, test_subset):
             """
             PREPARE INPUT DATA
             """
-            images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
+            images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, _ = data
             batch_size = len(images)
 
             with torch.no_grad():
@@ -403,9 +403,9 @@ def train_local(gpu, args, train_subset, test_subset):
 
         if rank == 0:
             if args['models']['hierarchical_pred']:
-                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif3' + str(epoch) + '_' + str(rank) + '.pth')
+                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(epoch) + '.pth')
             else:
-                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif3' + str(epoch) + '_' + str(rank) + '.pth')
+                torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '.pth')
         dist.monitored_barrier()
 
         test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank)
@@ -432,7 +432,7 @@ def test_local(args, backbone, local_predictor, test_loader, test_record, epoch,
             """
             PREPARE INPUT DATA
             """
-            images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj = data
+            images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, _ = data
 
             images = torch.stack(images).to(rank)
             image_feature, pos_embed = backbone.module.backbone(nested_tensor_from_tensor_list(images))

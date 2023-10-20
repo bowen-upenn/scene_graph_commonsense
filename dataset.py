@@ -70,7 +70,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
         annot_path = os.path.join(self.annot_dir, annot_name)
         if self.semi_supervised:
-            annot_name_semi = self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+            annot_name_semi = 'semi/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
             annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
         try:
             curr_annot = torch.load(annot_path)
@@ -131,6 +131,11 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             relationships_reordered.append(rel_reorder_dict[rel])
         relationships = relationships_reordered
 
+        if self.semi_supervised:
+            # print('relationships before', relationships)
+            relationships, subj_or_obj = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox)
+            # print('relationships after', relationships, '\n')
+
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             # reformulate relation annots for a single image in a more efficient way
             triplets = []
@@ -162,6 +167,64 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                 return image, image_nonsq, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
         else:
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
+
+
+    def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox):
+        for edge in annot_semi:
+            subject_bbox_semi, relation_id, object_bbox_semi = edge
+
+            # Match bbox for subject and object
+            subject_bbox_idx = self.match_bbox(subject_bbox_semi, bbox)
+            object_bbox_idx = self.match_bbox(object_bbox_semi, bbox)
+            if subject_bbox_idx == object_bbox_idx:
+                continue
+
+            if subject_bbox_idx is not None and object_bbox_idx is not None:
+                # print('edge', edge, 'subject_bbox_idx', subject_bbox_idx, 'object_bbox_idx', object_bbox_idx)
+                if subject_bbox_idx < object_bbox_idx:
+                    # If subject comes before the object in bbox order, it goes in subj_or_obj as 1
+                    if relationships[object_bbox_idx - 1][subject_bbox_idx].item() == -1:  # only assign the pseudo label if no relationship is assigned yet
+                        subj_or_obj[object_bbox_idx - 1][subject_bbox_idx] = 0
+                        relationships[object_bbox_idx - 1][subject_bbox_idx] = relation_id
+                else:
+                    if relationships[subject_bbox_idx - 1][object_bbox_idx].item() == -1:
+                        subj_or_obj[subject_bbox_idx - 1][object_bbox_idx] = 1
+                        relationships[subject_bbox_idx - 1][object_bbox_idx] = relation_id
+
+        return relationships, subj_or_obj
+
+
+    def match_bbox(self, bbox_semi, bbox_raw):
+        """
+        Returns the index of the bounding box from bbox_raw that most closely matches the pseudo bbox.
+        """
+        if self.args['training']['eval_mode'] == 'pc':
+            for idx, bbox in enumerate(bbox_raw):
+                if torch.sum(torch.abs(bbox - torch.as_tensor(bbox_semi))) == 0:
+                    return idx
+            return None
+        else:
+            ious = self.calculate_iou_for_all(bbox_semi, bbox_raw)
+            return torch.argmax(ious).item()
+
+
+    def calculate_iou_for_all(self, box1, boxes):
+        """
+        Calculate the Intersection over Union (IoU) of a bounding box with a set of bounding boxes.
+        """
+        x1 = torch.max(box1[0], boxes[:, 0])
+        y1 = torch.max(box1[1], boxes[:, 1])
+        x2 = torch.min(box1[2], boxes[:, 2])
+        y2 = torch.min(box1[3], boxes[:, 3])
+
+        inter_area = torch.clamp(x2 - x1 + 1, 0) * torch.clamp(y2 - y1 + 1, 0)
+
+        box1_area = (box1[2] - box1[0] + 1) * (box1[3] - box1[1] + 1)
+        boxes_area = (boxes[:, 2] - boxes[:, 0] + 1) * (boxes[:, 3] - boxes[:, 1] + 1)
+
+        union_area = box1_area + boxes_area - inter_area
+
+        return inter_area / union_area
 
 
     def load_one_image(self, file_name=None, idx=None, return_annot=False):
