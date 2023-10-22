@@ -418,7 +418,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     if args['dataset']['dataset'] == 'vg':
                         if args['training']['semi_supervised']:
                             Recall.get_related_top_k_predictions(top_k=20)
-                        Recall.filter_accumulated_predictions_by_commonsense()
+                        # Recall.filter_accumulated_predictions_by_commonsense()
                         recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # print('R@k_per_class', recall_per_class)
                         if args['models']['hierarchical_pred']:
@@ -436,6 +436,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
 
+    Recall.clear_gpt_cache()
     if args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train'or args['training']['run_mode'] == 'clip_eval':
         print('FINISHED GRAPH TRAINING PC\n')
     else:

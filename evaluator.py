@@ -4,6 +4,9 @@ import numpy as np
 from tqdm import tqdm
 import math
 import os
+import concurrent.futures
+from collections import OrderedDict
+from functools import partial
 
 from utils import get_weight_oiv6, query_openai_gpt
 from dataset_utils import relation_by_super_class_int2str, object_class_int2str
@@ -15,7 +18,7 @@ class Evaluator_PC:
     In our hierarchical relationship scheme, each edge has three predictions per direction under three disjoint super-categories.
     Therefore, each directed edge outputs three individual candidates to be ranked in the top k most confident predictions instead of one.
     """
-    def __init__(self, args, num_classes, iou_thresh, top_k):
+    def __init__(self, args, num_classes, iou_thresh, top_k, max_cache_size=1000):
         self.args = args
         self.hierar = args['models']['hierarchical_pred']
         self.top_k = top_k
@@ -63,6 +66,9 @@ class Evaluator_PC:
         self.skipped = None
         self.selected_indices = None
         self.annotation_paths = None
+
+        self.cache = OrderedDict()
+        self.max_cache_size = max_cache_size
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -216,20 +222,86 @@ class Evaluator_PC:
                     self.width = torch.hstack((self.width, width.repeat(3)))
 
 
-    def filter_accumulated_predictions_by_commonsense(self):
+    def filter_accumulated_predictions_by_commonsense(self, top_k=10):
         # only call this function at evaluation time, not training time
         dict_relation_names = relation_by_super_class_int2str()
         dict_object_names = object_class_int2str()
 
-        for ind in range(len(self.subject_cat_pred)):
-            subject_id_pred = self.subject_cat_pred[ind].item()
-            object_id_pred = self.object_cat_pred[ind].item()
-            relation_id_pred = self.relation_pred[ind].item()
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+            this_k = min(top_k, len(self.relation_pred[curr_image]))
+            keep_inds = sorted_inds[:this_k]
 
-            string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
-            response = query_openai_gpt(string)
-            if response is not None:
-                self.confidence[ind] *= response
+            edges = []
+            for ind in keep_inds:
+                subject_id_pred = self.subject_cat_pred[curr_image][ind].item()
+                object_id_pred = self.object_cat_pred[curr_image][ind].item()
+                relation_id_pred = self.relation_pred[curr_image][ind].item()
+                string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
+                edges.append(string)
+            # print('confidence before', self.confidence[curr_image][keep_inds])
+
+            batch_size = 5
+            batches = [edges[i:min(i + batch_size, len(edges))] for i in range(0, len(edges), batch_size)]
+            # print('batches', batches)
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                func = partial(query_openai_gpt, cache=self.cache, model='gpt-3.5-turbo')
+                responses = list(executor.map(func, batches))
+
+            # Flatten the list of responses and apply to confidence
+            responses = [item for sublist in responses for item in sublist]
+            # print('responses', len(responses), responses)
+
+            tmp = self.confidence[curr_image].clone()
+            for i, ind in enumerate(keep_inds):
+                if responses[i] == -1:
+                    tmp[ind] = float('-inf')
+            self.confidence[curr_image] = tmp
+            # print('confidence after', self.confidence[curr_image][keep_inds])
+
+        # check if cache exceeded its size and evict the least frequently accessed item
+        while len(self.cache) > self.max_cache_size:
+            self.cache.popitem(last=False)  # False means the first item will be removed
+
+        # edges = []
+        # confidences = []
+        # for ind in range(len(self.subject_cat_pred)):
+        #     subject_id_pred = self.subject_cat_pred[ind].item()
+        #     object_id_pred = self.object_cat_pred[ind].item()
+        #     relation_id_pred = self.relation_pred[ind].item()
+        #     string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
+        #     edges.append(string)
+        #     confidences.append(self.confidence[ind])
+        # # print('confidences', confidences)
+        #
+        # batch_size = 8  # Choose an appropriate batch size
+        # batches = [edges[i:min(i + batch_size, len(edges))] for i in range(0, len(edges), batch_size)]
+        #
+        # with concurrent.futures.ThreadPoolExecutor() as executor:
+        #     responses = list(executor.map(query_openai_gpt, batches))
+        #
+        # # Flatten the list of responses and apply to confidence
+        # responses = [item for sublist in responses for item in sublist]
+        # for ind, response in enumerate(responses):
+        #     if response is not None:
+        #         self.confidence[ind] *= response
+
+    #     # only call this function at evaluation time, not training time
+    #     dict_relation_names = relation_by_super_class_int2str()
+    #     dict_object_names = object_class_int2str()
+    #
+    #     for ind in range(min(len(self.subject_cat_pred), 200)):
+    #         subject_id_pred = self.subject_cat_pred[ind].item()
+    #         object_id_pred = self.object_cat_pred[ind].item()
+    #         relation_id_pred = self.relation_pred[ind].item()
+    #
+    #         string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
+    #         response = query_openai_gpt(string)
+    #         if response is not None:
+    #             self.confidence[ind] *= response
 
 
     def get_top_k_predictions(self, top_k):
@@ -682,6 +754,9 @@ class Evaluator_PC:
 
         self.height = None
         self.width = None
+
+    def clear_gpt_cache(self):
+        self.cache = {}
 
 
 class Evaluator_PC_Top3:

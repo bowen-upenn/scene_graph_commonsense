@@ -11,6 +11,9 @@ from typing import Optional, List
 import torchvision
 import openai
 import math
+from collections import Counter
+import re
+import random
 
 
 def collate_fn(batch):
@@ -23,29 +26,134 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-def query_openai_gpt(predicted_edge, model='gpt-3.5-turbo'):
+def query_openai_gpt(batched_edges, cache=None, model='gpt-3.5-turbo'):
     # load your secret OpenAI API key
     # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
     # do not share your API key with others, or expose it in the browser or other client-side code
     openai.api_key_path = 'openai_api_key.txt'
+    batch_responses = []
+    random_val = random.random()    # without randomness, the model will always return the same answer for the same prompt
 
-    prompt = "In scene graph generation, the model shall predict relationships between a given subject and object pair. Based on the commonsense, is the relationship '"
-    prompt += predicted_edge
-    prompt += "' reasonable or not? Only answer Yes or No."
-    messages = [{"role": "user", "content": prompt}]
-    response = openai.ChatCompletion.create(
-        model=model,
-        messages=messages,
-        temperature=0,
-    )
-    answer = response.choices[0].message["content"]
-    print('OpenAI GPT-3 response: ', answer)
-    if answer == 'Yes.':
-        return 1.0
-    elif answer == 'No.':
-        return float('-inf')
-    else:   # ignore any invalid response
-        return None
+    for predicted_edge in batched_edges:
+        # first check cache
+        if cache is not None and predicted_edge in cache and random_val < 0.9:
+            cache.move_to_end(predicted_edge)
+            batch_responses.append(cache[predicted_edge])
+
+        else:
+            messages = []
+            for prompt_template in [
+                "In scene graph generation, the model shall predict relationships between a subject-object pair. Based on the commonsense, is the relationship '{}' reasonable or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
+            ]:
+            #     "Does the relationship '{}' physically make sense based on the commonsense? Show your reasoning, but end your answer with the word 'Yes' or 'No'.",
+            #     "Consider a scene where objects are described in terms of their relationships. Is it reasonable to say '{}' in such a scene? Show your reasoning, but your last word in the answer must be either 'Yes' or 'No'."
+            # ]:
+                messages.append({"role": "user", "content": prompt_template.format(predicted_edge)})
+
+            response = openai.ChatCompletion.create(
+                model=model,
+                messages=messages,
+                temperature=0,
+            )
+
+            # extract the majority vote
+            answers = []
+            for resp in response.choices:
+                # print(resp.message["content"])
+                answer = resp.message["content"].split(" ")[-1]
+                if re.search(r'Yes', answer):
+                    answers.append('Yes.')
+                elif re.search(r'No', answer):
+                    answers.append('No.')
+                else:
+                    answers.append(answer)
+
+            answer_counts = Counter(answers)
+            majority_vote = answer_counts.most_common(1)[0][0]
+
+            if majority_vote == 'No.':
+                batch_responses.append(-1)
+                cache[predicted_edge] = -1  # update cache
+            elif majority_vote == 'Yes.':
+                batch_responses.append(1)
+                cache[predicted_edge] = 1   # update cache
+            else:
+                batch_responses.append(1)   # ignore any invalid response
+
+    return batch_responses
+# def query_openai_gpt(predicted_edge, model='gpt-3.5-turbo'):
+#     # load your secret OpenAI API key
+#     # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
+#     # do not share your API key with others, or expose it in the browser or other client-side code
+#     openai.api_key_path = 'openai_api_key.txt'
+#
+#     # we will query the GPT model with more than one different prompts to ensure robustness
+#     answers = []
+#
+#     prompt = "In scene graph generation, the model shall predict relationships between a given subject and object pair. Based on the commonsense, is the relationship '"
+#     prompt += predicted_edge
+#     prompt += "' reasonable or not? Show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
+#     messages = [{"role": "user", "content": prompt}]
+#     response = openai.ChatCompletion.create(
+#         model=model,
+#         messages=messages,
+#         temperature=0,
+#     )
+#     answer = response.choices[0].message["content"].split(" ")[-1]
+#     # print('Prompt', prompt, 'Response: ', answer)
+#     if re.search(r'Yes', answer):
+#         answers.append('Yes.')
+#     elif re.search(r'No', answer):
+#         answers.append('No.')
+#     else:
+#         answers.append(answer)
+#
+#     prompt = "Does the relationship '"
+#     prompt += predicted_edge
+#     prompt += "' physically make sense based on the commonsense? Show your reasoning, but end your answer with the word 'Yes' or 'No'."
+#     messages = [{"role": "user", "content": prompt}]
+#     response = openai.ChatCompletion.create(
+#         model=model,
+#         messages=messages,
+#         temperature=0,
+#     )
+#     answer = response.choices[0].message["content"].split(" ")[-1]
+#     # print('Prompt', prompt, 'Response: ', answer)
+#     if re.search(r'Yes', answer):
+#         answers.append('Yes.')
+#     elif re.search(r'No', answer):
+#         answers.append('No.')
+#     else:
+#         answers.append(answer)
+#
+#     prompt = "Consider a scene where objects are described in terms of their relationships. Is it reasonable to say '"
+#     prompt += predicted_edge
+#     prompt += "' in such a scene? Show your reasoning, but your last word in the answer must be either 'Yes' or 'No'."
+#     messages = [{"role": "user", "content": prompt}]
+#     response = openai.ChatCompletion.create(
+#         model=model,
+#         messages=messages,
+#         temperature=0,
+#     )
+#     answer = response.choices[0].message["content"].split(" ")[-1]
+#     # print('Prompt', prompt, 'Response: ', answer)
+#     if re.search(r'Yes', answer):
+#         answers.append('Yes.')
+#     elif re.search(r'No', answer):
+#         answers.append('No.')
+#     else:
+#         answers.append(answer)
+#
+#     # find the majority vote
+#     answer_counts = Counter(answers)
+#     majority_vote = answer_counts.most_common(1)[0][0]
+#     print('predicted_edge', predicted_edge, 'answers', answers, 'majority_vote', majority_vote)
+#     if majority_vote == 'Yes.':
+#         return 1.0
+#     elif majority_vote == 'No.':
+#         return float('-inf')
+#     else:   # ignore any invalid response
+#         return None
 
 
 def resize_boxes(boxes, original_size, new_size):
