@@ -24,11 +24,6 @@ if __name__ == "__main__":
     except Exception as e:
         print('Error reading the config file')
 
-    # load your secret OpenAI API key
-    # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
-    with open('openai_api_key.txt', 'r') as file:
-        openai_api_key = file.read()
-
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description='Command line arguments')
     parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, caption)')

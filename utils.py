@@ -9,6 +9,8 @@ import torch.nn as nn
 from torch import Tensor
 from typing import Optional, List
 import torchvision
+import openai
+import math
 
 
 def collate_fn(batch):
@@ -19,6 +21,31 @@ def collate_fn(batch):
     """
     batch = list(filter(lambda x: x is not None, batch))
     return tuple(zip(*batch))
+
+
+def query_openai_gpt(predicted_edge, model='gpt-3.5-turbo'):
+    # load your secret OpenAI API key
+    # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
+    # do not share your API key with others, or expose it in the browser or other client-side code
+    openai.api_key_path = 'openai_api_key.txt'
+
+    prompt = "In scene graph generation, the model shall predict relationships between a given subject and object pair. Based on the commonsense, is the relationship '"
+    prompt += predicted_edge
+    prompt += "' reasonable or not? Only answer Yes or No."
+    messages = [{"role": "user", "content": prompt}]
+    response = openai.ChatCompletion.create(
+        model=model,
+        messages=messages,
+        temperature=0,
+    )
+    answer = response.choices[0].message["content"]
+    print('OpenAI GPT-3 response: ', answer)
+    if answer == 'Yes.':
+        return 1.0
+    elif answer == 'No.':
+        return float('-inf')
+    else:   # ignore any invalid response
+        return None
 
 
 def resize_boxes(boxes, original_size, new_size):

@@ -5,7 +5,7 @@ from tqdm import tqdm
 import math
 import os
 
-from utils import get_weight_oiv6
+from utils import get_weight_oiv6, query_openai_gpt
 from dataset_utils import relation_by_super_class_int2str, object_class_int2str
 
 
@@ -214,6 +214,22 @@ class Evaluator_PC:
                 if height is not None:
                     self.height = torch.hstack((self.height, height.repeat(3)))
                     self.width = torch.hstack((self.width, width.repeat(3)))
+
+
+    def filter_accumulated_predictions_by_commonsense(self):
+        # only call this function at evaluation time, not training time
+        dict_relation_names = relation_by_super_class_int2str()
+        dict_object_names = object_class_int2str()
+
+        for ind in range(len(self.subject_cat_pred)):
+            subject_id_pred = self.subject_cat_pred[ind].item()
+            object_id_pred = self.object_cat_pred[ind].item()
+            relation_id_pred = self.relation_pred[ind].item()
+
+            string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
+            response = query_openai_gpt(string)
+            if response is not None:
+                self.confidence[ind] *= response
 
 
     def get_top_k_predictions(self, top_k):

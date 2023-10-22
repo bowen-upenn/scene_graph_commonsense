@@ -21,7 +21,7 @@ from dataset_utils import object_class_alp2fre
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12358'
+    os.environ['MASTER_PORT'] = '12357'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -418,6 +418,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     if args['dataset']['dataset'] == 'vg':
                         if args['training']['semi_supervised']:
                             Recall.get_related_top_k_predictions(top_k=20)
+                        Recall.filter_accumulated_predictions_by_commonsense()
                         recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # print('R@k_per_class', recall_per_class)
                         if args['models']['hierarchical_pred']:
