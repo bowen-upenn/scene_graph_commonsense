@@ -24,6 +24,11 @@ if __name__ == "__main__":
     except Exception as e:
         print('Error reading the config file')
 
+    # load your secret OpenAI API key
+    # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
+    with open('openai_api_key.txt', 'r') as file:
+        openai_api_key = file.read()
+
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description='Command line arguments')
     parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, caption)')
@@ -92,7 +97,7 @@ if __name__ == "__main__":
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
             # Change the next line to mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset)) to collect pseudo labels for semi-supervised learning
-            mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
+            mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset))
         elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
             args['models']['topk_cat'] = 1
             mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset))

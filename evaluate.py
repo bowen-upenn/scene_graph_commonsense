@@ -416,7 +416,8 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
                 else:
                     if args['dataset']['dataset'] == 'vg':
-                        Recall.get_unique_top_k_predictions(top_k=20)
+                        if args['training']['semi_supervised']:
+                            Recall.get_related_top_k_predictions(top_k=20)
                         recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # print('R@k_per_class', recall_per_class)
                         if args['models']['hierarchical_pred']:

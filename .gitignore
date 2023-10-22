@@ -8,3 +8,4 @@ RelTR/
 progress/
 myenv/
 *.png
+openai_api_key.txt

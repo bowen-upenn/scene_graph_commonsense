@@ -411,6 +411,53 @@ class Evaluator_PC:
         return matched_predictions, matched_image_graphs
 
 
+    def get_related_top_k_predictions(self, top_k, save_to_annot=True):
+        top_k_predictions = []
+        top_k_image_graphs = []
+        dict_relation_names = relation_by_super_class_int2str()
+        dict_object_names = object_class_int2str()
+
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            curr_predictions = []
+            curr_image_graph = []
+
+            for i in range(0, len(self.subject_cat_target[curr_image]), 3):
+                if self.relation_target[curr_image][i] == -1:  # if target is not connected
+                    continue
+
+                for j in range(min(top_k, len(sorted_inds))):
+                    ind = sorted_inds[j]
+
+                    subject_id_pred = self.subject_cat_pred[curr_image][ind].item()
+                    object_id_pred = self.object_cat_pred[curr_image][ind].item()
+
+                    # check if the predicted subject or object matches the target
+                    if (self.subject_cat_target[curr_image][i] == subject_id_pred and torch.sum(torch.abs(self.subject_bbox_target[curr_image][i] - self.subject_bbox_pred[curr_image][ind])) == 0) \
+                            or (self.object_cat_target[curr_image][i] == object_id_pred and torch.sum(torch.abs(self.object_bbox_target[curr_image][i] - self.object_bbox_pred[curr_image][ind]) == 0)):
+
+                        relation_id = self.relation_pred[curr_image][ind].item()
+                        edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist()]
+                        if edge not in curr_image_graph:
+                            curr_image_graph.append(edge)
+                            string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id_pred]
+                            curr_predictions.append(string)
+
+            if not save_to_annot:
+                top_k_predictions.append(curr_predictions)
+                top_k_image_graphs.append(curr_image_graph)
+            else:
+                annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
+                annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi', annot_name)
+                torch.save(curr_image_graph, annot_path)
+
+        if not save_to_annot:
+            return top_k_predictions, top_k_image_graphs
+
+
     def global_refine(self, refined_relation_pred, refined_confidence, batch_idx, top_k, rank, training=False):
         """
         For the batch_idx image in the batch, update the relation_pred and confidence of its top_k predictions.

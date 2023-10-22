@@ -69,13 +69,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         """
         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
         annot_path = os.path.join(self.annot_dir, annot_name)
-        if self.semi_supervised:
-            annot_name_semi = 'semi/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
-            annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
+        # if self.semi_supervised:
+        #     annot_name_semi = 'semi/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        #     annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
         try:
             curr_annot = torch.load(annot_path)
-            if self.semi_supervised:
-                curr_annot_semi = torch.load(annot_path_semi)
+            # if self.semi_supervised:
+            #     curr_annot_semi = torch.load(annot_path_semi)
         except:
             return None
 
@@ -131,10 +131,10 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             relationships_reordered.append(rel_reorder_dict[rel])
         relationships = relationships_reordered
 
-        if self.semi_supervised:
-            # print('relationships before', relationships)
-            relationships, subj_or_obj = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox)
-            # print('relationships after', relationships, '\n')
+        # if self.semi_supervised:
+        #     # print('relationships before', relationships)
+        #     relationships, subj_or_obj = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox)
+        #     # print('relationships after', relationships, '\n')
 
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             # reformulate relation annots for a single image in a more efficient way
