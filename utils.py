@@ -100,7 +100,7 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
         # first check cache
         if cache is not None and predicted_edge in cache and random_val < 0.9:
             cache.move_to_end(predicted_edge)
-            return cache[predicted_edge]
+            responses.append(cache[predicted_edge])
 
         else:
             prompt_template = "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer Yes or No. " #Briefly show your reasoning."

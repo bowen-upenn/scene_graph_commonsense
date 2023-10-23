@@ -558,7 +558,7 @@ class Evaluator_PC:
                 valid_curr_image_graph.append(curr_image_graph[i])
 
         annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-        annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi', annot_name)
+        annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs', annot_name)
         # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
         torch.save(valid_curr_image_graph, annot_path)
 
