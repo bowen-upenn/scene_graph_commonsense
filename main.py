@@ -31,7 +31,6 @@ if __name__ == "__main__":
     parser.add_argument('--continue_train', type=bool, default=None, help='Override continue_train (True/False)')
     parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
     parser.add_argument('--hierar', type=bool, default=None, help='Override hierarchical_pred value')
-    parser.add_argument('--semi', type=bool, default=None, help='Override semi_supervised value')
     cmd_args = parser.parse_args()
 
     # Override args from config.yaml with command-line arguments if provided
@@ -40,8 +39,7 @@ if __name__ == "__main__":
     args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
     args['training']['start_epoch'] = cmd_args.start_epoch if cmd_args.start_epoch is not None else args['training']['start_epoch']
     args['models']['hierarchical_pred'] = cmd_args.hierar if cmd_args.hierar is not None else args['models']['hierarchical_pred']
-    args['training']['semi_supervised'] = cmd_args.semi if cmd_args.semi is not None else args['training']['semi_supervised']
-
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world_size = torch.cuda.device_count()
     print('device', device)
@@ -87,20 +85,21 @@ if __name__ == "__main__":
     # select training or evaluation
     if args['training']['run_mode'] == 'train':
          mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
-    elif args['training']['run_mode'] == 'eval':
+    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_semi' or args['training']['run_mode'] == 'eval_semi':
         print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
+        curr_subset = train_subset if args['training']['run_mode'] == 'prepare_semi' else test_subset
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
-            # Change the next line to mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset)) to collect pseudo labels for semi-supervised learning
-            mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset))
+            mp.spawn(eval_pc, nprocs=world_size, args=(args, curr_subset))
         elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
             args['models']['topk_cat'] = 1
-            mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset))
+            mp.spawn(eval_sgc, nprocs=world_size, args=(args, curr_subset))
         elif args['training']['eval_mode'] == 'sgd' and args['dataset']['dataset'] == 'vg':       # scene graph detection
             args['models']['topk_cat'] = 2
-            mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset))
+            mp.spawn(eval_sgd, nprocs=world_size, args=(args, curr_subset))
         else:
             print('Invalid arguments or not implemented.')
+
     elif args['training']['run_mode'] == 'caption':
         image_captioning(device, world_size, args, test_dataset)
     elif args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':

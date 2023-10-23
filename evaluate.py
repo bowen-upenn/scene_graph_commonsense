@@ -416,10 +416,11 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
                 else:
                     if args['dataset']['dataset'] == 'vg':
-                        if args['training']['semi_supervised']:
+                        if args['training']['run_mode'] == 'prepare_semi':
                             Recall.get_related_top_k_predictions_parallel(top_k=20)
+                        else:
+                            recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # Recall.filter_accumulated_predictions_by_commonsense()
-                        # recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # print('R@k_per_class', recall_per_class)
                         if args['models']['hierarchical_pred']:
                             # recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
@@ -428,9 +429,10 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                         recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                         wmap_rel, wmap_phrase = Recall.compute_precision()
 
-                    # if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                    #     record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
-                    #                         connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
+                    if args['training']['run_mode'] != 'prepare_semi':
+                        if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
+                            record_test_results(args, test_record, rank, args['training']['test_epoch'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                                connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                     # clean up the evaluator
                     Recall.clear_data()
 

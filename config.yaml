@@ -43,9 +43,8 @@ models:
     num_semantic: 24
     num_negatives: 49
 training:
-    run_mode: 'train'      # train, eval, caption, clip_zs, clip_train
+    run_mode: 'train'      # train, eval, prepare_semi, eval_semi, caption, clip_zs, clip_train
     eval_mode: 'pc'        # pc sgc or sgd
-    semi_supervised: True
     learning_rate: 0.00001
     refine_learning_rate: 0.0001
     weight_decay: 0.0001
