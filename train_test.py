@@ -25,7 +25,7 @@ def setup(rank, world_size):
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
-def train_local(gpu, args, train_subset, test_subset):
+def train_local(gpu, args, train_subset, test_subset, train_dataset):
     """
     This function trains and evaluates the local prediction module on predicate classification tasks.
     :param gpu: current gpu index
@@ -38,6 +38,7 @@ def train_local(gpu, args, train_subset, test_subset):
     setup(rank, world_size)
     print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
 
+    writer = None
     if rank == 0:
         writer = SummaryWriter('runs/train_sg')
 
@@ -79,9 +80,9 @@ def train_local(gpu, args, train_subset, test_subset):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif2' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif2' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
     optimizer = optim.SGD([{'params': local_predictor.parameters(), 'initial_lr': args['training']['learning_rate']}],
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
@@ -400,13 +401,17 @@ def train_local(gpu, args, train_subset, test_subset):
             running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_precision, \
                 num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
+        if epoch == 0 and rank == 0:
+            mean_num_rel_before, mean_num_rel_after = train_dataset.calculate_mean_num_rel_before_after_semi()
+            print('Mean number of relations before and after semi-supervised training: %.4f' % mean_num_rel_before, '%.4f' % mean_num_rel_after)
+
         if args['models']['hierarchical_pred']:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif2' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
         else:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif2' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
-        test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank)
+        test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank, writer)
 
     dist.destroy_process_group()  # clean up
     if rank == 0:
@@ -414,7 +419,7 @@ def train_local(gpu, args, train_subset, test_subset):
     print('FINISHED TRAINING\n')
 
 
-def test_local(args, backbone, local_predictor, test_loader, test_record, epoch, rank):
+def test_local(args, backbone, local_predictor, test_loader, test_record, epoch, rank, writer):
     backbone.eval()
     local_predictor.eval()
 
@@ -560,9 +565,10 @@ def test_local(args, backbone, local_predictor, test_loader, test_record, epoch,
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     if rank == 0:
-                        writer.add_scalar('train/Recall@20', recall[0], global_step)
-                        writer.add_scalar('train/Recall@50', recall[1], global_step)
-                        writer.add_scalar('train/Recall@100', recall[2], global_step)
+                        global_step = batch_count + len(test_loader) * epoch
+                        writer.add_scalar('test/Recall@20', recall[0], global_step)
+                        writer.add_scalar('test/Recall@50', recall[1], global_step)
+                        writer.add_scalar('test/Recall@100', recall[2], global_step)
                     if args['models']['hierarchical_pred']:
                         recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                         Recall_top3.clear_data()

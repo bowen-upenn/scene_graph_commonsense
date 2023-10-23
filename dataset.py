@@ -28,10 +28,10 @@ class PrepareVisualGenomeDataset(torch.utils.data.Dataset):
 
 
 class VisualGenomeDataset(torch.utils.data.Dataset):
-    def __init__(self, args, device, annotations, semi_supervised=False):
+    def __init__(self, args, device, annotations, training):
         self.args = args
         self.device = device
-        self.semi_supervised = semi_supervised
+        self.training = True
         self.image_dir = self.args['dataset']['image_dir']
         self.annot_dir = self.args['dataset']['annot_dir']
         self.subset_indices = None
@@ -55,6 +55,11 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             self.dict_relation_names = relation_by_super_class_int2str()
             self.dict_object_names = object_class_int2str()
 
+        self.mean_num_rel = 0
+        self.mean_num_rel_semi = 0
+        self.img_count = 0
+        self.num_added_rel_semi = 0
+
     def __getitem__(self, idx):
         """
         Dataloader Outputs:
@@ -69,15 +74,18 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         """
         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
         annot_path = os.path.join(self.annot_dir, annot_name)
-        if self.args['training']['run_mode'] == 'eval_semi':
+        if os.path.exists(annot_path):
+            curr_annot = torch.load(annot_path)
+        else:
+            return None
+
+        if self.args['training']['run_mode'] == 'train_semi' and self.training:     # no pseudo labels at testing time
             annot_name_semi = 'semi_cs/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
             annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
-        try:
-            curr_annot = torch.load(annot_path)
-            if self.args['training']['run_mode'] == 'eval_semi':
+            if os.path.exists(annot_path_semi):
                 curr_annot_semi = torch.load(annot_path_semi)
-        except:
-            return None
+            else:
+                return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
         image = cv2.imread(image_path)
@@ -88,6 +96,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         image, image_aug = image[0], image[1]
         image = self.image_norm(image)  # squared size that unifies the size of feature maps
         image_aug = self.image_norm(image_aug)
+        self.img_count += 1
 
         if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
             del image_aug
@@ -129,11 +138,14 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         for rel in relationships:
             rel[rel == 12] = 4      # wearing <- wears
             relationships_reordered.append(rel_reorder_dict[rel])
+            self.mean_num_rel += len(rel[rel != -1])
         relationships = relationships_reordered
 
-        if self.args['training']['run_mode'] == 'eval_semi':
+        if self.args['training']['run_mode'] == 'train_semi' and self.training:
             # print('relationships before', relationships)
+            old_num_added_rel_semi = self.num_added_rel_semi
             relationships, subj_or_obj = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox)
+            self.mean_num_rel_semi += self.num_added_rel_semi - old_num_added_rel_semi
             # print('relationships after', relationships, '\n')
 
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
@@ -169,6 +181,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
 
 
+    def calculate_mean_num_rel_before_after_semi(self):
+        print('Mean_num_rel', self.mean_num_rel, 'mean_num_rel_semi', self.mean_num_rel_semi, 'img_count', self.img_count)
+        mean_num_rel, mean_num_rel_semi = self.mean_num_rel / self.img_count, self.mean_num_rel_semi / self.img_count
+        self.mean_num_rel, self.mean_num_rel_semi, self.img_count, self.num_added_rel_semi = 0, 0, 0, 0
+        return mean_num_rel, mean_num_rel_semi
+
+
     def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox):
         for edge in annot_semi:
             subject_bbox_semi, relation_id, object_bbox_semi = edge
@@ -186,10 +205,12 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                     if relationships[object_bbox_idx - 1][subject_bbox_idx].item() == -1:  # only assign the pseudo label if no relationship is assigned yet
                         subj_or_obj[object_bbox_idx - 1][subject_bbox_idx] = 0
                         relationships[object_bbox_idx - 1][subject_bbox_idx] = relation_id
+                        self.num_added_rel_semi += 1
                 else:
                     if relationships[subject_bbox_idx - 1][object_bbox_idx].item() == -1:
                         subj_or_obj[subject_bbox_idx - 1][object_bbox_idx] = 1
                         relationships[subject_bbox_idx - 1][object_bbox_idx] = relation_id
+                        self.num_added_rel_semi += 1
 
         return relationships, subj_or_obj
 

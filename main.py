@@ -40,7 +40,7 @@ if __name__ == "__main__":
     args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
     args['training']['start_epoch'] = cmd_args.start_epoch if cmd_args.start_epoch is not None else args['training']['start_epoch']
     args['models']['hierarchical_pred'] = cmd_args.hierar if cmd_args.hierar is not None else args['models']['hierarchical_pred']
-    args['training']['common_sense'] = cmd_args.cs if cmd_args.cs is not None else args['models']['common_sense']
+    args['training']['common_sense'] = cmd_args.cs if cmd_args.cs is not None else args['training']['common_sense']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world_size = torch.cuda.device_count()
@@ -60,8 +60,8 @@ if __name__ == "__main__":
         args['models']['detr101_pretrained'] = 'checkpoints/detr101_vg_ckpt.pth'
 
         print("Loading the datasets...")
-        train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'], args['training']['semi_supervised'])
-        test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'])    # always evaluate on the original testing dataset
+        train_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_train'], training=True)
+        test_dataset = VisualGenomeDataset(args, device, args['dataset']['annotation_test'], training=False)    # always evaluate on the original testing dataset
 
     elif args['dataset']['dataset'] == 'oiv6':
         args['models']['num_classes'] = 601
@@ -85,9 +85,9 @@ if __name__ == "__main__":
     print('num of train, test:', len(train_subset), len(test_subset))
 
     # select training or evaluation
-    if args['training']['run_mode'] == 'train':
-         mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
-    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_semi' or args['training']['run_mode'] == 'eval_semi':
+    if args['training']['run_mode'] == 'train' or args['training']['run_mode'] == 'train_semi':
+         mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset, train_dataset))
+    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_semi':
         print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
         curr_subset = train_subset if args['training']['run_mode'] == 'prepare_semi' else test_subset
         # select evaluation mode
@@ -101,7 +101,6 @@ if __name__ == "__main__":
             mp.spawn(eval_sgd, nprocs=world_size, args=(args, curr_subset))
         else:
             print('Invalid arguments or not implemented.')
-
     elif args['training']['run_mode'] == 'caption':
         image_captioning(device, world_size, args, test_dataset)
     elif args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
