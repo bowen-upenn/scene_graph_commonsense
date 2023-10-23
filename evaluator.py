@@ -557,11 +557,14 @@ class Evaluator_PC:
                     break
 
         if len(curr_image_graph) > 0:
-            responses = batch_query_openai_gpt_instruct(curr_predictions, cache=self.cache)
-            valid_curr_image_graph = []
-            for i, response in enumerate(responses):
-                if response == 1:
-                    valid_curr_image_graph.append(curr_image_graph[i])
+            if self.args['training']['common_sense']:
+                responses = batch_query_openai_gpt_instruct(curr_predictions, cache=self.cache)
+                valid_curr_image_graph = []
+                for i, response in enumerate(responses):
+                    if response == 1:
+                        valid_curr_image_graph.append(curr_image_graph[i])
+            else:
+                valid_curr_image_graph = curr_image_graph
 
             annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
             annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs', annot_name)

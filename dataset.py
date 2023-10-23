@@ -70,7 +70,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
         annot_path = os.path.join(self.annot_dir, annot_name)
         if self.args['training']['run_mode'] == 'eval_semi':
-            annot_name_semi = 'semi/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+            annot_name_semi = 'semi_cs/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
             annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
         try:
             curr_annot = torch.load(annot_path)

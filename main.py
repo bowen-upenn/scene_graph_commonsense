@@ -26,11 +26,12 @@ if __name__ == "__main__":
 
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description='Command line arguments')
-    parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, caption)')
+    parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_semi, eval_semi, clip_train, clip_eval, clip_zs, caption)')
     parser.add_argument('--eval_mode', type=str, default=None, help='Override eval_mode (pc, sgc, sgd)')
     parser.add_argument('--continue_train', type=bool, default=None, help='Override continue_train (True/False)')
     parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
     parser.add_argument('--hierar', type=bool, default=None, help='Override hierarchical_pred value')
+    parser.add_argument('--cs', type=bool, default=None, help='Override common_sense value')
     cmd_args = parser.parse_args()
 
     # Override args from config.yaml with command-line arguments if provided
@@ -39,7 +40,8 @@ if __name__ == "__main__":
     args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
     args['training']['start_epoch'] = cmd_args.start_epoch if cmd_args.start_epoch is not None else args['training']['start_epoch']
     args['models']['hierarchical_pred'] = cmd_args.hierar if cmd_args.hierar is not None else args['models']['hierarchical_pred']
-    
+    args['training']['common_sense'] = cmd_args.cs if cmd_args.cs is not None else args['models']['common_sense']
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world_size = torch.cuda.device_count()
     print('device', device)
