@@ -248,7 +248,7 @@ class Evaluator_PC:
             # print('batches', batches)
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                func = partial(query_openai_gpt, cache=self.cache, model='gpt-3.5-turbo')
+                func = partial(batch_query_openai_gpt, cache=self.cache, model='gpt-3.5-turbo')
                 responses = list(executor.map(func, batches))
 
             # Flatten the list of responses and apply to confidence
@@ -265,43 +265,6 @@ class Evaluator_PC:
         # check if cache exceeded its size and evict the least frequently accessed item
         while len(self.cache) > self.max_cache_size:
             self.cache.popitem(last=False)  # False means the first item will be removed
-
-        # edges = []
-        # confidences = []
-        # for ind in range(len(self.subject_cat_pred)):
-        #     subject_id_pred = self.subject_cat_pred[ind].item()
-        #     object_id_pred = self.object_cat_pred[ind].item()
-        #     relation_id_pred = self.relation_pred[ind].item()
-        #     string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
-        #     edges.append(string)
-        #     confidences.append(self.confidence[ind])
-        # # print('confidences', confidences)
-        #
-        # batch_size = 8  # Choose an appropriate batch size
-        # batches = [edges[i:min(i + batch_size, len(edges))] for i in range(0, len(edges), batch_size)]
-        #
-        # with concurrent.futures.ThreadPoolExecutor() as executor:
-        #     responses = list(executor.map(query_openai_gpt, batches))
-        #
-        # # Flatten the list of responses and apply to confidence
-        # responses = [item for sublist in responses for item in sublist]
-        # for ind, response in enumerate(responses):
-        #     if response is not None:
-        #         self.confidence[ind] *= response
-
-    #     # only call this function at evaluation time, not training time
-    #     dict_relation_names = relation_by_super_class_int2str()
-    #     dict_object_names = object_class_int2str()
-    #
-    #     for ind in range(min(len(self.subject_cat_pred), 200)):
-    #         subject_id_pred = self.subject_cat_pred[ind].item()
-    #         object_id_pred = self.object_cat_pred[ind].item()
-    #         relation_id_pred = self.relation_pred[ind].item()
-    #
-    #         string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
-    #         response = query_openai_gpt(string)
-    #         if response is not None:
-    #             self.confidence[ind] *= response
 
 
     def get_top_k_predictions(self, top_k):
@@ -528,11 +491,14 @@ class Evaluator_PC:
                             or (self.object_cat_target[curr_image][i] == object_id_pred and torch.sum(torch.abs(self.object_bbox_target[curr_image][i] - self.object_bbox_pred[curr_image][ind]) == 0)):
 
                         relation_id = self.relation_pred[curr_image][ind].item()
-                        edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist()]
-                        if edge not in curr_image_graph:
-                            curr_image_graph.append(edge)
-                            string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id_pred]
-                            curr_predictions.append(string)
+                        string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id_pred]
+                        if string not in curr_predictions:
+                            # filter the edge by commonsense
+                            response = query_openai_gpt(predicted_edge=string, cache=self.cache, model='gpt-3.5-turbo')
+                            if response == 1:
+                                edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist()]
+                                curr_image_graph.append(edge)
+                                curr_predictions.append(string)
 
             if not save_to_annot:
                 top_k_predictions.append(curr_predictions)
@@ -540,9 +506,78 @@ class Evaluator_PC:
             else:
                 annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
                 annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi', annot_name)
+                print('annot_path', annot_path, 'curr_predictions', curr_predictions)
                 torch.save(curr_image_graph, annot_path)
 
+        # check if cache exceeded its size and evict the least frequently accessed item
+        while len(self.cache) > self.max_cache_size:
+            self.cache.popitem(last=False)  # False means the first item will be removed
+
         if not save_to_annot:
+            return top_k_predictions, top_k_image_graphs
+
+
+    def _get_related_top_k_predictions(self, image, top_k):
+        curr_image = self.which_in_batch == image
+        curr_confidence = self.confidence[curr_image]
+        sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+        curr_predictions = []
+        curr_image_graph = []
+
+        for i in range(0, len(self.subject_cat_target[curr_image]), 3):
+            if self.relation_target[curr_image][i] == -1:  # if target is not connected
+                continue
+
+            for j in range(min(top_k, len(sorted_inds))):
+                ind = sorted_inds[j]
+
+                subject_id_pred = self.subject_cat_pred[curr_image][ind].item()
+                object_id_pred = self.object_cat_pred[curr_image][ind].item()
+
+                # check if the predicted subject or object matches the target
+                if (self.subject_cat_target[curr_image][i] == subject_id_pred and torch.sum(torch.abs(self.subject_bbox_target[curr_image][i] - self.subject_bbox_pred[curr_image][ind])) == 0) \
+                        or (self.object_cat_target[curr_image][i] == object_id_pred and torch.sum(torch.abs(self.object_bbox_target[curr_image][i] - self.object_bbox_pred[curr_image][ind])) == 0):
+
+                    relation_id = self.relation_pred[curr_image][ind].item()
+                    string = self.dict_object_names[subject_id_pred] + ' ' + self.dict_relation_names[relation_id] + ' ' + self.dict_object_names[object_id_pred]
+                    if string not in curr_predictions:
+                        # filter the edge by commonsense
+                        # print('string', string)
+                        # response = query_openai_gpt(predicted_edge=string, cache=self.cache, model='gpt-3.5-turbo')
+                        # if response == 1:
+                        # print('valid string', string)
+                        edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist()]
+                        curr_image_graph.append(edge)
+                        curr_predictions.append(string)
+
+        responses = query_openai_gpt(curr_predictions, cache=self.cache)
+        valid_curr_image_graph = []
+        for i, response in enumerate(responses):
+            if response == 1:
+                valid_curr_image_graph.append(curr_image_graph[i])
+
+        annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
+        annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi', annot_name)
+        # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
+        torch.save(valid_curr_image_graph, annot_path)
+
+        # check if cache exceeded its size and evict the least frequently accessed item
+        while len(self.cache) > self.max_cache_size:
+            self.cache.popitem(last=False)  # False means the first item will be removed
+
+        return curr_predictions, curr_image_graph
+
+    def get_related_top_k_predictions_parallel(self, top_k, save_to_annot=True):
+        self.dict_relation_names = relation_by_super_class_int2str()
+        self.dict_object_names = object_class_int2str()
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            results = list(executor.map(lambda image: self._get_related_top_k_predictions(image, top_k), torch.unique(self.which_in_batch)))
+
+        if save_to_annot:
+            top_k_predictions = [item[0] for item in results]
+            top_k_image_graphs = [item[1] for item in results]
             return top_k_predictions, top_k_image_graphs
 
 

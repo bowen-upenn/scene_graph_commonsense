@@ -26,61 +26,143 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-def query_openai_gpt(batched_edges, cache=None, model='gpt-3.5-turbo'):
+# def batch_query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo-instruct', batch_size=5):
+#     openai.api_key_path = 'openai_api_key.txt'
+#
+#     responses = []
+#
+#     for batch_start in range(0, len(predicted_edges), batch_size):
+#         batch = predicted_edges[batch_start:min(batch_start + batch_size, len(predicted_edges))]
+#         messages_batch = []
+#
+#         for edge in batch:
+#             random_val = random.random()
+#             # first check cache
+#             if cache is not None and edge in cache and random_val < 0.9:
+#                 responses.append(cache[edge])
+#                 continue
+#
+#             for prompt_template in [
+#                 "Based on the commonsense, is '{}' a physically valid relation or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
+#                 # "Does the relationship '{}' violate the commonsense or not? Explain your reasoning, but end your answer with the word 'Yes' or 'No'.",
+#                 # "Consider a scene where objects are described in terms of their relationships. Is it reasonable to say '{}' in such a scene? Briefly show your reasoning, but your last word in the answer must be either 'Yes' or 'No'."
+#             ]:
+#                 messages = {"role": "user", "content": prompt_template.format(edge)}
+#                 messages_batch.append(messages)
+#
+#         print('messages_batch', messages_batch)
+#
+#         # Call OpenAI once for the batch
+#         batch_response = openai.ChatCompletion.create(
+#             model=model,
+#             messages=messages_batch,
+#             temperature=0,
+#         )
+#
+#         # print('batch_response.choices', len(batch_response.choices), batch_response.choices)
+#         #
+#         # answers = []
+#         # for response in batch_response.choices:
+#         #     answer = response.message["content"].split(" ")[-1]
+#         #     if re.search(r'Yes', answer):
+#         #         answers.append('Yes.')
+#         #     elif re.search(r'No', answer):
+#         #         answers.append('No.')
+#         #     else:
+#         #         answers.append(answer)
+#         #
+#         # # Majority vote and update cache
+#         # for edge, answer in zip(batch, answers):
+#         #     answer_counts = Counter(answer)
+#         #     majority_vote = answer_counts.most_common(1)[0][0]
+#         #
+#         #     if majority_vote == 'Yes.':
+#         #         cache[edge] = 1  # update cache
+#         #         responses.append(1)
+#         #     elif majority_vote == 'NO.':
+#         #         cache[edge] = -1  # update cache
+#         #         responses.append(-1)
+#         #     else:
+#         #         responses.append(-1)
+#
+#     return responses
+
+
+def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     # load your secret OpenAI API key
     # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
     # do not share your API key with others, or expose it in the browser or other client-side code
     openai.api_key_path = 'openai_api_key.txt'
-    batch_responses = []
     random_val = random.random()    # without randomness, the model will always return the same answer for the same prompt
 
-    for predicted_edge in batched_edges:
+    responses = []
+    for predicted_edge in predicted_edges:
         # first check cache
         if cache is not None and predicted_edge in cache and random_val < 0.9:
             cache.move_to_end(predicted_edge)
-            batch_responses.append(cache[predicted_edge])
+            return cache[predicted_edge]
 
         else:
-            messages = []
-            for prompt_template in [
-                "In scene graph generation, the model shall predict relationships between a subject-object pair. Based on the commonsense, is the relationship '{}' reasonable or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
-            ]:
-            #     "Does the relationship '{}' physically make sense based on the commonsense? Show your reasoning, but end your answer with the word 'Yes' or 'No'.",
-            #     "Consider a scene where objects are described in terms of their relationships. Is it reasonable to say '{}' in such a scene? Show your reasoning, but your last word in the answer must be either 'Yes' or 'No'."
-            # ]:
-                messages.append({"role": "user", "content": prompt_template.format(predicted_edge)})
-
+            prompt_template = "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer Yes or No. " #Briefly show your reasoning."
+            # prompt_template = "Based on the commonsense, is '{}' a physically valid relation or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
+            # for i, prompt_template in enumerate([
+            #     "Based on the commonsense, is '{}' a physically valid relation or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
+            #     # "Does the relationship '{}' violate the commonsense or not? Explain your reasoning, but end your answer with the word 'Yes' or 'No'.",
+            #     # "Consider a scene where objects are described in terms of their relationships. Is it reasonable to say '{}' in such a scene? Briefly show your reasoning, but your last word in the answer must be either 'Yes' or 'No'."
+            # ]):
+            messages = [{"role": "user", "content": prompt_template.format(predicted_edge)}]
             response = openai.ChatCompletion.create(
                 model=model,
                 messages=messages,
                 temperature=0,
             )
 
-            # extract the majority vote
-            answers = []
-            for resp in response.choices:
-                # print(resp.message["content"])
-                answer = resp.message["content"].split(" ")[-1]
-                if re.search(r'Yes', answer):
-                    answers.append('Yes.')
-                elif re.search(r'No', answer):
-                    answers.append('No.')
-                else:
-                    answers.append(answer)
-
-            answer_counts = Counter(answers)
-            majority_vote = answer_counts.most_common(1)[0][0]
-
-            if majority_vote == 'No.':
-                batch_responses.append(-1)
+            response = response.choices[0].message["content"]
+            # answer = response.split(" ")[-1]
+            if re.search(r'Yes', response):
+                # print('predicted_edge', predicted_edge, ' [YES] response', response)
+                cache[predicted_edge] = 1  # update cache
+                responses.append(1)
+            elif re.search(r'No', response):
+                # print('predicted_edge', predicted_edge, ' [NO] response', response)
                 cache[predicted_edge] = -1  # update cache
-            elif majority_vote == 'Yes.':
-                batch_responses.append(1)
-                cache[predicted_edge] = 1   # update cache
+                responses.append(-1)
             else:
-                batch_responses.append(1)   # ignore any invalid response
+                # print('predicted_edge', predicted_edge, ' [INVALID] response', response)
+                responses.append(-1)
 
-    return batch_responses
+    return responses
+
+
+            #     # print(response.choices[0].message["content"])
+            #     answer = response.choices[0].message["content"].split(" ")[-1]
+            #     if re.search(r'Yes', answer):
+            #         if i == 1:  # the second question expects a 'No' answer for a valid prediction
+            #             answers.append('No.')
+            #         else:
+            #             answers.append('Yes.')
+            #     elif re.search(r'No', answer):
+            #         if i == 1:
+            #             answers.append('Yes.')
+            #         else:
+            #             answers.append('No.')
+            #     else:
+            #         answers.append(answer)
+            #
+            # # extract the majority vote
+            # answer_counts = Counter(answers)
+            # # print('answer_counts', answer_counts, '\n')
+            # majority_vote = answer_counts.most_common(1)[0][0]
+            #
+            # if majority_vote == 'Yes.':
+            #     cache[predicted_edge] = 1  # update cache
+            #     return 1
+            # elif majority_vote == 'NO.':
+            #     cache[predicted_edge] = -1   # update cache
+            #     return -1
+            # else:
+            #     return -1
+
 # def query_openai_gpt(predicted_edge, model='gpt-3.5-turbo'):
 #     # load your secret OpenAI API key
 #     # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
