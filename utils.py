@@ -26,68 +26,6 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-# def batch_query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo-instruct', batch_size=5):
-#     openai.api_key_path = 'openai_api_key.txt'
-#
-#     responses = []
-#
-#     for batch_start in range(0, len(predicted_edges), batch_size):
-#         batch = predicted_edges[batch_start:min(batch_start + batch_size, len(predicted_edges))]
-#         messages_batch = []
-#
-#         for edge in batch:
-#             random_val = random.random()
-#             # first check cache
-#             if cache is not None and edge in cache and random_val < 0.9:
-#                 responses.append(cache[edge])
-#                 continue
-#
-#             for prompt_template in [
-#                 "Based on the commonsense, is '{}' a physically valid relation or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
-#                 # "Does the relationship '{}' violate the commonsense or not? Explain your reasoning, but end your answer with the word 'Yes' or 'No'.",
-#                 # "Consider a scene where objects are described in terms of their relationships. Is it reasonable to say '{}' in such a scene? Briefly show your reasoning, but your last word in the answer must be either 'Yes' or 'No'."
-#             ]:
-#                 messages = {"role": "user", "content": prompt_template.format(edge)}
-#                 messages_batch.append(messages)
-#
-#         print('messages_batch', messages_batch)
-#
-#         # Call OpenAI once for the batch
-#         batch_response = openai.ChatCompletion.create(
-#             model=model,
-#             messages=messages_batch,
-#             temperature=0,
-#         )
-#
-#         # print('batch_response.choices', len(batch_response.choices), batch_response.choices)
-#         #
-#         # answers = []
-#         # for response in batch_response.choices:
-#         #     answer = response.message["content"].split(" ")[-1]
-#         #     if re.search(r'Yes', answer):
-#         #         answers.append('Yes.')
-#         #     elif re.search(r'No', answer):
-#         #         answers.append('No.')
-#         #     else:
-#         #         answers.append(answer)
-#         #
-#         # # Majority vote and update cache
-#         # for edge, answer in zip(batch, answers):
-#         #     answer_counts = Counter(answer)
-#         #     majority_vote = answer_counts.most_common(1)[0][0]
-#         #
-#         #     if majority_vote == 'Yes.':
-#         #         cache[edge] = 1  # update cache
-#         #         responses.append(1)
-#         #     elif majority_vote == 'NO.':
-#         #         cache[edge] = -1  # update cache
-#         #         responses.append(-1)
-#         #     else:
-#         #         responses.append(-1)
-#
-#     return responses
-
-
 def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     # load your secret OpenAI API key
     # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
@@ -134,7 +72,46 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     return responses
 
 
-            #     # print(response.choices[0].message["content"])
+def batch_query_openai_gpt_instruct(predicted_edges, cache=None, model='gpt-3.5-turbo-instruct'):
+    openai.api_key_path = 'openai_api_key.txt'
+    responses = torch.ones(len(predicted_edges)) * -1
+
+    prompts = []
+    # Prepare the list of prompts
+    for ind, edge in enumerate(predicted_edges):
+        # random_val = random.random()
+        # # first check cache
+        # if cache is not None and edge in cache and random_val < 0.9:
+        #     responses[ind] = cache[edge]
+        #     continue
+
+        prompt_template = "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer Yes or No. "
+        prompts.append(prompt_template.format(edge))
+
+    # Call OpenAI with the batch of prompts
+    completions = openai.Completion.create(
+        model=model,
+        prompt=prompts,
+        temperature=0,
+        max_tokens=20
+    )
+
+    for ind, (edge, completion) in enumerate(zip(predicted_edges, completions.choices)):
+        if re.search(r'Yes', completion.text):
+            # print('predicted_edge', edge, ' [YES] response', completion.text)
+            # cache[edge] = 1  # update cache
+            responses[ind] = 1
+        elif re.search(r'No', completion.text):
+            # print('predicted_edge', edge, ' [NO] response', completion.text)
+            # cache[edge] = -1  # update cache
+            responses[ind] = -1
+        else:
+            # print('predicted_edge', edge, ' [INVALID] response', completion.text)
+            responses[ind] = -1
+
+    return responses
+
+    #     # print(response.choices[0].message["content"])
             #     answer = response.choices[0].message["content"].split(" ")[-1]
             #     if re.search(r'Yes', answer):
             #         if i == 1:  # the second question expects a 'No' answer for a valid prediction

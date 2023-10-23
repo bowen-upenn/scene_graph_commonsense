@@ -8,7 +8,7 @@ import concurrent.futures
 from collections import OrderedDict
 from functools import partial
 
-from utils import get_weight_oiv6, query_openai_gpt
+from utils import get_weight_oiv6, query_openai_gpt, batch_query_openai_gpt_instruct
 from dataset_utils import relation_by_super_class_int2str, object_class_int2str
 
 
@@ -528,6 +528,8 @@ class Evaluator_PC:
         for i in range(0, len(self.subject_cat_target[curr_image]), 3):
             if self.relation_target[curr_image][i] == -1:  # if target is not connected
                 continue
+            if len(curr_image_graph) >= 15:     # enforce efficiency
+                break
 
             for j in range(min(top_k, len(sorted_inds))):
                 ind = sorted_inds[j]
@@ -551,20 +553,24 @@ class Evaluator_PC:
                         curr_image_graph.append(edge)
                         curr_predictions.append(string)
 
-        responses = query_openai_gpt(curr_predictions, cache=self.cache)
-        valid_curr_image_graph = []
-        for i, response in enumerate(responses):
-            if response == 1:
-                valid_curr_image_graph.append(curr_image_graph[i])
+                if len(curr_image_graph) >= 15:  # enforce efficiency
+                    break
 
-        annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-        annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs', annot_name)
-        # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
-        torch.save(valid_curr_image_graph, annot_path)
+        if len(curr_image_graph) > 0:
+            responses = batch_query_openai_gpt_instruct(curr_predictions, cache=self.cache)
+            valid_curr_image_graph = []
+            for i, response in enumerate(responses):
+                if response == 1:
+                    valid_curr_image_graph.append(curr_image_graph[i])
+
+            annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
+            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs', annot_name)
+            # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
+            torch.save(valid_curr_image_graph, annot_path)
 
         # check if cache exceeded its size and evict the least frequently accessed item
-        while len(self.cache) > self.max_cache_size:
-            self.cache.popitem(last=False)  # False means the first item will be removed
+        # while len(self.cache) > self.max_cache_size:
+        #     self.cache.popitem(last=False)  # False means the first item will be removed
 
         return curr_predictions, curr_image_graph
 
