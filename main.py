@@ -78,7 +78,7 @@ if __name__ == "__main__":
         print('Unknown dataset.')
 
     torch.manual_seed(0)
-    train_subset_idx = torch.randperm(len(train_dataset))[:int(args['dataset']['percent_train'] * len(train_dataset))]
+    train_subset_idx = torch.randperm(len(train_dataset))[int(0.34*len(train_dataset)):int(args['dataset']['percent_train'] * len(train_dataset))]
     train_subset = Subset(train_dataset, train_subset_idx)
     test_subset_idx = torch.randperm(len(test_dataset))[:int(args['dataset']['percent_test'] * len(test_dataset))]
     test_subset = Subset(test_dataset, test_subset_idx)

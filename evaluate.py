@@ -416,8 +416,9 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
                 else:
                     if args['dataset']['dataset'] == 'vg':
+                        # Recall.filter_accumulated_predictions_by_commonsense(100)
                         if args['training']['run_mode'] == 'prepare_semi':
-                            Recall.get_related_top_k_predictions_parallel(top_k=20)
+                            Recall.get_related_top_k_predictions_parallel(top_k=10)
                         else:
                             recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # Recall.filter_accumulated_predictions_by_commonsense()

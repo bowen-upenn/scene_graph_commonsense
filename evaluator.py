@@ -222,49 +222,49 @@ class Evaluator_PC:
                     self.width = torch.hstack((self.width, width.repeat(3)))
 
 
-    def filter_accumulated_predictions_by_commonsense(self, top_k=10):
+    def filter_accumulated_predictions_by_commonsense(self, top_k=100):
         # only call this function at evaluation time, not training time
         dict_relation_names = relation_by_super_class_int2str()
         dict_object_names = object_class_int2str()
 
-        for image in torch.unique(self.which_in_batch):  # image-wise
+        all_edges = []
+        all_keep_inds = []
+        all_images = []
+
+        for image in torch.unique(self.which_in_batch):  # gather predictions across all images
             curr_image = self.which_in_batch == image
             curr_confidence = self.confidence[curr_image]
             sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
             this_k = min(top_k, len(self.relation_pred[curr_image]))
             keep_inds = sorted_inds[:this_k]
 
-            edges = []
             for ind in keep_inds:
                 subject_id_pred = self.subject_cat_pred[curr_image][ind].item()
                 object_id_pred = self.object_cat_pred[curr_image][ind].item()
                 relation_id_pred = self.relation_pred[curr_image][ind].item()
                 string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
-                edges.append(string)
-            # print('confidence before', self.confidence[curr_image][keep_inds])
+                all_edges.append(string)
+                all_keep_inds.append(ind)
+                all_images.append(curr_image)
 
-            batch_size = 5
-            batches = [edges[i:min(i + batch_size, len(edges))] for i in range(0, len(edges), batch_size)]
-            # print('batches', batches)
+        # check commonsense in batches and parallel
+        batch_size = 5
+        batches = [all_edges[i:min(i + batch_size, len(all_edges))] for i in range(0, len(all_edges), batch_size)]
 
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                func = partial(batch_query_openai_gpt, cache=self.cache, model='gpt-3.5-turbo')
-                responses = list(executor.map(func, batches))
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            func = partial(batch_query_openai_gpt_instruct)
+            responses = list(executor.map(func, batches))
 
-            # Flatten the list of responses and apply to confidence
-            responses = [item for sublist in responses for item in sublist]
-            # print('responses', len(responses), responses)
+        # Flatten the list of responses and apply to confidence
+        responses = [item for sublist in responses for item in sublist]
 
-            tmp = self.confidence[curr_image].clone()
-            for i, ind in enumerate(keep_inds):
-                if responses[i] == -1:
-                    tmp[ind] = float('-inf')
-            self.confidence[curr_image] = tmp
-            # print('confidence after', self.confidence[curr_image][keep_inds])
+        for i, (ind, curr_image) in enumerate(zip(all_keep_inds, all_images)):
+            if responses[i] == -1:
+                self.confidence[curr_image][ind] = float('-inf')
 
         # check if cache exceeded its size and evict the least frequently accessed item
-        while len(self.cache) > self.max_cache_size:
-            self.cache.popitem(last=False)  # False means the first item will be removed
+        # while len(self.cache) > self.max_cache_size:
+        #     self.cache.popitem(last=False)  # False means the first item will be removed
 
 
     def get_top_k_predictions(self, top_k):
@@ -553,7 +553,7 @@ class Evaluator_PC:
                         curr_image_graph.append(edge)
                         curr_predictions.append(string)
 
-                if len(curr_image_graph) >= 15:  # enforce efficiency
+                if len(curr_image_graph) >= 10:  # enforce efficiency
                     break
 
         if len(curr_image_graph) > 0:

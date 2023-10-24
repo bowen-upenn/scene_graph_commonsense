@@ -31,7 +31,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
     def __init__(self, args, device, annotations, training):
         self.args = args
         self.device = device
-        self.training = True
+        self.training = training
         self.image_dir = self.args['dataset']['image_dir']
         self.annot_dir = self.args['dataset']['annot_dir']
         self.subset_indices = None
@@ -51,6 +51,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
         self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
 
+        self.rel_reorder_dict = relation_class_freq2scat()
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
             self.dict_relation_names = relation_by_super_class_int2str()
             self.dict_object_names = object_class_int2str()
@@ -88,6 +89,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                 return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
+        # print('image_path', image_path)
         image = cv2.imread(image_path)
         width, height = image.shape[0], image.shape[1]
 
@@ -134,10 +136,9 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         subj_or_obj = curr_annot['subj_or_obj']
         relationships = curr_annot['relationships']
         relationships_reordered = []
-        rel_reorder_dict = relation_class_freq2scat()
         for rel in relationships:
             rel[rel == 12] = 4      # wearing <- wears
-            relationships_reordered.append(rel_reorder_dict[rel])
+            relationships_reordered.append(self.rel_reorder_dict[rel])
             self.mean_num_rel += len(rel[rel != -1])
         relationships = relationships_reordered
 
@@ -162,7 +163,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                     elif so == 0:  # if object
                         triplets.append((tuple(bbox_obj.tolist()), rel.item(), tuple(bbox_sub.tolist()),
                                          self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
-
+            # print('triplets', triplets)
         """
         image: the image transformed to a squared shape of size self.args['models']['image_size'] (to generate a uniform-sized image features)
         image_nonsq: the image transformed to a shape of size=600, max_size=1000 (used in SGCLS and SGDET to predict bounding boxes and labels in DETR-101)

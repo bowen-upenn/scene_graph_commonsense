@@ -41,7 +41,7 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
             responses.append(cache[predicted_edge])
 
         else:
-            prompt_template = "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer Yes or No. " #Briefly show your reasoning."
+            prompt_template = "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Show your reasoning and answer Yes or No. " #Briefly show your reasoning."
             # prompt_template = "Based on the commonsense, is '{}' a physically valid relation or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
             # for i, prompt_template in enumerate([
             #     "Based on the commonsense, is '{}' a physically valid relation or not? Briefly show your reasoning, but make sure your last word must be either 'Yes' or 'No'."
@@ -72,73 +72,80 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     return responses
 
 
-def batch_query_openai_gpt_instruct(predicted_edges, cache=None, model='gpt-3.5-turbo-instruct'):
+def batch_query_openai_gpt_instruct(predicted_edges, cache=None, batch_size=6):
+    total_edges = len(predicted_edges)
+    all_responses = []
+
+    for i in range(0, total_edges, batch_size):
+        batched_edges = predicted_edges[i: i + batch_size]
+        responses = _batch_query_openai_gpt_instruct(batched_edges)
+        all_responses.extend(responses)
+
+    return all_responses
+
+
+def _batch_query_openai_gpt_instruct(predicted_edges, model='gpt-3.5-turbo-instruct'):
     openai.api_key_path = 'openai_api_key.txt'
     responses = torch.ones(len(predicted_edges)) * -1
 
-    prompts = []
-    # Prepare the list of prompts
-    for ind, edge in enumerate(predicted_edges):
-        # random_val = random.random()
-        # # first check cache
-        # if cache is not None and edge in cache and random_val < 0.9:
-        #     responses[ind] = cache[edge]
-        #     continue
+    # random_val = random.random()
+    # # first check cache
+    # if cache is not None and edge in cache and random_val < 0.9:
+    #     responses[ind] = cache[edge]
+    #     continue
 
-        prompt_template = "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer Yes or No. "
-        prompts.append(prompt_template.format(edge))
+    prompts = []
+
+    # Prepare multiple variations of each prompt
+    prompt_variations = [
+        "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer with Yes or No and briefly provide your reasoning.",
+        "Given the general knowledge and understanding of the world, is the relation '{}' logical? Provide a Yes or No response.", #and briefly explain your choice.",
+        "Would you say the relation '{}' violates typical logic and is not plausible? Yes or No." # Provide a brief explanation and answer with Yes or No."
+    ]
+
+    # For each predicted edge, create multiple prompts
+    for edge in predicted_edges:
+        for variation in prompt_variations:
+            prompts.append(variation.format(edge))
 
     # Call OpenAI with the batch of prompts
     completions = openai.Completion.create(
         model=model,
         prompt=prompts,
         temperature=0,
-        max_tokens=20
+        max_tokens=100
     )
 
-    for ind, (edge, completion) in enumerate(zip(predicted_edges, completions.choices)):
-        if re.search(r'Yes', completion.text):
-            # print('predicted_edge', edge, ' [YES] response', completion.text)
-            # cache[edge] = 1  # update cache
-            responses[ind] = 1
-        elif re.search(r'No', completion.text):
-            # print('predicted_edge', edge, ' [NO] response', completion.text)
-            # cache[edge] = -1  # update cache
-            responses[ind] = -1
+    # Gather responses and decide based on majority
+    for i, edge in enumerate(predicted_edges):
+        yes_votes = 0
+        no_votes = 0
+        for j in range(len(prompt_variations)):
+            completion_text = completions.choices[i * len(prompt_variations) + j].text
+
+            if j == 2:  # For the third question, we reverse the logic
+                if re.search(r'Yes', completion_text):
+                    no_votes += 1
+                elif re.search(r'No', completion_text):
+                    yes_votes += 1
+                else:
+                    no_votes += 1
+            else:
+                if re.search(r'Yes', completion_text):
+                    yes_votes += 1
+                elif re.search(r'No', completion_text):
+                    no_votes += 1
+                else:
+                    no_votes += 1
+
+        if yes_votes > no_votes:
+            # print(f'predicted_edge {edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
+            responses[i] = 1
         else:
-            # print('predicted_edge', edge, ' [INVALID] response', completion.text)
-            responses[ind] = -1
+            # print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
+            responses[i] = -1
 
     return responses
-
-    #     # print(response.choices[0].message["content"])
-            #     answer = response.choices[0].message["content"].split(" ")[-1]
-            #     if re.search(r'Yes', answer):
-            #         if i == 1:  # the second question expects a 'No' answer for a valid prediction
-            #             answers.append('No.')
-            #         else:
-            #             answers.append('Yes.')
-            #     elif re.search(r'No', answer):
-            #         if i == 1:
-            #             answers.append('Yes.')
-            #         else:
-            #             answers.append('No.')
-            #     else:
-            #         answers.append(answer)
-            #
-            # # extract the majority vote
-            # answer_counts = Counter(answers)
-            # # print('answer_counts', answer_counts, '\n')
-            # majority_vote = answer_counts.most_common(1)[0][0]
-            #
-            # if majority_vote == 'Yes.':
-            #     cache[predicted_edge] = 1  # update cache
-            #     return 1
-            # elif majority_vote == 'NO.':
-            #     cache[predicted_edge] = -1   # update cache
-            #     return -1
-            # else:
-            #     return -1
 
 # def query_openai_gpt(predicted_edge, model='gpt-3.5-turbo'):
 #     # load your secret OpenAI API key
