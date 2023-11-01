@@ -31,7 +31,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
     def __init__(self, args, device, annotations, training):
         self.args = args
         self.device = device
-        self.training = training
+        self.training = True
         self.image_dir = self.args['dataset']['image_dir']
         self.annot_dir = self.args['dataset']['annot_dir']
         self.subset_indices = None
@@ -51,7 +51,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
         self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
 
-        self.rel_reorder_dict = relation_class_freq2scat()
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
             self.dict_relation_names = relation_by_super_class_int2str()
             self.dict_object_names = object_class_int2str()
@@ -89,7 +88,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                 return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-        # print('image_path', image_path)
         image = cv2.imread(image_path)
         width, height = image.shape[0], image.shape[1]
 
@@ -136,9 +134,10 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         subj_or_obj = curr_annot['subj_or_obj']
         relationships = curr_annot['relationships']
         relationships_reordered = []
+        rel_reorder_dict = relation_class_freq2scat()
         for rel in relationships:
             rel[rel == 12] = 4      # wearing <- wears
-            relationships_reordered.append(self.rel_reorder_dict[rel])
+            relationships_reordered.append(rel_reorder_dict[rel])
             self.mean_num_rel += len(rel[rel != -1])
         relationships = relationships_reordered
 
@@ -163,7 +162,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                     elif so == 0:  # if object
                         triplets.append((tuple(bbox_obj.tolist()), rel.item(), tuple(bbox_sub.tolist()),
                                          self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
-            # print('triplets', triplets)
+
         """
         image: the image transformed to a squared shape of size self.args['models']['image_size'] (to generate a uniform-sized image features)
         image_nonsq: the image transformed to a shape of size=600, max_size=1000 (used in SGCLS and SGDET to predict bounding boxes and labels in DETR-101)
@@ -181,13 +180,11 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
 
-
     def calculate_mean_num_rel_before_after_semi(self):
         print('Mean_num_rel', self.mean_num_rel, 'mean_num_rel_semi', self.mean_num_rel_semi, 'img_count', self.img_count)
         mean_num_rel, mean_num_rel_semi = self.mean_num_rel / self.img_count, self.mean_num_rel_semi / self.img_count
         self.mean_num_rel, self.mean_num_rel_semi, self.img_count, self.num_added_rel_semi = 0, 0, 0, 0
         return mean_num_rel, mean_num_rel_semi
-
 
     def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox):
         for edge in annot_semi:
@@ -215,7 +212,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         return relationships, subj_or_obj
 
-
     def match_bbox(self, bbox_semi, bbox_raw):
         """
         Returns the index of the bounding box from bbox_raw that most closely matches the pseudo bbox.
@@ -228,7 +224,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             ious = self.calculate_iou_for_all(bbox_semi, bbox_raw)
             return torch.argmax(ious).item()
-
 
     def calculate_iou_for_all(self, box1, boxes):
         """
@@ -247,7 +242,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         union_area = box1_area + boxes_area - inter_area
 
         return inter_area / union_area
-
 
     def load_one_image(self, file_name=None, idx=None, return_annot=False):
         # only return the image for inference

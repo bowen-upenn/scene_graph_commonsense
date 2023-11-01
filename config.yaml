@@ -1,6 +1,6 @@
 dataset:
     image_dir: '/tmp/datasets/vg/images'
-    annot_dir: '/tmp/datasets/vg_scene_graph_annot_old'
+    annot_dir: '/tmp/datasets/vg_scene_graph_annot'
     raw_annot_dir: '/tmp/datasets/vg/annotations/'
     annotation_train: '/tmp/datasets/vg/annotations/instances_vg_train.json'
     annotation_test: '/tmp/datasets/vg/annotations/instances_vg_test.json'
@@ -33,7 +33,7 @@ models:
     num_super_classes: 17
     hidden_dim: 128
     faster_rcnn_hidden_dim: 2048
-    use_depth: False
+    use_depth: True
     depth_model_type: 'DPT_Large'
     hierarchical_pred: True
     topk_cat: 2
@@ -46,15 +46,15 @@ training:
     run_mode: 'train'      # train, eval, prepare_semi, train_semi, caption, clip_zs, clip_train
     eval_mode: 'pc'        # pc sgc or sgd
     common_sense: True
-    learning_rate: 0.000005
-    refine_learning_rate: 0.0001
+    learning_rate: 0.00001
+#    refine_learning_rate: 0.0001
     weight_decay: 0.0001
     batch_size: 12
-    num_epoch: 4
+    num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
-    continue_train: True
-    start_epoch: 3
+    continue_train: False
+    start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
     test_epoch: 2
@@ -63,9 +63,9 @@ training:
     lambda_contrast: 1
     lambda_connectivity: 0.1
     lambda_not_connected: 1
-    print_freq: 50
-    eval_freq: 50
-    print_freq_test: 20
+    print_freq: 100
+    eval_freq: 100
+    print_freq_test: 100
     eval_freq_test: 1
-    topk_global_refine: 50
-    verbose_global_refine: False
+#    topk_global_refine: 50
+#    verbose_global_refine: False

@@ -107,7 +107,7 @@ class Evaluator_PC:
 
     def accumulate(self, which_in_batch, relation_pred, relation_target, super_relation_pred, connectivity,
                    subject_cat_pred, object_cat_pred, subject_cat_target, object_cat_target,
-                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target, height=None, width=None):
+                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target, iou_mask, height=None, width=None):
 
         if self.relation_pred is None:
             if not self.hierar:     # flat relationship prediction
@@ -115,6 +115,7 @@ class Evaluator_PC:
                 # self.connected_pred = torch.exp(connectivity)
                 self.connectivity = connectivity
                 self.confidence = torch.max(relation_pred, dim=1)[0]
+                self.confidence[~iou_mask] = -math.inf
                 # self.confidence = torch.max(relation_pred, dim=1)[0]
 
                 self.relation_pred = torch.argmax(relation_pred, dim=1)
@@ -139,6 +140,8 @@ class Evaluator_PC:
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']:
                                                                            self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
+                iou_mask = iou_mask.repeat(3)
+                self.confidence[~iou_mask] = -math.inf
                 self.connectivity = connectivity.repeat(3)
                 # self.connected_pred = torch.exp(connectivity).repeat(3)
 
@@ -167,7 +170,9 @@ class Evaluator_PC:
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
                 # confidence = connectivity + torch.max(relation_pred, dim=1)[0]
                 # confidence = torch.max(relation_pred, dim=1)[0]
-                self.confidence = torch.hstack((self.confidence, torch.max(relation_pred, dim=1)[0]))
+                confidence = torch.max(relation_pred, dim=1)[0]
+                confidence[~iou_mask] = -math.inf
+                self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity))
                 # self.connected_pred = torch.hstack((self.connected_pred, torch.exp(connectivity)))
 
@@ -189,10 +194,12 @@ class Evaluator_PC:
                     self.width = torch.hstack((self.width, width))
             else:
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(3)))
+                iou_mask = iou_mask.repeat(3)
                 confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
                                            torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']
                                                                                                            + self.args['models']['num_possessive']], dim=1)[0],
                                            torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
+                confidence[~iou_mask] = -math.inf
                 # confidence += connectivity.repeat(3)
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity.repeat(3)))
@@ -296,23 +303,23 @@ class Evaluator_PC:
                 relation_id = self.relation_pred[curr_image][ind].item()
                 object_id = self.object_cat_pred[curr_image][ind].item()
 
-                subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
-                object_bbox = self.object_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
-                height, width = self.height[curr_image][ind], self.width[curr_image][ind]
-                subject_bbox[:2] *= height
-                subject_bbox[2:] *= width
-                object_bbox[:2] *= height
-                object_bbox[2:] *= width
-                subject_bbox = subject_bbox.ceil().int()
-                object_bbox = object_bbox.ceil().int()
-
-                edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
-                if edge in curr_image_graph:    # remove redundant edges
-                    curr_skipped.append(ind.item())
-                    continue
+                # subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
+                # object_bbox = self.object_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
+                # height, width = self.height[curr_image][ind], self.width[curr_image][ind]
+                # subject_bbox[:2] *= height
+                # subject_bbox[2:] *= width
+                # object_bbox[:2] *= height
+                # object_bbox[2:] *= width
+                # subject_bbox = subject_bbox.ceil().int()
+                # object_bbox = object_bbox.ceil().int()
+                #
+                # edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
+                # if edge in curr_image_graph:    # remove redundant edges
+                #     curr_skipped.append(ind.item())
+                #     continue
 
                 curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
-                curr_image_graph.append(edge)
+                # curr_image_graph.append(edge)
 
             top_k_predictions.append(curr_predictions)
             top_k_image_graphs.append(curr_image_graph)
@@ -854,7 +861,7 @@ class Evaluator_PC_Top3:
 
     def accumulate(self, which_in_batch, relation_pred, relation_target, super_relation_pred, connectivity,
                    subject_cat_pred, object_cat_pred, subject_cat_target, object_cat_target,
-                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target):  # size (batch_size, num_relations_classes), (num_relations_classes)
+                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target, iou_mask):  # size (batch_size, num_relations_classes), (num_relations_classes)
 
         if self.relation_pred is None:
             self.which_in_batch = which_in_batch
@@ -862,6 +869,7 @@ class Evaluator_PC_Top3:
             self.confidence = torch.max(torch.vstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
                                                       torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
                                                       torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0])), dim=0)[0]  # in log space, [0] to take values
+            self.confidence[~iou_mask] = -math.inf
             self.relation_pred = relation_pred
             self.relation_target = relation_target
             self.super_relation_pred = super_relation_pred
@@ -882,6 +890,7 @@ class Evaluator_PC_Top3:
             confidence = torch.max(torch.vstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
                                                  torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']+self.args['models']['num_possessive']], dim=1)[0],
                                                  torch.max(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)[0])), dim=0)[0]  # in log space, [0] to take values
+            confidence[~iou_mask] = -math.inf
             self.confidence = torch.hstack((self.confidence, confidence))
 
             self.relation_pred = torch.vstack((self.relation_pred, relation_pred))

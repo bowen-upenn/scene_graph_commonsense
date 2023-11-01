@@ -45,9 +45,9 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
     local_predictor.eval()
 
     if args['models']['hierarchical_pred']:
-        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'HierMotif3' + str(args['training']['test_epoch']) + '_0' + '.pth')
+        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
     else:
-        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'FlatMotif3' + str(args['training']['test_epoch']) + '_0' + '.pth')
+        saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
     renamed_state_dict = remove_ddp_module_in_weights(saved_state_dict)
     local_predictor.load_state_dict(renamed_state_dict)
 

@@ -30,7 +30,7 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     # load your secret OpenAI API key
     # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
     # do not share your API key with others, or expose it in the browser or other client-side code
-    openai.api_key_path = 'openai_api_key.txt'
+    openai.api_key_path = 'openai_key_mc.txt' #'openai_api_key.txt'
     random_val = random.random()    # without randomness, the model will always return the same answer for the same prompt
 
     responses = []
@@ -85,7 +85,7 @@ def batch_query_openai_gpt_instruct(predicted_edges, cache=None, batch_size=6):
 
 
 def _batch_query_openai_gpt_instruct(predicted_edges, model='gpt-3.5-turbo-instruct'):
-    openai.api_key_path = 'openai_api_key.txt'
+    openai.api_key_path = 'openai_key_mc.txt' #'openai_api_key.txt'
     responses = torch.ones(len(predicted_edges)) * -1
 
     # random_val = random.random()
@@ -532,7 +532,7 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
 
     if args['dataset']['dataset'] == 'vg':
         if args['models']['hierarchical_pred']:
-            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.6f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
+            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
                   'zsR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), loss: %.4f, %.4f.'
                   % (rank, epoch, batch_count, lr, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
                      mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
@@ -549,7 +549,7 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
                            'mean_zero_shot_recall': [mean_recall_zs[0].item(), mean_recall_zs[1].item(), mean_recall_zs[2].item()],
                            'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size'])})
         else:
-            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
+            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
                   'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f,loss: %.4f, %.4f, conn: %.4f, %.4f.'
                   % (rank, epoch, batch_count, lr, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
                      recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
@@ -568,7 +568,7 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
                            'connectivity_loss': running_loss_connectivity.item() / (args['training']['print_freq'] * args['training']['batch_size']),
                            'num_connected': num_connected, 'num_not_connected': num_not_connected})
     else:
-        print('TRAIN, rank %d, epoch %d, batch %d, lr: %.4f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
+        print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
               'wmap_rel: %.4f, wmap_phrase: %.4f, loss: %.4f, %.4f, conn: %.4f, %.4f.'
               % (rank, epoch, batch_count, lr, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2], wmap_rel, wmap_phrase,
                  running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
