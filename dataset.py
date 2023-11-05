@@ -31,7 +31,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
     def __init__(self, args, device, annotations, training):
         self.args = args
         self.device = device
-        self.training = True
+        self.training = training
         self.image_dir = self.args['dataset']['image_dir']
         self.annot_dir = self.args['dataset']['annot_dir']
         self.subset_indices = None
@@ -80,6 +80,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             return None
 
         if self.args['training']['run_mode'] == 'train_semi' and self.training:     # no pseudo labels at testing time
+            # print('Load Semi-supervised pseudo labels')
             annot_name_semi = 'semi_cs/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
             annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
             if os.path.exists(annot_path_semi):
@@ -143,9 +144,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         if self.args['training']['run_mode'] == 'train_semi' and self.training:
             # print('relationships before', relationships)
-            old_num_added_rel_semi = self.num_added_rel_semi
             relationships, subj_or_obj = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox)
-            self.mean_num_rel_semi += self.num_added_rel_semi - old_num_added_rel_semi
+            self.mean_num_rel_semi += self.num_added_rel_semi
             # print('relationships after', relationships, '\n')
 
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
@@ -189,6 +189,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
     def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox):
         for edge in annot_semi:
             subject_bbox_semi, relation_id, object_bbox_semi = edge
+            if iou(subject_bbox_semi, object_bbox_semi) == 0:
+                continue
 
             # Match bbox for subject and object
             subject_bbox_idx = self.match_bbox(subject_bbox_semi, bbox)

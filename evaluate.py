@@ -238,9 +238,9 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
         # local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'old_model.pth', map_location=map_location))
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
     else:
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
@@ -325,6 +325,15 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     scat_edge = [super_categories[i][edge_iter] for i in which_in_batch] if super_categories[0] is not None else None
                     bbox_edge = torch.stack([bbox[i][edge_iter] for i in which_in_batch]).to(rank)
 
+                    # filter out subject-object pairs whose iou=0
+                    joint_intersect = torch.logical_or(curr_graph_masks, curr_edge_masks)
+                    joint_union = torch.logical_and(curr_graph_masks, curr_edge_masks)
+                    joint_iou = (torch.sum(torch.sum(joint_intersect, dim=-1), dim=-1) / torch.sum(torch.sum(joint_union, dim=-1), dim=-1)).flatten()
+                    joint_iou[torch.isinf(joint_iou)] = 0
+                    iou_mask = joint_iou > 0
+                    if torch.sum(iou_mask) == 0:
+                        continue
+
                     """
                     FIRST DIRECTION
                     """
@@ -352,10 +361,10 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                          cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, height, width)
+                                          cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask, height, width)
                         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
                             Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge)
+                                                   cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
 
                     """
                     SECOND DIRECTION
@@ -383,10 +392,10 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                         Recall.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                          cat_edge, cat_graph, cat_edge, cat_graph, bbox_edge, bbox_graph, bbox_edge, bbox_graph, height, width)
+                                          cat_edge, cat_graph, cat_edge, cat_graph, bbox_edge, bbox_graph, bbox_edge, bbox_graph, iou_mask, height, width)
                         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
                             Recall_top3.accumulate(which_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                                                   cat_edge, cat_graph, cat_edge, cat_graph, bbox_edge, bbox_graph, bbox_edge, bbox_graph)
+                                                   cat_edge, cat_graph, cat_edge, cat_graph, bbox_edge, bbox_graph, bbox_edge, bbox_graph, iou_mask)
 
             """
             EVALUATE AND PRINT CURRENT RESULTS
