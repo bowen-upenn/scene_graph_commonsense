@@ -156,12 +156,12 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             for rel in relationships:
                 self.mean_num_rel_semi += len(rel[rel != -1])
 
-        for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
-            for j, (rel, so) in enumerate(zip(rels, sos)):
-                if so == 1:  # if subject
-                    self.triplets[(categories[i + 1].item(), rel.item(), categories[j].item())] = 1
-                elif so == 0:  # if object
-                    self.triplets[(categories[j].item(), rel.item(), categories[i + 1].item())] = 1
+        # for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
+        #     for j, (rel, so) in enumerate(zip(rels, sos)):
+        #         if so == 1:  # if subject
+        #             self.triplets[(categories[i + 1].item(), rel.item(), categories[j].item())] = 1
+        #         elif so == 0:  # if object
+        #             self.triplets[(categories[j].item(), rel.item(), categories[i + 1].item())] = 1
 
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             # reformulate relation annots for a single image in a more efficient way

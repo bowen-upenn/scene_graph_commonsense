@@ -116,7 +116,7 @@ class Evaluator_PC:
                 # self.connected_pred = torch.exp(connectivity)
                 self.connectivity = connectivity
 
-                self.confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                self.confidence = torch.max(relation_pred, dim=1)[0] #+ connectivity
                 self.confidence[~iou_mask] = -math.inf
                 # self.confidence = torch.max(relation_pred, dim=1)[0]
 
@@ -149,7 +149,7 @@ class Evaluator_PC:
                                                                            self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
                 iou_mask = iou_mask.repeat(3)
-                self.confidence += self.connectivity
+                # self.confidence += self.connectivity
                 self.confidence[~iou_mask] = -math.inf
                 # self.connected_pred = torch.exp(connectivity).repeat(3)
 
@@ -197,7 +197,7 @@ class Evaluator_PC:
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                confidence = torch.max(relation_pred, dim=1)[0] #+ connectivity
                 confidence[~iou_mask] = -math.inf
                 triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
                 is_in_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.training_triplets for i in range(len(triplets))], device=self.confidence.device)
@@ -237,7 +237,7 @@ class Evaluator_PC:
                                            torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']
                                                                                                            + self.args['models']['num_possessive']], dim=1)[0],
                                            torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
-                confidence += connectivity.repeat(3)
+                # confidence += connectivity.repeat(3)
                 confidence[~iou_mask] = -math.inf
                 # confidence += connectivity.repeat(3)
 

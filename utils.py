@@ -28,53 +28,163 @@ def collate_fn(batch):
 
 def calculate_losses_on_relationships(args, relation, super_relation, connected, curr_relations_target, pseudo_label_mask, criterion_relationship, lambda_pseudo=1):
     loss_relationship = 0.0
-    if args['models']['hierarchical_pred']:
-        relation_1, relation_2, relation_3 = relation
-        criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship = criterion_relationship
+    is_hierarchical_pred = args['models']['hierarchical_pred']
+    is_train_semi = args['training']['run_mode'] == 'train_semi'
 
-        if args['training']['run_mode'] == 'train_semi':
+    # Only proceed if there are any connected edges to evaluate
+    if connected.numel() == 0:
+        return loss_relationship
+
+    # Compute super category losses if hierarchical_pred is enabled
+    if is_hierarchical_pred:
+        criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship = criterion_relationship
+        super_relation_target = super_relation_processing(args, connected, curr_relations_target)
+
+        # Compute losses for super relationships
+        if is_train_semi:
+            # Get the mask for pseudo labels in the super relation context
             curr_pseudo_labels = pseudo_label_mask[connected]
-        super_relation_target = curr_relations_target[connected].clone()
-        super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-        super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric'] + args['models']['num_possessive'])] = 1
-        super_relation_target[super_relation_target >= args['models']['num_geometric'] + args['models']['num_possessive']] = 2
-        if args['training']['run_mode'] == 'train_semi':
-            loss_relationship += lambda_pseudo * criterion_super_relationship(super_relation[connected][curr_pseudo_labels], super_relation_target[curr_pseudo_labels]) \
-                                 + criterion_super_relationship(super_relation[connected][~curr_pseudo_labels], super_relation_target[~curr_pseudo_labels])
+            # Calculate super relation loss separately for pseudo and true labels
+            loss_pseudo, loss_true = calculate_semi_supervised_loss(super_relation[connected], super_relation_target, curr_pseudo_labels, criterion_super_relationship, lambda_pseudo)
+            loss_relationship += loss_pseudo + loss_true
         else:
             loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
 
+        # Compute sub category losses
         connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
         connected_2 = torch.nonzero(torch.logical_and(curr_relations_target[connected] >= args['models']['num_geometric'],
                                                       curr_relations_target[connected] < args['models']['num_geometric'] + args['models']['num_possessive'])).flatten()  # possessive
         connected_3 = torch.nonzero(curr_relations_target[connected] >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
-        if args['training']['run_mode'] == 'train_semi':
-            pseudo_conn_1, pseudo_conn_2, pseudo_conn_3 = curr_pseudo_labels[connected_1], curr_pseudo_labels[connected_2], curr_pseudo_labels[connected_3]
-            if len(connected_1) > 0:
-                loss_relationship += lambda_pseudo * criterion_relationship_1(relation_1[connected][connected_1][pseudo_conn_1], curr_relations_target[connected][connected_1][pseudo_conn_1]) \
-                                     + criterion_relationship_1(relation_1[connected][connected_1][~pseudo_conn_1], curr_relations_target[connected][connected_1][~pseudo_conn_1])
-            if len(connected_2) > 0:
-                loss_relationship += lambda_pseudo * criterion_relationship_2(relation_2[connected][connected_2][pseudo_conn_2], curr_relations_target[connected][connected_2][pseudo_conn_2] - args['models']['num_geometric']) \
-                                     + criterion_relationship_2(relation_2[connected][connected_2][~pseudo_conn_2], curr_relations_target[connected][connected_2][~pseudo_conn_2] - args['models']['num_geometric'])
-            if len(connected_3) > 0:
-                loss_relationship += lambda_pseudo * criterion_relationship_3(relation_3[connected][connected_3][pseudo_conn_3], curr_relations_target[connected][connected_3][pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive']) \
-                                     + criterion_relationship_3(relation_3[connected][connected_3][~pseudo_conn_3], curr_relations_target[connected][connected_3][~pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-        else:
-            if len(connected_1) > 0:
-                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], curr_relations_target[connected][connected_1])
-            if len(connected_2) > 0:
-                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], curr_relations_target[connected][connected_2] - args['models']['num_geometric'])
-            if len(connected_3) > 0:
-                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], curr_relations_target[connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+        connected_sub = [connected_1, connected_2, connected_3]
 
+        for i, (criterion_rel, offset) in enumerate(zip(
+                [criterion_relationship_1, criterion_relationship_2, criterion_relationship_3],
+                [0, args['models']['num_geometric'], args['models']['num_geometric'] + args['models']['num_possessive']]
+        )):
+            connected_i = connected_sub[i]
+
+            if is_train_semi and connected_i.numel() > 0:
+                # Calculate losses for the current category
+                loss_pseudo, loss_true = calculate_semi_supervised_loss(
+                    relation[i][connected][connected_i], curr_relations_target[connected][connected_i] - offset, curr_pseudo_labels[connected_i], criterion_rel, lambda_pseudo)
+                loss_relationship += loss_pseudo + loss_true
+            elif connected_i.numel() > 0:  # Non-semi-supervised or non-empty connected indices
+                loss_relationship += criterion_rel(relation[i][connected][connected_i], curr_relations_target[connected][connected_i] - offset)
+
+    # Compute losses if not using hierarchical predictions
     else:
-        if args['training']['run_mode'] == 'train_semi':
+        if is_train_semi:
             curr_pseudo_labels = pseudo_label_mask[connected]
-            loss_relationship += lambda_pseudo * criterion_relationship(relation[connected][curr_pseudo_labels], curr_relations_target[connected][curr_pseudo_labels]) \
-                                 + criterion_relationship(relation[connected][~curr_pseudo_labels], curr_relations_target[connected][~curr_pseudo_labels])
+            loss_pseudo, loss_true = calculate_semi_supervised_loss(relation[connected], curr_relations_target[connected], curr_pseudo_labels, criterion_relationship, lambda_pseudo)
+            loss_relationship += loss_pseudo + loss_true
         else:
             loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
+
     return loss_relationship
+
+
+def super_relation_processing(args, connected, curr_relations_target):
+    # Clone the target relations for modification without affecting the original data
+    super_relation_target = curr_relations_target[connected].clone()
+    super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+    super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric'] + args['models']['num_possessive'])] = 1
+    super_relation_target[super_relation_target >= args['models']['num_geometric'] + args['models']['num_possessive']] = 2
+
+    return super_relation_target
+
+
+def calculate_semi_supervised_loss(predictions, targets, pseudo_label_mask, criterion, lambda_pseudo):
+    # Separate pseudo and true labels based on mask
+    pseudo_labels = pseudo_label_mask.bool()
+    true_labels = ~pseudo_labels
+
+    # Initialize losses
+    loss_pseudo = loss_true = torch.tensor(0.0).to(predictions.device)
+
+    # Calculate pseudo loss if there are pseudo labels
+    if pseudo_labels.any():
+        loss_pseudo = lambda_pseudo * criterion(predictions[pseudo_labels], targets[pseudo_labels])
+
+    # Calculate true loss if there are true labels
+    if true_labels.any():
+        loss_true = criterion(predictions[true_labels], targets[true_labels])
+
+    return loss_pseudo, loss_true
+
+# def calculate_losses_on_relationships(args, relation, super_relation, connected, curr_relations_target, pseudo_label_mask, criterion_relationship, lambda_pseudo=1):
+#     loss_relationship = 0.0
+#     if args['models']['hierarchical_pred']:
+#         relation_1, relation_2, relation_3 = relation
+#         criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship = criterion_relationship
+#
+#         if args['training']['run_mode'] == 'train_semi':
+#             curr_pseudo_labels = pseudo_label_mask[connected]
+#         super_relation_target = curr_relations_target[connected].clone()
+#         super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+#         super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric'] + args['models']['num_possessive'])] = 1
+#         super_relation_target[super_relation_target >= args['models']['num_geometric'] + args['models']['num_possessive']] = 2
+#         if args['training']['run_mode'] == 'train_semi':
+#             loss_pseudo = criterion_super_relationship(super_relation[connected][curr_pseudo_labels], super_relation_target[curr_pseudo_labels])
+#             loss_true = criterion_super_relationship(super_relation[connected][~curr_pseudo_labels], super_relation_target[~curr_pseudo_labels])
+#             if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                 loss_relationship += loss_true
+#             elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
+#                 loss_relationship += lambda_pseudo * loss_pseudo
+#             elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                 loss_relationship += lambda_pseudo * loss_pseudo + loss_true
+#         else:
+#             loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
+#
+#         connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
+#         connected_2 = torch.nonzero(torch.logical_and(curr_relations_target[connected] >= args['models']['num_geometric'],
+#                                                       curr_relations_target[connected] < args['models']['num_geometric'] + args['models']['num_possessive'])).flatten()  # possessive
+#         connected_3 = torch.nonzero(curr_relations_target[connected] >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
+#         if args['training']['run_mode'] == 'train_semi':
+#             pseudo_conn_1, pseudo_conn_2, pseudo_conn_3 = curr_pseudo_labels[connected_1], curr_pseudo_labels[connected_2], curr_pseudo_labels[connected_3]
+#             if len(connected_1) > 0:
+#                 loss_pseudo = criterion_relationship_1(relation_1[connected][connected_1][pseudo_conn_1], curr_relations_target[connected][connected_1][pseudo_conn_1])
+#                 loss_true = criterion_relationship_1(relation_1[connected][connected_1][~pseudo_conn_1], curr_relations_target[connected][connected_1][~pseudo_conn_1])
+#                 if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                     loss_relationship += loss_true
+#                 elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
+#                     loss_relationship += lambda_pseudo * loss_pseudo
+#                 elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                     loss_relationship += lambda_pseudo * loss_pseudo + loss_true
+#             if len(connected_2) > 0:
+#                 loss_pseudo = criterion_relationship_2(relation_2[connected][connected_2][pseudo_conn_2], curr_relations_target[connected][connected_2][pseudo_conn_2] - args['models']['num_geometric'])
+#                 loss_true = criterion_relationship_2(relation_2[connected][connected_2][~pseudo_conn_2], curr_relations_target[connected][connected_2][~pseudo_conn_2] - args['models']['num_geometric'])
+#                 if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                     loss_relationship += loss_true
+#                 elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
+#                     loss_relationship += lambda_pseudo * loss_pseudo
+#                 elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                     loss_relationship += lambda_pseudo * loss_pseudo + loss_true
+#             if len(connected_3) > 0:
+#                 loss_pseudo = criterion_relationship_3(relation_3[connected][connected_3][pseudo_conn_3], curr_relations_target[connected][connected_3][pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+#                 loss_true = criterion_relationship_3(relation_3[connected][connected_3][~pseudo_conn_3], curr_relations_target[connected][connected_3][~pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+#                 if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                     loss_relationship += loss_true
+#                 elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
+#                     loss_relationship += lambda_pseudo * loss_pseudo
+#                 elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
+#                     loss_relationship += lambda_pseudo * loss_pseudo + loss_true
+#         else:
+#             if len(connected_1) > 0:
+#                 loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], curr_relations_target[connected][connected_1])
+#             if len(connected_2) > 0:
+#                 loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], curr_relations_target[connected][connected_2] - args['models']['num_geometric'])
+#             if len(connected_3) > 0:
+#                 loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], curr_relations_target[connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+#
+#     else:
+#         if args['training']['run_mode'] == 'train_semi':
+#             curr_pseudo_labels = pseudo_label_mask[connected]
+#             loss_pseudo = criterion_relationship(relation[connected][curr_pseudo_labels], curr_relations_target[connected][curr_pseudo_labels])
+#             loss_true = criterion_relationship(relation[connected][~curr_pseudo_labels], curr_relations_target[connected][~curr_pseudo_labels])
+#             loss_relationship += loss_true if torch.isnan(loss_pseudo) else lambda_pseudo * loss_pseudo + loss_true
+#         else:
+#             loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
+#     return loss_relationship
 
 def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     # load your secret OpenAI API key

@@ -46,11 +46,11 @@ training:
     run_mode: 'train'      # train, eval, prepare_semi, train_semi, caption, clip_zs, clip_train
     eval_mode: 'pc'        # pc sgc or sgd
     common_sense: True
-    learning_rate: 0.000001 #0.00001
+    learning_rate: 0.00001 #0.00001
 #    refine_learning_rate: 0.0001
     weight_decay: 0.0001
     batch_size: 12
-    num_epoch: 1
+    num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
     continue_train: False

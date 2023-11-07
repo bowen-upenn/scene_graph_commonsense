@@ -80,7 +80,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Baseline' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
             local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
@@ -246,15 +246,22 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                         if args['models']['hierarchical_pred']:
                             loss_relationship += calculate_losses_on_relationships(args, [relation_1, relation_2, relation_3], super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_graph, cat_edge, criterion_relationship, lambda_pseudo)
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
                         else:
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_graph, cat_edge, criterion_relationship, lambda_pseudo)
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
 
-                        hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected]
-                        for index, batch_index in enumerate(keep_in_batch[connected]):
-                            hidden_cat_accumulated[batch_index].append(hidden_cat[index])
-                            hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels[index])
+                        if args['training']['run_mode'] == 'train_semi':
+                            curr_pseudo_labels = pseudo_label_mask[graph_iter - 1][edge_iter][connected]
+                            hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected][curr_pseudo_labels]
+                            for index, batch_index in enumerate(keep_in_batch[connected][curr_pseudo_labels]):
+                                hidden_cat_accumulated[batch_index].append(hidden_cat[curr_pseudo_labels][index])
+                                hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels[index])
+                        else:
+                            hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected]
+                            for index, batch_index in enumerate(keep_in_batch[connected]):
+                                hidden_cat_accumulated[batch_index].append(hidden_cat[index])
+                                hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels[index])
 
                     # evaluate recall@k scores
                     relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
@@ -309,15 +316,22 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                         if args['models']['hierarchical_pred']:
                             loss_relationship += calculate_losses_on_relationships(args, [relation_1, relation_2, relation_3], super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_edge, cat_graph, criterion_relationship, lambda_pseudo)
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
                         else:
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_edge, cat_graph, criterion_relationship, lambda_pseudo)
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
 
-                        hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected]
-                        for index, batch_index in enumerate(keep_in_batch[connected]):
-                            hidden_cat_accumulated[batch_index].append(hidden_cat2[index])
-                            hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels2[index])
+                        if args['training']['run_mode'] == 'train_semi':
+                            curr_pseudo_labels = pseudo_label_mask[graph_iter - 1][edge_iter][connected]
+                            hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected][curr_pseudo_labels]
+                            for index, batch_index in enumerate(keep_in_batch[connected][curr_pseudo_labels]):
+                                hidden_cat_accumulated[batch_index].append(hidden_cat2[curr_pseudo_labels][index])
+                                hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels2[index])
+                        else:
+                            hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected]
+                            for index, batch_index in enumerate(keep_in_batch[connected]):
+                                hidden_cat_accumulated[batch_index].append(hidden_cat2[index])
+                                hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels2[index])
 
                     # evaluate recall@k scores
                     relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
@@ -391,10 +405,10 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
             # all_triplets = train_dataset.get_triplets()
             print('Mean number of relations before and after semi-supervised training: %.4f' % mean_num_rel_before, '%.4f' % mean_num_rel_after)
 
-        # if args['models']['hierarchical_pred']:
-        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Baseline' + str(epoch) + '_' + str(rank) + '.pth')
-        # else:
-        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
+        if args['models']['hierarchical_pred']:
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
+        else:
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank, writer, test_dataset)
