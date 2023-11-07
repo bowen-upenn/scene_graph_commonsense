@@ -84,9 +84,11 @@ if __name__ == "__main__":
     test_subset = Subset(test_dataset, test_subset_idx)
     print('num of train, test:', len(train_subset), len(test_subset))
 
+    # triplets = torch.load('/tmp/datasets/vg_scene_graph_annot/zero_shot_splits.json')
+
     # select training or evaluation
     if args['training']['run_mode'] == 'train' or args['training']['run_mode'] == 'train_semi':
-         mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset, train_dataset))
+         mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset, train_dataset, test_dataset))
     elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_semi':
         print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
         curr_subset = train_subset if args['training']['run_mode'] == 'prepare_semi' else test_subset

@@ -60,6 +60,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         self.img_count = 0
         self.num_added_rel_semi = 0
 
+        self.triplets = {}
+
     def __getitem__(self, idx):
         """
         Dataloader Outputs:
@@ -117,6 +119,9 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             image_depth = curr_annot['image_depth']
         else:
             image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
+        # image_aug = None
+        # image_depth = None
+
         categories = curr_annot['categories']
         super_categories = curr_annot['super_categories']
         # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
@@ -143,10 +148,20 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         relationships = relationships_reordered
 
         if self.args['training']['run_mode'] == 'train_semi' and self.training:
+            pseudo_label_mask = [torch.zeros(i, dtype=torch.bool) for i in range(1, len(categories))]
             # print('relationships before', relationships)
-            relationships, subj_or_obj = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox)
-            self.mean_num_rel_semi += self.num_added_rel_semi
+            relationships, subj_or_obj, pseudo_label_mask = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox, pseudo_label_mask)
+            # self.mean_num_rel_semi += self.num_added_rel_semi
             # print('relationships after', relationships, '\n')
+            for rel in relationships:
+                self.mean_num_rel_semi += len(rel[rel != -1])
+
+        for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
+            for j, (rel, so) in enumerate(zip(rels, sos)):
+                if so == 1:  # if subject
+                    self.triplets[(categories[i + 1].item(), rel.item(), categories[j].item())] = 1
+                elif so == 0:  # if object
+                    self.triplets[(categories[j].item(), rel.item(), categories[i + 1].item())] = 1
 
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             # reformulate relation annots for a single image in a more efficient way
@@ -177,16 +192,37 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                 return image, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
             else:
                 return image, image_nonsq, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
+        elif self.args['training']['run_mode'] == 'train_semi' and self.training:
+            return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, pseudo_label_mask
         else:
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
 
     def calculate_mean_num_rel_before_after_semi(self):
-        print('Mean_num_rel', self.mean_num_rel, 'mean_num_rel_semi', self.mean_num_rel_semi, 'img_count', self.img_count)
-        mean_num_rel, mean_num_rel_semi = self.mean_num_rel / self.img_count, self.mean_num_rel_semi / self.img_count
+        # Print current state of relevant variables for debugging purposes.
+        print('Mean_num_rel:', self.mean_num_rel,
+              'mean_num_rel_semi:', self.mean_num_rel_semi,
+              'img_count:', self.img_count,
+              'num_added_rel_semi:', self.num_added_rel_semi)
+
+        # Calculate the mean number of relationships before and after a semi-colon.
+        mean_num_rel = self.mean_num_rel / self.img_count if self.img_count else 0
+        mean_num_rel_semi = self.mean_num_rel_semi / self.img_count if self.img_count else 0
+
+        # Reset the counts after calculation to be ready for next calculation cycle.
         self.mean_num_rel, self.mean_num_rel_semi, self.img_count, self.num_added_rel_semi = 0, 0, 0, 0
+
+        # Return the calculated means.
         return mean_num_rel, mean_num_rel_semi
 
-    def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox):
+    def get_triplets(self):
+        if self.training:
+            torch.save(self.triplets, 'training_triplets.pt')
+        else:
+            torch.save(self.triplets, 'testing_triplets.pt')
+        # print('self.triplets', self.triplets)
+        return self.triplets
+
+    def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox, pseudo_label_mask):
         for edge in annot_semi:
             subject_bbox_semi, relation_id, object_bbox_semi = edge
             if iou(subject_bbox_semi, object_bbox_semi) == 0:
@@ -205,14 +241,16 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                     if relationships[object_bbox_idx - 1][subject_bbox_idx].item() == -1:  # only assign the pseudo label if no relationship is assigned yet
                         subj_or_obj[object_bbox_idx - 1][subject_bbox_idx] = 0
                         relationships[object_bbox_idx - 1][subject_bbox_idx] = relation_id
+                        pseudo_label_mask[object_bbox_idx - 1][subject_bbox_idx] = 1
                         self.num_added_rel_semi += 1
                 else:
                     if relationships[subject_bbox_idx - 1][object_bbox_idx].item() == -1:
                         subj_or_obj[subject_bbox_idx - 1][object_bbox_idx] = 1
                         relationships[subject_bbox_idx - 1][object_bbox_idx] = relation_id
+                        pseudo_label_mask[subject_bbox_idx - 1][object_bbox_idx] = 1
                         self.num_added_rel_semi += 1
 
-        return relationships, subj_or_obj
+        return relationships, subj_or_obj, pseudo_label_mask
 
     def match_bbox(self, bbox_semi, bbox_raw):
         """

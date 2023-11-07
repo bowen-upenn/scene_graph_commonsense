@@ -26,6 +26,56 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
+def calculate_losses_on_relationships(args, relation, super_relation, connected, curr_relations_target, pseudo_label_mask, criterion_relationship, lambda_pseudo=1):
+    loss_relationship = 0.0
+    if args['models']['hierarchical_pred']:
+        relation_1, relation_2, relation_3 = relation
+        criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship = criterion_relationship
+
+        if args['training']['run_mode'] == 'train_semi':
+            curr_pseudo_labels = pseudo_label_mask[connected]
+        super_relation_target = curr_relations_target[connected].clone()
+        super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
+        super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric'] + args['models']['num_possessive'])] = 1
+        super_relation_target[super_relation_target >= args['models']['num_geometric'] + args['models']['num_possessive']] = 2
+        if args['training']['run_mode'] == 'train_semi':
+            loss_relationship += lambda_pseudo * criterion_super_relationship(super_relation[connected][curr_pseudo_labels], super_relation_target[curr_pseudo_labels]) \
+                                 + criterion_super_relationship(super_relation[connected][~curr_pseudo_labels], super_relation_target[~curr_pseudo_labels])
+        else:
+            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
+
+        connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
+        connected_2 = torch.nonzero(torch.logical_and(curr_relations_target[connected] >= args['models']['num_geometric'],
+                                                      curr_relations_target[connected] < args['models']['num_geometric'] + args['models']['num_possessive'])).flatten()  # possessive
+        connected_3 = torch.nonzero(curr_relations_target[connected] >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
+        if args['training']['run_mode'] == 'train_semi':
+            pseudo_conn_1, pseudo_conn_2, pseudo_conn_3 = curr_pseudo_labels[connected_1], curr_pseudo_labels[connected_2], curr_pseudo_labels[connected_3]
+            if len(connected_1) > 0:
+                loss_relationship += lambda_pseudo * criterion_relationship_1(relation_1[connected][connected_1][pseudo_conn_1], curr_relations_target[connected][connected_1][pseudo_conn_1]) \
+                                     + criterion_relationship_1(relation_1[connected][connected_1][~pseudo_conn_1], curr_relations_target[connected][connected_1][~pseudo_conn_1])
+            if len(connected_2) > 0:
+                loss_relationship += lambda_pseudo * criterion_relationship_2(relation_2[connected][connected_2][pseudo_conn_2], curr_relations_target[connected][connected_2][pseudo_conn_2] - args['models']['num_geometric']) \
+                                     + criterion_relationship_2(relation_2[connected][connected_2][~pseudo_conn_2], curr_relations_target[connected][connected_2][~pseudo_conn_2] - args['models']['num_geometric'])
+            if len(connected_3) > 0:
+                loss_relationship += lambda_pseudo * criterion_relationship_3(relation_3[connected][connected_3][pseudo_conn_3], curr_relations_target[connected][connected_3][pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive']) \
+                                     + criterion_relationship_3(relation_3[connected][connected_3][~pseudo_conn_3], curr_relations_target[connected][connected_3][~pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+        else:
+            if len(connected_1) > 0:
+                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], curr_relations_target[connected][connected_1])
+            if len(connected_2) > 0:
+                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], curr_relations_target[connected][connected_2] - args['models']['num_geometric'])
+            if len(connected_3) > 0:
+                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], curr_relations_target[connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+
+    else:
+        if args['training']['run_mode'] == 'train_semi':
+            curr_pseudo_labels = pseudo_label_mask[connected]
+            loss_relationship += lambda_pseudo * criterion_relationship(relation[connected][curr_pseudo_labels], curr_relations_target[connected][curr_pseudo_labels]) \
+                                 + criterion_relationship(relation[connected][~curr_pseudo_labels], curr_relations_target[connected][~curr_pseudo_labels])
+        else:
+            loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
+    return loss_relationship
+
 def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     # load your secret OpenAI API key
     # you can register yours at https://platform.openai.com/account/api-keys and save it as openai_api_key.txt
@@ -220,6 +270,16 @@ def _batch_query_openai_gpt_instruct(predicted_edges, model='gpt-3.5-turbo-instr
 #         return float('-inf')
 #     else:   # ignore any invalid response
 #         return None
+
+
+def sigmoid_rampup(current, rampup_length):
+    """Sigmoid ramp-up. current is the current epoch, rampup_length is the length of the ramp-up."""
+    if rampup_length == 0:
+        return 1.0
+    else:
+        current = np.clip(current, 0.0, rampup_length)
+        phase = 1.0 - current / rampup_length
+        return float(np.exp(-5.0 * phase * phase))
 
 
 def resize_boxes(boxes, original_size, new_size):

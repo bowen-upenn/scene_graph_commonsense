@@ -69,6 +69,7 @@ class Evaluator_PC:
 
         self.cache = OrderedDict()
         self.max_cache_size = max_cache_size
+        self.training_triplets = torch.load('training_triplets.pt')
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -114,7 +115,8 @@ class Evaluator_PC:
                 self.which_in_batch = which_in_batch
                 # self.connected_pred = torch.exp(connectivity)
                 self.connectivity = connectivity
-                self.confidence = torch.max(relation_pred, dim=1)[0]
+
+                self.confidence = connectivity + torch.max(relation_pred, dim=1)[0]
                 self.confidence[~iou_mask] = -math.inf
                 # self.confidence = torch.max(relation_pred, dim=1)[0]
 
@@ -131,18 +133,24 @@ class Evaluator_PC:
                 self.subject_bbox_target = subject_bbox_target
                 self.object_bbox_target = object_bbox_target
 
+                triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
+                is_in_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.training_triplets for i in range(len(triplets))], device=self.confidence.device)
+                self.confidence[~is_in_dict] = -math.inf
+
                 if height is not None:
                     self.height = height
                     self.width = width
             else:
                 self.which_in_batch = which_in_batch.repeat(3)
+                self.connectivity = connectivity.repeat(3)
+
                 self.confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']:
                                                                            self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
                 iou_mask = iou_mask.repeat(3)
+                self.confidence += self.connectivity
                 self.confidence[~iou_mask] = -math.inf
-                self.connectivity = connectivity.repeat(3)
                 # self.connected_pred = torch.exp(connectivity).repeat(3)
 
                 self.relation_pred = torch.hstack((torch.argmax(relation_pred[:, :self.args['models']['num_geometric']], dim=1),
@@ -162,6 +170,10 @@ class Evaluator_PC:
                 self.subject_bbox_target = subject_bbox_target.repeat(3, 1)
                 self.object_bbox_target = object_bbox_target.repeat(3, 1)
 
+                triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
+                is_in_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.training_triplets for i in range(len(triplets))], device=self.confidence.device)
+                self.confidence[~is_in_dict] = -math.inf
+
                 if height is not None:
                     self.height = height.repeat(3)
                     self.width = width.repeat(3)
@@ -170,10 +182,6 @@ class Evaluator_PC:
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
                 # confidence = connectivity + torch.max(relation_pred, dim=1)[0]
                 # confidence = torch.max(relation_pred, dim=1)[0]
-                confidence = torch.max(relation_pred, dim=1)[0]
-                confidence[~iou_mask] = -math.inf
-                self.confidence = torch.hstack((self.confidence, confidence))
-                self.connectivity = torch.hstack((self.connectivity, connectivity))
                 # self.connected_pred = torch.hstack((self.connected_pred, torch.exp(connectivity)))
 
                 self.relation_pred = torch.hstack((self.relation_pred, torch.argmax(relation_pred, dim=1)))
@@ -189,20 +197,20 @@ class Evaluator_PC:
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
+                confidence = connectivity + torch.max(relation_pred, dim=1)[0]
+                confidence[~iou_mask] = -math.inf
+                triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
+                is_in_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.training_triplets for i in range(len(triplets))], device=self.confidence.device)
+                confidence[~is_in_dict] = -math.inf
+
+                self.confidence = torch.hstack((self.confidence, confidence))
+                self.connectivity = torch.hstack((self.connectivity, connectivity))
+
                 if height is not None:
                     self.height = torch.hstack((self.height, height))
                     self.width = torch.hstack((self.width, width))
             else:
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(3)))
-                iou_mask = iou_mask.repeat(3)
-                confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
-                                           torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']
-                                                                                                           + self.args['models']['num_possessive']], dim=1)[0],
-                                           torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
-                confidence[~iou_mask] = -math.inf
-                # confidence += connectivity.repeat(3)
-                self.confidence = torch.hstack((self.confidence, confidence))
-                self.connectivity = torch.hstack((self.connectivity, connectivity.repeat(3)))
                 # connectivity_pred = torch.exp(connectivity).repeat(3)
                 # self.connected_pred = torch.hstack((self.connected_pred, connectivity_pred))
 
@@ -223,6 +231,22 @@ class Evaluator_PC:
                 self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat(3, 1)))
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat(3, 1)))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(3, 1)))
+
+                iou_mask = iou_mask.repeat(3)
+                confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
+                                           torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']
+                                                                                                           + self.args['models']['num_possessive']], dim=1)[0],
+                                           torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
+                confidence += connectivity.repeat(3)
+                confidence[~iou_mask] = -math.inf
+                # confidence += connectivity.repeat(3)
+
+                triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
+                is_in_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.training_triplets for i in range(len(triplets))], device=self.confidence.device)
+                confidence[~is_in_dict] = -math.inf
+
+                self.confidence = torch.hstack((self.confidence, confidence))
+                self.connectivity = torch.hstack((self.connectivity, connectivity.repeat(3)))
 
                 if height is not None:
                     self.height = torch.hstack((self.height, height.repeat(3)))

@@ -25,7 +25,7 @@ def setup(rank, world_size):
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
-def train_local(gpu, args, train_subset, test_subset, train_dataset):
+def train_local(gpu, args, train_subset, test_subset, train_dataset, test_dataset):
     """
     This function trains and evaluates the local prediction module on predicate classification tasks.
     :param gpu: current gpu index
@@ -80,7 +80,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Baseline' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
             local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
@@ -97,6 +97,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
         criterion_relationship_2 = torch.nn.NLLLoss(weight=class_weight[args['models']['num_geometric']:args['models']['num_geometric']+args['models']['num_possessive']].to(rank))
         criterion_relationship_3 = torch.nn.NLLLoss(weight=class_weight[args['models']['num_geometric']+args['models']['num_possessive']:].to(rank))
         criterion_super_relationship = torch.nn.NLLLoss()
+        criterion_relationship = [criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship]
     else:
         criterion_relationship = torch.nn.CrossEntropyLoss(weight=class_weight.to(rank))
     criterion_contrast = SupConLossHierar()
@@ -115,13 +116,18 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
         print('Start Training... EPOCH %d / %d\n' % (epoch, args['training']['num_epoch']))
         if epoch == args['training']['scheduler_param1'] or epoch == args['training']['scheduler_param2']:  # lr scheduler
             lr_decay *= 0.1
+        lambda_pseudo = sigmoid_rampup(epoch, args['training']['num_epoch']) if args['training']['run_mode'] == 'train_semi' else 1
+        print('lambda_pseudo', lambda_pseudo)
 
         for batch_count, data in enumerate(tqdm(train_loader), 0):
             """
             PREPARE INPUT DATA
             """
             try:
-                images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, _ = data
+                if args['training']['run_mode'] == 'train_semi':
+                    images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, _, pseudo_label_mask = data
+                else:
+                    images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, _ = data
             except:
                 continue
             batch_size = len(images)
@@ -165,11 +171,15 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
             """
             relations_target = []
             direction_target = []
+            pseudo_label_mask_temp = []
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks]) - 1
             for graph_iter in range(max(num_graph_iter)):
                 keep_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1)
                 relations_target.append(torch.vstack([relationships[i][graph_iter] for i in keep_in_batch]).T.to(rank))  # integer labels
                 direction_target.append(torch.vstack([subj_or_obj[i][graph_iter] for i in keep_in_batch]).T.to(rank))
+                if args['training']['run_mode'] == 'train_semi':
+                    pseudo_label_mask_temp.append(torch.vstack([pseudo_label_mask[i][graph_iter] for i in keep_in_batch]).T.to(rank))
+            pseudo_label_mask = pseudo_label_mask_temp
 
             """
             FORWARD PASS
@@ -204,8 +214,8 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
                     FIRST DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge,
-                                                                                                                               rank, h_graph_aug, h_edge_aug)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug \
+                                                    = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank, h_graph_aug, h_edge_aug)
                         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
@@ -235,24 +245,11 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
                         if args['models']['hierarchical_pred']:
-                            super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
-                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
-                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
-                            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
-
-                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
-                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
-                                                                          relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
-                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
-                            if len(connected_1) > 0:
-                                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
-                            if len(connected_2) > 0:
-                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
-                            if len(connected_3) > 0:
-                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+                            loss_relationship += calculate_losses_on_relationships(args, [relation_1, relation_2, relation_3], super_relation, connected, relations_target[graph_iter - 1][edge_iter],
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_graph, cat_edge, criterion_relationship, lambda_pseudo)
                         else:
-                            loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
+                            loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_graph, cat_edge, criterion_relationship, lambda_pseudo)
 
                         hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected]
                         for index, batch_index in enumerate(keep_in_batch[connected]):
@@ -280,8 +277,8 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
                     SECOND DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph,
-                                                                                                                                 rank, h_edge_aug, h_graph_aug)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 \
+                                                    = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank, h_edge_aug, h_graph_aug)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         hidden_cat2 = torch.cat((hidden2.unsqueeze(1), hidden_aug2.unsqueeze(1)), dim=1)
                     else:
@@ -311,24 +308,11 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
                         if args['models']['hierarchical_pred']:
-                            super_relation_target = relations_target[graph_iter - 1][edge_iter][connected].clone()
-                            super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-                            super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric']+args['models']['num_possessive'])] = 1
-                            super_relation_target[super_relation_target >= args['models']['num_geometric']+args['models']['num_possessive']] = 2
-                            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
-
-                            connected_1 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']).flatten()  # geometric
-                            connected_2 = torch.nonzero(torch.logical_and(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric'],
-                                                                          relations_target[graph_iter - 1][edge_iter][connected] < args['models']['num_geometric']+args['models']['num_possessive'])).flatten()  # possessive
-                            connected_3 = torch.nonzero(relations_target[graph_iter - 1][edge_iter][connected] >= args['models']['num_geometric']+args['models']['num_possessive']).flatten()  # semantic
-                            if len(connected_1) > 0:
-                                loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], relations_target[graph_iter - 1][edge_iter][connected][connected_1])
-                            if len(connected_2) > 0:
-                                loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], relations_target[graph_iter - 1][edge_iter][connected][connected_2] - args['models']['num_geometric'])
-                            if len(connected_3) > 0:
-                                loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], relations_target[graph_iter - 1][edge_iter][connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
+                            loss_relationship += calculate_losses_on_relationships(args, [relation_1, relation_2, relation_3], super_relation, connected, relations_target[graph_iter - 1][edge_iter],
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_edge, cat_graph, criterion_relationship, lambda_pseudo)
                         else:
-                            loss_relationship += criterion_relationship(relation[connected], relations_target[graph_iter - 1][edge_iter][connected])
+                            loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
+                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], cat_edge, cat_graph, criterion_relationship, lambda_pseudo)
 
                         hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected]
                         for index, batch_index in enumerate(keep_in_batch[connected]):
@@ -404,15 +388,16 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
 
         if epoch == 0:
             mean_num_rel_before, mean_num_rel_after = train_dataset.calculate_mean_num_rel_before_after_semi()
+            # all_triplets = train_dataset.get_triplets()
             print('Mean number of relations before and after semi-supervised training: %.4f' % mean_num_rel_before, '%.4f' % mean_num_rel_after)
 
-        if args['models']['hierarchical_pred']:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
-        else:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
+        # if args['models']['hierarchical_pred']:
+        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Baseline' + str(epoch) + '_' + str(rank) + '.pth')
+        # else:
+        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
-        test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank, writer)
+        test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank, writer, test_dataset)
 
     dist.destroy_process_group()  # clean up
     if rank == 0:
@@ -421,7 +406,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset):
 
 
 
-def test_local(args, backbone, local_predictor, test_loader, test_record, epoch, rank, writer):
+def test_local(args, backbone, local_predictor, test_loader, test_record, epoch, rank, writer, test_dataset):
     backbone.eval()
     local_predictor.eval()
 
@@ -595,6 +580,9 @@ def test_local(args, backbone, local_predictor, test_loader, test_record, epoch,
                 record_test_results(args, test_record, rank, epoch, recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
                                     connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
+
+        # if epoch == 0:
+        #     all_triplets = test_dataset.get_triplets()
     print('FINISHED EVALUATING\n')
 
 
