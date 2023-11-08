@@ -411,8 +411,8 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                                      connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
 
-            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_precision, \
-                num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_pseudo_consistency, connectivity_precision, \
+                num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if epoch == 0:
             mean_num_rel_before, mean_num_rel_after = train_dataset.calculate_mean_num_rel_before_after_semi()
