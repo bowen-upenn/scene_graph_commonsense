@@ -111,80 +111,6 @@ def calculate_semi_supervised_loss(predictions, targets, pseudo_label_mask, crit
 
     return loss_pseudo, loss_true
 
-# def calculate_losses_on_relationships(args, relation, super_relation, connected, curr_relations_target, pseudo_label_mask, criterion_relationship, lambda_pseudo=1):
-#     loss_relationship = 0.0
-#     if args['models']['hierarchical_pred']:
-#         relation_1, relation_2, relation_3 = relation
-#         criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship = criterion_relationship
-#
-#         if args['training']['run_mode'] == 'train_semi':
-#             curr_pseudo_labels = pseudo_label_mask[connected]
-#         super_relation_target = curr_relations_target[connected].clone()
-#         super_relation_target[super_relation_target < args['models']['num_geometric']] = 0
-#         super_relation_target[torch.logical_and(super_relation_target >= args['models']['num_geometric'], super_relation_target < args['models']['num_geometric'] + args['models']['num_possessive'])] = 1
-#         super_relation_target[super_relation_target >= args['models']['num_geometric'] + args['models']['num_possessive']] = 2
-#         if args['training']['run_mode'] == 'train_semi':
-#             loss_pseudo = criterion_super_relationship(super_relation[connected][curr_pseudo_labels], super_relation_target[curr_pseudo_labels])
-#             loss_true = criterion_super_relationship(super_relation[connected][~curr_pseudo_labels], super_relation_target[~curr_pseudo_labels])
-#             if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                 loss_relationship += loss_true
-#             elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
-#                 loss_relationship += lambda_pseudo * loss_pseudo
-#             elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                 loss_relationship += lambda_pseudo * loss_pseudo + loss_true
-#         else:
-#             loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
-#
-#         connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
-#         connected_2 = torch.nonzero(torch.logical_and(curr_relations_target[connected] >= args['models']['num_geometric'],
-#                                                       curr_relations_target[connected] < args['models']['num_geometric'] + args['models']['num_possessive'])).flatten()  # possessive
-#         connected_3 = torch.nonzero(curr_relations_target[connected] >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
-#         if args['training']['run_mode'] == 'train_semi':
-#             pseudo_conn_1, pseudo_conn_2, pseudo_conn_3 = curr_pseudo_labels[connected_1], curr_pseudo_labels[connected_2], curr_pseudo_labels[connected_3]
-#             if len(connected_1) > 0:
-#                 loss_pseudo = criterion_relationship_1(relation_1[connected][connected_1][pseudo_conn_1], curr_relations_target[connected][connected_1][pseudo_conn_1])
-#                 loss_true = criterion_relationship_1(relation_1[connected][connected_1][~pseudo_conn_1], curr_relations_target[connected][connected_1][~pseudo_conn_1])
-#                 if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                     loss_relationship += loss_true
-#                 elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
-#                     loss_relationship += lambda_pseudo * loss_pseudo
-#                 elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                     loss_relationship += lambda_pseudo * loss_pseudo + loss_true
-#             if len(connected_2) > 0:
-#                 loss_pseudo = criterion_relationship_2(relation_2[connected][connected_2][pseudo_conn_2], curr_relations_target[connected][connected_2][pseudo_conn_2] - args['models']['num_geometric'])
-#                 loss_true = criterion_relationship_2(relation_2[connected][connected_2][~pseudo_conn_2], curr_relations_target[connected][connected_2][~pseudo_conn_2] - args['models']['num_geometric'])
-#                 if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                     loss_relationship += loss_true
-#                 elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
-#                     loss_relationship += lambda_pseudo * loss_pseudo
-#                 elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                     loss_relationship += lambda_pseudo * loss_pseudo + loss_true
-#             if len(connected_3) > 0:
-#                 loss_pseudo = criterion_relationship_3(relation_3[connected][connected_3][pseudo_conn_3], curr_relations_target[connected][connected_3][pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-#                 loss_true = criterion_relationship_3(relation_3[connected][connected_3][~pseudo_conn_3], curr_relations_target[connected][connected_3][~pseudo_conn_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-#                 if torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                     loss_relationship += loss_true
-#                 elif not torch.isnan(loss_pseudo) and torch.isnan(loss_true):
-#                     loss_relationship += lambda_pseudo * loss_pseudo
-#                 elif not torch.isnan(loss_pseudo) and not torch.isnan(loss_true):
-#                     loss_relationship += lambda_pseudo * loss_pseudo + loss_true
-#         else:
-#             if len(connected_1) > 0:
-#                 loss_relationship += criterion_relationship_1(relation_1[connected][connected_1], curr_relations_target[connected][connected_1])
-#             if len(connected_2) > 0:
-#                 loss_relationship += criterion_relationship_2(relation_2[connected][connected_2], curr_relations_target[connected][connected_2] - args['models']['num_geometric'])
-#             if len(connected_3) > 0:
-#                 loss_relationship += criterion_relationship_3(relation_3[connected][connected_3], curr_relations_target[connected][connected_3] - args['models']['num_geometric'] - args['models']['num_possessive'])
-#
-#     else:
-#         if args['training']['run_mode'] == 'train_semi':
-#             curr_pseudo_labels = pseudo_label_mask[connected]
-#             loss_pseudo = criterion_relationship(relation[connected][curr_pseudo_labels], curr_relations_target[connected][curr_pseudo_labels])
-#             loss_true = criterion_relationship(relation[connected][~curr_pseudo_labels], curr_relations_target[connected][~curr_pseudo_labels])
-#             loss_relationship += loss_true if torch.isnan(loss_pseudo) else lambda_pseudo * loss_pseudo + loss_true
-#         else:
-#             loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
-#     return loss_relationship
 
 def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     # load your secret OpenAI API key
@@ -696,19 +622,21 @@ def match_object_categories(categories_pred, cat_pred_confidence, bbox_pred, bbo
     return categories_pred_matched, categories_pred_conf_matched, bbox_target_matched
 
 
-def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3, recall, mean_recall_top3, mean_recall,
-                         recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity,
+def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                         running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_pseudo_consistency,
                          connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase):
 
     if args['dataset']['dataset'] == 'vg':
         if args['models']['hierarchical_pred']:
             print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
-                  'zsR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), loss: %.4f, %.4f.'
+                  'zsR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), loss: %.4f, %.4f, %.4f, %.4f.'
                   % (rank, epoch, batch_count, lr, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
                      mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
                      recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[1],
                      running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
-                     running_loss_contrast / (args['training']['print_freq'] * args['training']['batch_size'])))
+                     running_loss_contrast / (args['training']['print_freq'] * args['training']['batch_size']),
+                     running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
+                     running_loss_pseudo_consistency / (args['training']['print_freq'] * args['training']['batch_size'])))
 
             record.append({'rank': rank, 'epoch': epoch, 'batch': batch_count, 'lr': lr,
                            'recall_relationship': [recall[0], recall[1], recall[2]],

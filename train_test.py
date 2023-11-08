@@ -102,9 +102,10 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
         criterion_relationship = torch.nn.CrossEntropyLoss(weight=class_weight.to(rank))
     criterion_contrast = SupConLossHierar()
     criterion_connectivity = torch.nn.BCEWithLogitsLoss()
+    criterion_pseudo_consistency = torch.nn.MSELoss()
 
-    running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, connectivity_recall, connectivity_precision, \
-        num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_pseudo_consistency, connectivity_recall, connectivity_precision, \
+        num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
@@ -187,7 +188,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
             hidden_cat_accumulated = [[] for _ in range(batch_size)]
             hidden_cat_labels_accumulated = [[] for _ in range(batch_size)]
             connected_indices_accumulated = []
-            losses, loss_connectivity, loss_relationship, loss_contrast = 0.0, 0.0, 0.0, 0.0
+            losses, loss_connectivity, loss_relationship, loss_contrast, loss_pseudo_consistency = 0.0, 0.0, 0.0, 0.0, 0.0
 
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
@@ -253,10 +254,14 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                         if args['training']['run_mode'] == 'train_semi':
                             curr_pseudo_labels = pseudo_label_mask[graph_iter - 1][edge_iter][connected]
-                            hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected][curr_pseudo_labels]
-                            for index, batch_index in enumerate(keep_in_batch[connected][curr_pseudo_labels]):
-                                hidden_cat_accumulated[batch_index].append(hidden_cat[curr_pseudo_labels][index])
+                            hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected][~curr_pseudo_labels]
+                            for index, batch_index in enumerate(keep_in_batch[connected][~curr_pseudo_labels]):
+                                hidden_cat_accumulated[batch_index].append(hidden_cat[~curr_pseudo_labels][index])
                                 hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels[index])
+
+                            # add consistency regularization for pseudo labels
+                            if curr_pseudo_labels.any():
+                                loss_pseudo_consistency += criterion_pseudo_consistency(hidden[connected][curr_pseudo_labels], hidden_aug[connected][curr_pseudo_labels])
                         else:
                             hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected]
                             for index, batch_index in enumerate(keep_in_batch[connected]):
@@ -274,11 +279,13 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                             Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                                    cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
 
-                    losses += loss_relationship + args['training']['lambda_connectivity'] * (
-                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    losses += loss_relationship \
+                              + args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1)) \
+                              + args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
                     running_loss_connectivity += args['training']['lambda_connectivity'] * (
                                 loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
                     running_loss_relationship += loss_relationship
+                    running_loss_pseudo_consistency += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
 
                     """
                     SECOND DIRECTION
@@ -323,10 +330,14 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                         if args['training']['run_mode'] == 'train_semi':
                             curr_pseudo_labels = pseudo_label_mask[graph_iter - 1][edge_iter][connected]
-                            hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected][curr_pseudo_labels]
-                            for index, batch_index in enumerate(keep_in_batch[connected][curr_pseudo_labels]):
-                                hidden_cat_accumulated[batch_index].append(hidden_cat2[curr_pseudo_labels][index])
+                            hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected][~curr_pseudo_labels]
+                            for index, batch_index in enumerate(keep_in_batch[connected][~curr_pseudo_labels]):
+                                hidden_cat_accumulated[batch_index].append(hidden_cat2[~curr_pseudo_labels][index])
                                 hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels2[index])
+
+                            # add consistency regularization for pseudo labels
+                            if curr_pseudo_labels.any():
+                                loss_pseudo_consistency += criterion_pseudo_consistency(hidden[connected][curr_pseudo_labels], hidden_aug[connected][curr_pseudo_labels])
                         else:
                             hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected]
                             for index, batch_index in enumerate(keep_in_batch[connected]):
@@ -344,11 +355,13 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                             Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                                    cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
 
-                    losses += loss_relationship + args['training']['lambda_connectivity'] * (
-                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                    losses += loss_relationship \
+                              + args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1)) \
+                              + args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
                     running_loss_connectivity += args['training']['lambda_connectivity'] * (
-                                loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
+                            loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
                     running_loss_relationship += loss_relationship
+                    running_loss_pseudo_consistency += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
 
             if not all(len(sublist) == 0 for sublist in hidden_cat_accumulated):
                 # concatenate all hidden_cat and hidden_cat_labels along the 0th dimension
@@ -374,6 +387,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                 writer.add_scalar('train/running_loss_relationship', running_loss_relationship, global_step)
                 writer.add_scalar('train/running_loss_connectivity', running_loss_connectivity, global_step)
                 writer.add_scalar('train/running_loss_contrast', running_loss_contrast, global_step)
+                writer.add_scalar('train/running_loss_pseudo_consistency', running_loss_pseudo_consistency, global_step)
                 writer.add_scalar('train/running_losses', running_losses, global_step)
 
             """
@@ -393,7 +407,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
             if (batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == len(train_loader)):
                 record_train_results(args, record, rank, epoch, batch_count, optimizer.param_groups[0]['lr'], recall_top3, recall, mean_recall_top3, mean_recall,
-                                     recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity,
+                                     recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_pseudo_consistency,
                                      connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
 

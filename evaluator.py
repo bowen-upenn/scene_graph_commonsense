@@ -70,6 +70,8 @@ class Evaluator_PC:
         self.cache = OrderedDict()
         self.max_cache_size = max_cache_size
         self.training_triplets = torch.load('training_triplets.pt')
+        self.dict_relation_names = relation_by_super_class_int2str()
+        self.dict_object_names = object_class_int2str()
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -174,6 +176,10 @@ class Evaluator_PC:
                 is_in_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.training_triplets for i in range(len(triplets))], device=self.confidence.device)
                 self.confidence[~is_in_dict] = -math.inf
 
+                # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
+                # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
+                # print('is_in_dict', is_in_dict)
+
                 if height is not None:
                     self.height = height.repeat(3)
                     self.width = width.repeat(3)
@@ -244,6 +250,10 @@ class Evaluator_PC:
                 triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
                 is_in_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.training_triplets for i in range(len(triplets))], device=self.confidence.device)
                 confidence[~is_in_dict] = -math.inf
+
+                # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
+                # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
+                # print('is_in_dict', is_in_dict)
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity.repeat(3)))
