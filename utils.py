@@ -10,8 +10,9 @@ from torch import Tensor
 from typing import Optional, List
 import torchvision
 import openai
+from openai import OpenAI
 import math
-from collections import Counter
+from collections import Counter, OrderedDict
 import re
 import random
 
@@ -158,80 +159,220 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
     return responses
 
 
-def batch_query_openai_gpt_instruct(predicted_edges, cache=None, batch_size=6):
-    total_edges = len(predicted_edges)
+def batch_query_openai_gpt_instruct(predicted_edges, edge_cache, batch_size=1, cache_hits=0):
     all_responses = []
 
-    for i in range(0, total_edges, batch_size):
-        batched_edges = predicted_edges[i: i + batch_size]
-        responses = _batch_query_openai_gpt_instruct(batched_edges)
-        all_responses.extend(responses)
+    for edge in predicted_edges:
+        # Check if the edge response is cached
+        cached_response = edge_cache.get(edge)
 
-    return all_responses
+        # Use the cached response with a 90% chance
+        if cached_response is not None and random.random() < 0.9:
+            all_responses.append(cached_response)
+            cache_hits += 1
+            # The following line is not needed because the cache already has this edge
+            # edge_cache.put(edge, cached_response)  # Update cache access frequency
+        else:
+            # Query the GPT model as the edge is not cached or bypassed the cache probability
+            response = _batch_query_openai_gpt_instruct([edge])  # Query function must be defined elsewhere
+            edge_cache.put(edge, response)  # Cache the new response
+            all_responses.append(response)
+
+    return all_responses, cache_hits
+
+# def batch_query_openai_gpt_instruct(predicted_edges, edge_cache, batch_size=1, cache_hits=0):
+#     total_edges = len(predicted_edges)
+#     all_responses = []
+#
+#     for i in range(0, total_edges, batch_size):
+#         batched_edges = predicted_edges[i: i + batch_size]
+#         batched_edges_to_query = []
+#
+#         for edge in batched_edges:
+#             cached_response = edge_cache.get(edge)
+#             if cached_response is not None and random.random() < 0.9:
+#                 all_responses.append(cached_response)
+#                 cache_hits += 1
+#                 edge_cache.put(edge, cached_response)  # Update cache access frequency
+#             else:
+#                 batched_edges_to_query.append(edge)
+#
+#         if batched_edges_to_query:
+#             response = _batch_query_openai_gpt_instruct(batched_edges_to_query)
+#             # for edge, response in zip(batched_edges_to_query, responses):
+#             edge_cache.put(edge, response)
+#             all_responses.append(response)
+#
+#     return all_responses, cache_hits
 
 
-def _batch_query_openai_gpt_instruct(predicted_edges, model='gpt-3.5-turbo-instruct'):
-    openai.api_key_path = 'openai_key_mc.txt' #'openai_api_key.txt'
-    responses = torch.ones(len(predicted_edges)) * -1
-
-    # random_val = random.random()
-    # # first check cache
-    # if cache is not None and edge in cache and random_val < 0.9:
-    #     responses[ind] = cache[edge]
-    #     continue
-
+def _batch_query_openai_gpt_instruct(predicted_edge):
+    # openai.api_key_path = 'openai_key_bw.txt' #'openai_api_key.txt'
     prompts = []
 
     # Prepare multiple variations of each prompt
     prompt_variations = [
-        "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer with Yes or No and briefly provide your reasoning.",
-        "Given the general knowledge and understanding of the world, is the relation '{}' logical? Provide a Yes or No response.", #and briefly explain your choice.",
-        "Would you say the relation '{}' violates typical logic and is not plausible? Yes or No." # Provide a brief explanation and answer with Yes or No."
+        "(1) Considering scene graph generation problems, is the relation '{}' a possible occurrence, regardless of how common or informative it is? Answer with 'Yes' or 'No' and briefly provide your reasoning.",
+        "(2) Does the relation '{}' represent a physically possible scenario in the real world? Answer with 'Yes' or 'No'. A simple relation representing common knowledge is acceptable as long as it is plausible.",
+        "(3) Could the relation '{}' be considered physically impossible or nonsensical? Answer 'Yes' or 'No'. A relation is possible even if it's a common or trivial fact. No need to explain."
     ]
 
     # For each predicted edge, create multiple prompts
-    for edge in predicted_edges:
-        for variation in prompt_variations:
-            prompts.append(variation.format(edge))
+    for variation in prompt_variations:
+        prompts.append(variation.format(predicted_edge))
 
     # Call OpenAI with the batch of prompts
-    completions = openai.Completion.create(
-        model=model,
-        prompt=prompts,
+    # completions = openai.Completion.create(
+    #     model="gpt-3.5-turbo-instruct",
+    #     prompt=prompts,
+    #     temperature=0,
+    #     max_tokens=64
+    # )
+    client = OpenAI()
+    completions = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are required to respond each of the following three questions at a new line. Always to mark your answers with (1), (2), and (3)."},
+            {"role": "user", "content": '\n'.join(prompts)}
+        ],
         temperature=0,
-        max_tokens=100
+        max_tokens=200,
+        n=1  # Set the number of completions generated for the prompt
     )
+    # print(completions.choices[0].message)
 
-    # Gather responses and decide based on majority
-    for i, edge in enumerate(predicted_edges):
-        yes_votes = 0
-        no_votes = 0
-        for j in range(len(prompt_variations)):
-            completion_text = completions.choices[i * len(prompt_variations) + j].text
+    # Extract the text from the response
+    completion_text = completions.choices[0].message.content.strip()
 
-            if j == 2:  # For the third question, we reverse the logic
-                if re.search(r'Yes', completion_text):
-                    no_votes += 1
-                elif re.search(r'No', completion_text):
-                    yes_votes += 1
-                else:
-                    no_votes += 1
+    completion_text = re.split(r'\(\d\)', completion_text)
+    completion_text = [response.strip() for response in completion_text if response.strip()]
+    print('completion_text', completion_text)
+
+    yes_votes = 0
+    no_votes = 0
+    for j in range(len(completion_text)):
+        if j == 2:  # For the third question, we reverse the logic
+            if re.search(r'Yes', completion_text[j]):
+                no_votes += 1
+            elif re.search(r'No', completion_text[j]):
+                yes_votes += 1
             else:
-                if re.search(r'Yes', completion_text):
-                    yes_votes += 1
-                elif re.search(r'No', completion_text):
-                    no_votes += 1
-                else:
-                    no_votes += 1
-
-        if yes_votes > no_votes:
-            # print(f'predicted_edge {edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
-            responses[i] = 1
+                no_votes += 1
         else:
-            # print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
-            responses[i] = -1
+            if re.search(r'Yes', completion_text[j]):
+                yes_votes += 1
+            elif re.search(r'No', completion_text[j]):
+                no_votes += 1
+            else:
+                no_votes += 1
 
-    return responses
+    if yes_votes > no_votes:
+        # print(f'predicted_edge {predicted_edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
+        response = 1
+    else:
+        # print(f'predicted_edge {predicted_edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
+        response = -1
+
+    # Return the list of responses, which contains the majority vote for each prompt
+    return response
+
+# def _batch_query_openai_gpt_instruct(predicted_edges):
+#     openai.api_key_path = 'openai_key_bw.txt' #'openai_api_key.txt'
+#     responses = torch.ones(len(predicted_edges)) * -1
+#
+#     prompts = []
+#
+#     # Prepare multiple variations of each prompt
+#     prompt_variations = [
+#         "Considering common sense and typical real-world scenarios, does the relation '{}' make logical sense? Answer with Yes or No and briefly provide your reasoning.",
+#         "Given the general knowledge of the world, is the relation '{}' logical? Provide a Yes or No response.", #and briefly explain your choice.",
+#         "Would you say the relation '{}' violates commonsense logic and is not plausible? Yes or No." # Provide a brief explanation and answer with Yes or No."
+#     ]
+#
+#     # For each predicted edge, create multiple prompts
+#     for edge in predicted_edges:
+#         for variation in prompt_variations:
+#             prompts.append(variation.format(edge))
+#
+#     # Call OpenAI with the batch of prompts
+#     completions = openai.Completion.create(
+#         model="gpt-3.5-turbo-instruct",
+#         prompt=prompts,
+#         temperature=0,
+#         max_tokens=64
+#     )
+#     # completions = client.chat.completions.create(
+#     #     model="gpt-3.5-turbo",
+#     #     messages=[
+#     #         {"role": "system", "content": "You are a poetic assistant, skilled in explaining complex programming concepts with creative flair."},
+#     #         {"role": "user", "content": "Compose a poem that explains the concept of recursion in programming."}
+#     #     ]
+#     # )
+#
+#     # Gather responses and decide based on majority
+#     for i, edge in enumerate(predicted_edges):
+#         yes_votes = 0
+#         no_votes = 0
+#         for j in range(len(prompt_variations)):
+#             completion_text = completions.choices[i * len(prompt_variations) + j].text
+#             # completion_text = completions.choices[i * len(prompt_variations) + j].message
+#
+#             if j == 3:  # For the third question, we reverse the logic
+#                 if re.search(r'Yes', completion_text):
+#                     no_votes += 1
+#                 elif re.search(r'No', completion_text):
+#                     yes_votes += 1
+#                 else:
+#                     no_votes += 1
+#             else:
+#                 if re.search(r'Yes', completion_text):
+#                     yes_votes += 1
+#                 elif re.search(r'No', completion_text):
+#                     no_votes += 1
+#                 else:
+#                     no_votes += 1
+#
+#         if yes_votes > no_votes:
+#             # print(f'predicted_edge {edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
+#             responses[i] = 1
+#         else:
+#             # print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
+#             responses[i] = -1
+#
+#     return responses
+
+
+class EdgeCache:
+    def __init__(self, max_cache_size):
+        self.cache = OrderedDict()
+        self.max_cache_size = max_cache_size
+        self.access_frequency = {}
+
+    def get(self, key):
+        return self.cache.get(key, None)
+
+    def put(self, key, value):
+        if key in self.cache:
+            # Move to end to show it was recently accessed
+            self.cache.move_to_end(key)
+            # Increase access frequency
+            self.access_frequency[key] += 1
+        else:
+            if len(self.cache) >= self.max_cache_size:
+                self._purge_least_frequent()
+            self.cache[key] = value
+            self.access_frequency[key] = 1
+
+    def _purge_least_frequent(self):
+        # Find the least frequently accessed item
+        least_frequent_key = min(self.access_frequency, key=self.access_frequency.get)
+        # Remove the least frequently accessed item
+        del self.cache[least_frequent_key]
+        del self.access_frequency[least_frequent_key]
+
+    def cache_info(self):
+        return len(self.cache), self.max_cache_size
+
 
 # def query_openai_gpt(predicted_edge, model='gpt-3.5-turbo'):
 #     # load your secret OpenAI API key

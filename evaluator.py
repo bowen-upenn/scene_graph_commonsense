@@ -5,10 +5,9 @@ from tqdm import tqdm
 import math
 import os
 import concurrent.futures
-from collections import OrderedDict
 from functools import partial
 
-from utils import get_weight_oiv6, query_openai_gpt, batch_query_openai_gpt_instruct
+from utils import *
 from dataset_utils import relation_by_super_class_int2str, object_class_int2str
 
 
@@ -67,8 +66,10 @@ class Evaluator_PC:
         self.selected_indices = None
         self.annotation_paths = None
 
-        self.cache = OrderedDict()
+        self.cache_hits = 0
+        self.total_cache_queries = 0
         self.max_cache_size = max_cache_size
+        self.cache = EdgeCache(max_cache_size)
         self.training_triplets = torch.load('training_triplets.pt')
         self.dict_relation_names = relation_by_super_class_int2str()
         self.dict_object_names = object_class_int2str()
@@ -590,7 +591,7 @@ class Evaluator_PC:
                         # response = query_openai_gpt(predicted_edge=string, cache=self.cache, model='gpt-3.5-turbo')
                         # if response == 1:
                         # print('valid string', string)
-                        edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist()]
+                        edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist(), self.confidence[curr_image][ind].item(), j]
                         curr_image_graph.append(edge)
                         curr_predictions.append(string)
 
@@ -599,7 +600,12 @@ class Evaluator_PC:
 
         if len(curr_image_graph) > 0:
             if self.args['training']['common_sense']:
-                responses = batch_query_openai_gpt_instruct(curr_predictions, cache=self.cache)
+                responses, cache_hits = batch_query_openai_gpt_instruct(curr_predictions, self.cache, cache_hits=self.cache_hits)
+
+                # calculate cache hit percentage
+                self.cache_hits = cache_hits
+                self.total_cache_queries += len(curr_predictions)
+
                 valid_curr_image_graph = []
                 for i, response in enumerate(responses):
                     if response == 1:
@@ -608,7 +614,7 @@ class Evaluator_PC:
                 valid_curr_image_graph = curr_image_graph
 
             annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs', annot_name)
+            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_50', annot_name)
             # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
             torch.save(valid_curr_image_graph, annot_path)
 
@@ -624,11 +630,15 @@ class Evaluator_PC:
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             results = list(executor.map(lambda image: self._get_related_top_k_predictions(image, top_k), torch.unique(self.which_in_batch)))
+        # for image in torch.unique(self.which_in_batch):
+        #     top_k_predictions, top_k_image_graphs = self._get_related_top_k_predictions(image, top_k)
+
+        cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
 
         if save_to_annot:
             top_k_predictions = [item[0] for item in results]
             top_k_image_graphs = [item[1] for item in results]
-            return top_k_predictions, top_k_image_graphs
+            return top_k_predictions, top_k_image_graphs, cache_hit_percentage
 
 
     def global_refine(self, refined_relation_pred, refined_confidence, batch_idx, top_k, rank, training=False):

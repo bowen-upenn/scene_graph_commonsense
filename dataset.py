@@ -96,33 +96,33 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         image = cv2.imread(image_path)
         width, height = image.shape[0], image.shape[1]
 
-        # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        # image = 255 * self.image_transform_contrastive(image)
-        # image, image_aug = image[0], image[1]
-        # image = self.image_norm(image)  # squared size that unifies the size of feature maps
-        # image_aug = self.image_norm(image_aug)
-        # self.img_count += 1
-        #
-        # if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
-        #     del image_aug
-        #     image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
-        #     image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
-        #     image_nonsq = self.image_norm(image_nonsq)
-        # elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
-        #     del image_aug
-        #     if self.args['training']['eval_mode'] != 'pc':
-        #         image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
-        #         image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
-        #         image_nonsq = self.image_norm(image_nonsq)
-        #     image_raw = Image.open(image_path).convert('RGB')
-        #     image_raw = self.image_transform_to_tensor(image_raw)
-        #
-        # if self.args['models']['use_depth']:
-        #     image_depth = curr_annot['image_depth']
-        # else:
-        #     image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
-        image_aug = None
-        image_depth = None
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = 255 * self.image_transform_contrastive(image)
+        image, image_aug = image[0], image[1]
+        image = self.image_norm(image)  # squared size that unifies the size of feature maps
+        image_aug = self.image_norm(image_aug)
+        self.img_count += 1
+
+        if self.args['training']['run_mode'] == 'eval' and self.args['training']['eval_mode'] != 'pc':
+            del image_aug
+            image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
+            image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
+            image_nonsq = self.image_norm(image_nonsq)
+        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
+            del image_aug
+            if self.args['training']['eval_mode'] != 'pc':
+                image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
+                image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
+                image_nonsq = self.image_norm(image_nonsq)
+            image_raw = Image.open(image_path).convert('RGB')
+            image_raw = self.image_transform_to_tensor(image_raw)
+
+        if self.args['models']['use_depth']:
+            image_depth = curr_annot['image_depth']
+        else:
+            image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
+        # image_aug = None
+        # image_depth = None
 
         categories = curr_annot['categories']
         super_categories = curr_annot['super_categories']
@@ -158,7 +158,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             for rel in relationships:
                 self.mean_num_rel_semi += len(rel[rel != -1])
 
-        self.count_triplets(categories, relationships, subj_or_obj, pseudo_label_mask)
+        # self.count_triplets(categories, relationships, subj_or_obj, pseudo_label_mask)
 
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             triplets = self.collect_triplets_clip(relationships, subj_or_obj)
@@ -202,30 +202,31 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
     def count_triplets(self, categories, relationships, subj_or_obj, pseudo_label_mask):
         for i, (rels, sos, pses) in enumerate(zip(relationships, subj_or_obj, pseudo_label_mask)):
             for j, (rel, so, pse) in enumerate(zip(rels, sos, pses)):
-                key = None
                 if so == 1:  # if subject
                     key = (categories[i + 1].item(), rel.item(), categories[j].item())
                 elif so == 0:  # if object
                     key = (categories[j].item(), rel.item(), categories[i + 1].item())
-                # check if the key is already in the dictionary, if not, initialize the count to 0
-                if key is not None:
-                    # initialize the count to 0
-                    if key not in self.triplets:
-                        self.triplets[key] = 0
-                    self.triplets[key] += 1
+                else:
+                    continue
 
-                    if self.training:   # update triplets_train_gt and triplets_train_pseudo
-                        if pse:
-                            if key not in self.triplets_train_pseudo:
-                                self.triplets_train_pseudo[key] = 0
-                            self.triplets_train_pseudo[key] += 1
-                        else:
-                            if key not in self.triplets_train_gt:
-                                self.triplets_train_gt[key] = 0
-                            self.triplets_train_gt[key] += 1
+                # check if the key is already in the dictionary, if not, initialize the count to 0
+                if key not in self.triplets:
+                    self.triplets[key] = 0
+                self.triplets[key] += 1
+
+                if self.training:   # update triplets_train_gt and triplets_train_pseudo
+                    if pse:
+                        if key not in self.triplets_train_pseudo:
+                            self.triplets_train_pseudo[key] = 0
+                        self.triplets_train_pseudo[key] += 1
+                    else:
+                        if key not in self.triplets_train_gt:
+                            self.triplets_train_gt[key] = 0
+                        self.triplets_train_gt[key] += 1
 
     def get_triplets(self):
         if self.training:
+            print(len(self.triplets), len(self.triplets_train_gt), len(self.triplets_train_pseudo))
             torch.save(self.triplets, 'training_triplets.pt')
             torch.save(self.triplets_train_gt, 'training_triplets_gt.pt')
             torch.save(self.triplets_train_pseudo, 'training_triplets_pseudo.pt')

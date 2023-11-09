@@ -21,7 +21,7 @@ from dataset_utils import object_class_alp2fre
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12357'
+    os.environ['MASTER_PORT'] = '12356'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -238,7 +238,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
         # local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'old_model.pth', map_location=map_location))
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Baseline' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
     else:
         local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
@@ -427,7 +427,9 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     if args['dataset']['dataset'] == 'vg':
                         # Recall.filter_accumulated_predictions_by_commonsense(100)
                         if args['training']['run_mode'] == 'prepare_semi':
-                            Recall.get_related_top_k_predictions_parallel(top_k=10)
+                            _, _, cache_hit_percentage = Recall.get_related_top_k_predictions_parallel(top_k=20)
+                            if batch_count + 1 == len(test_loader):
+                                print('cache_hit_percentage', cache_hit_percentage)
                         else:
                             recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                         # Recall.filter_accumulated_predictions_by_commonsense()
