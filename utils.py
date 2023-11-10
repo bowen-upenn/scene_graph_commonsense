@@ -180,7 +180,7 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
 #
 #     return all_responses, cache_hits
 
-def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=2, cache_hits=0):
+def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=4, cache_hits=0):
     total_edges = len(predicted_edges)
     all_responses = []
 

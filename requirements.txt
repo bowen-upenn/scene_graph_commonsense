@@ -94,7 +94,7 @@ nvidia-nvtx-cu11==11.7.91
 oauthlib==3.2.2
 open-clip-torch==2.20.0
 open-flamingo==2.0.1
-openai==1.2.0
+openai==0.28.0
 opencv-python==4.8.0.76
 orjson==3.9.5
 packaging==23.1
