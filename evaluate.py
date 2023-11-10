@@ -427,7 +427,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     if args['dataset']['dataset'] == 'vg':
                         # Recall.filter_accumulated_predictions_by_commonsense(100)
                         if args['training']['run_mode'] == 'prepare_semi':
-                            _, _, cache_hit_percentage = Recall.get_related_top_k_predictions_parallel(top_k=20)
+                            _, _, cache_hit_percentage = Recall.get_related_top_k_predictions_parallel(top_k=10)
                             if batch_count + 1 == len(test_loader):
                                 print('cache_hit_percentage', cache_hit_percentage)
                         else:

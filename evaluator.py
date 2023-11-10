@@ -17,7 +17,7 @@ class Evaluator_PC:
     In our hierarchical relationship scheme, each edge has three predictions per direction under three disjoint super-categories.
     Therefore, each directed edge outputs three individual candidates to be ranked in the top k most confident predictions instead of one.
     """
-    def __init__(self, args, num_classes, iou_thresh, top_k, max_cache_size=1000):
+    def __init__(self, args, num_classes, iou_thresh, top_k, max_cache_size=2000):
         self.args = args
         self.hierar = args['models']['hierarchical_pred']
         self.top_k = top_k
@@ -607,16 +607,22 @@ class Evaluator_PC:
                 self.total_cache_queries += len(curr_predictions)
 
                 valid_curr_image_graph = []
+                invalid_curr_image_graph = []
                 for i, response in enumerate(responses):
                     if response == 1:
                         valid_curr_image_graph.append(curr_image_graph[i])
+                    else:
+                        invalid_curr_image_graph.append(curr_image_graph[i])
             else:
                 valid_curr_image_graph = curr_image_graph
+                invalid_curr_image_graph = []
 
             annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
             annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_50', annot_name)
             # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
             torch.save(valid_curr_image_graph, annot_path)
+            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_50_invalid', annot_name)
+            torch.save(invalid_curr_image_graph, annot_path)
 
         # check if cache exceeded its size and evict the least frequently accessed item
         # while len(self.cache) > self.max_cache_size:
@@ -628,10 +634,14 @@ class Evaluator_PC:
         self.dict_relation_names = relation_by_super_class_int2str()
         self.dict_object_names = object_class_int2str()
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            results = list(executor.map(lambda image: self._get_related_top_k_predictions(image, top_k), torch.unique(self.which_in_batch)))
-        # for image in torch.unique(self.which_in_batch):
-        #     top_k_predictions, top_k_image_graphs = self._get_related_top_k_predictions(image, top_k)
+        try:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                results = list(executor.map(lambda image: self._get_related_top_k_predictions(image, top_k), torch.unique(self.which_in_batch)))
+            # for image in torch.unique(self.which_in_batch):
+            #     top_k_predictions, top_k_image_graphs = self._get_related_top_k_predictions(image, top_k)
+        except:
+            cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
+            return None, None, cache_hit_percentage
 
         cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
 

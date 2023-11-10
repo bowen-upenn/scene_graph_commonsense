@@ -80,7 +80,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
             local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
@@ -104,13 +104,17 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
     criterion_connectivity = torch.nn.BCEWithLogitsLoss()
     criterion_pseudo_consistency = torch.nn.MSELoss()
 
-    running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_pseudo_consistency, connectivity_recall, connectivity_precision, \
-        num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_pseudo_consistency, running_loss_commonsense, \
+        connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+
+    commonsense_yes_triplets = torch.load('training_triplets.pt')
+    # commonsense_yes_triplets = torch.load('commonsense_yes_triplets.pt')
+    # commonsense_no_triplets = torch.load('commonsense_no_triplets.pt')
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -188,7 +192,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
             hidden_cat_accumulated = [[] for _ in range(batch_size)]
             hidden_cat_labels_accumulated = [[] for _ in range(batch_size)]
             connected_indices_accumulated = []
-            losses, loss_connectivity, loss_relationship, loss_contrast, loss_pseudo_consistency = 0.0, 0.0, 0.0, 0.0, 0.0
+            losses, loss_connectivity, loss_relationship, loss_contrast, loss_pseudo_consistency, loss_commonsense = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
             num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
             for graph_iter in range(max(num_graph_iter)):
@@ -217,13 +221,31 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     if args['models']['hierarchical_pred']:
                         relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug \
                                                     = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank, h_graph_aug, h_edge_aug)
+                        relation = [relation_1, relation_2, relation_3]
                         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
-                        relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
+
+                        # match with the commonsense filtering pool
+                        relation_pred = torch.hstack((torch.argmax(relation_1, dim=1),
+                                                      torch.argmax(relation_2, dim=1) + args['models']['num_geometric'],
+                                                      torch.argmax(relation_3, dim=1) + args['models']['num_geometric'] + args['models']['num_possessive']))
+                        triplets = torch.hstack((cat_graph.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_edge.repeat(3).unsqueeze(1)))
+
                     else:
                         relation, connectivity, hidden, hidden_aug = local_predictor(h_graph, h_edge, cat_graph, cat_edge, scat_graph, scat_edge, rank, h_graph_aug, h_edge_aug)
                         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
                         super_relation = None
 
+                        # match with the commonsense filtering pool
+                        relation_pred = torch.argmax(relation, dim=1)
+                        triplets = torch.hstack((cat_graph.unsqueeze(1), relation_pred.unsqueeze(1), cat_edge.unsqueeze(1)))
+
+                    # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
+                    not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+                    # is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+                    # loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
+                    loss_commonsense += not_in_yes_dict.mean()
+
+                    # evaluate on the connectivity
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
                     num_not_connected += len(not_connected)
                     temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
@@ -240,17 +262,17 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     connected_indices[connected] = 1
                     connected_indices_accumulated.append(connected_indices)
 
+                    # evaluate on the relationships
                     if len(connected) > 0:
                         temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
                         loss_connectivity += 0.0 if torch.isnan(temp) else temp
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
-                        if args['models']['hierarchical_pred']:
-                            loss_relationship += calculate_losses_on_relationships(args, [relation_1, relation_2, relation_3], super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
-                        else:
+                        if args['training']['run_mode'] == 'train_semi':
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
                                                                                    pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
+                        else:
+                            loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter], criterion_relationship)
 
                         if args['training']['run_mode'] == 'train_semi':
                             curr_pseudo_labels = pseudo_label_mask[graph_iter - 1][edge_iter][connected]
@@ -274,6 +296,8 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     relations_target_directed[not_connected] = -1
 
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
+                        if args['models']['hierarchical_pred']:
+                            relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
                         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
@@ -282,11 +306,14 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                     losses += loss_relationship \
                               + args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1)) \
-                              + args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
+                              + args['training']['lambda_commonsense'] * loss_commonsense
                     running_loss_connectivity += args['training']['lambda_connectivity'] * (
                                 loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
                     running_loss_relationship += loss_relationship
-                    running_loss_pseudo_consistency += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
+                    running_loss_commonsense += args['training']['lambda_commonsense'] * loss_commonsense
+                    if args['training']['run_mode'] == 'train_semi':
+                        losses += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
+                        running_loss_pseudo_consistency += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
 
                     """
                     SECOND DIRECTION
@@ -294,13 +321,31 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     if args['models']['hierarchical_pred']:
                         relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 \
                                                     = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank, h_edge_aug, h_graph_aug)
-                        relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
+                        relation = [relation_1, relation_2, relation_3]
                         hidden_cat2 = torch.cat((hidden2.unsqueeze(1), hidden_aug2.unsqueeze(1)), dim=1)
+
+                        # match with the commonsense filtering pool
+                        relation_pred = torch.hstack((torch.argmax(relation_1, dim=1),
+                                                      torch.argmax(relation_2, dim=1) + args['models']['num_geometric'],
+                                                      torch.argmax(relation_3, dim=1) + args['models']['num_geometric'] + args['models']['num_possessive']))
+                        triplets = torch.hstack((cat_edge.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_graph.repeat(3).unsqueeze(1)))
+
                     else:
                         relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, scat_edge, scat_graph, rank, h_edge_aug, h_graph_aug)
                         hidden_cat2 = torch.cat((hidden2.unsqueeze(1), hidden_aug2.unsqueeze(1)), dim=1)
                         super_relation = None
 
+                        # match with the commonsense filtering pool
+                        relation_pred = torch.argmax(relation, dim=1)
+                        triplets = torch.hstack((cat_edge.unsqueeze(1), relation_pred.unsqueeze(1), cat_graph.unsqueeze(1)))
+
+                    # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
+                    not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+                    # is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+                    # loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
+                    loss_commonsense += not_in_yes_dict.mean()
+
+                    # evaluate on the connectivity
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr keep_in_batch are not connected
                     num_not_connected += len(not_connected)
                     temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
@@ -317,17 +362,17 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     connected_indices[connected] = 1
                     connected_indices_accumulated.append(connected_indices)
 
+                    # evaluate on the relationships
                     if len(connected) > 0:
                         temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
                         loss_connectivity += 0.0 if torch.isnan(temp) else temp
                         connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
 
-                        if args['models']['hierarchical_pred']:
-                            loss_relationship += calculate_losses_on_relationships(args, [relation_1, relation_2, relation_3], super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
-                        else:
+                        if args['training']['run_mode'] == 'train_semi':
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
                                                                                    pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
+                        else:
+                            loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter], criterion_relationship)
 
                         if args['training']['run_mode'] == 'train_semi':
                             curr_pseudo_labels = pseudo_label_mask[graph_iter - 1][edge_iter][connected]
@@ -351,6 +396,8 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     relations_target_directed[not_connected] = -1
 
                     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
+                        if args['models']['hierarchical_pred']:
+                            relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                                           cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
                         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
@@ -359,11 +406,14 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                     losses += loss_relationship \
                               + args['training']['lambda_connectivity'] * (loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1)) \
-                              + args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
+                              + args['training']['lambda_commonsense'] * loss_commonsense
                     running_loss_connectivity += args['training']['lambda_connectivity'] * (
                             loss_connectivity + args['training']['lambda_sparsity'] * torch.linalg.norm(torch.sigmoid(connectivity), ord=1))
                     running_loss_relationship += loss_relationship
-                    running_loss_pseudo_consistency += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
+                    running_loss_commonsense += args['training']['lambda_commonsense'] * loss_commonsense
+                    if args['training']['run_mode'] == 'train_semi':
+                        losses += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
+                        running_loss_pseudo_consistency += args['training']['lambda_pseudo_consistency'] * loss_pseudo_consistency
 
             if not all(len(sublist) == 0 for sublist in hidden_cat_accumulated):
                 # concatenate all hidden_cat and hidden_cat_labels along the 0th dimension
@@ -389,8 +439,10 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                 writer.add_scalar('train/running_loss_relationship', running_loss_relationship, global_step)
                 writer.add_scalar('train/running_loss_connectivity', running_loss_connectivity, global_step)
                 writer.add_scalar('train/running_loss_contrast', running_loss_contrast, global_step)
-                writer.add_scalar('train/running_loss_pseudo_consistency', running_loss_pseudo_consistency, global_step)
                 writer.add_scalar('train/running_losses', running_losses, global_step)
+                writer.add_scalar('train/running_loss_commonsense', running_loss_commonsense, global_step)
+                if args['training']['run_mode'] == 'train_semi':
+                    writer.add_scalar('train/running_loss_pseudo_consistency', running_loss_pseudo_consistency, global_step)
 
             """
             EVALUATE AND PRINT CURRENT TRAINING RESULTS
@@ -408,13 +460,13 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                 Recall.clear_data()
 
             if (batch_count % args['training']['print_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                record_train_results(args, record, rank, epoch, batch_count, optimizer.param_groups[0]['lr'], recall_top3, recall, mean_recall_top3, mean_recall,
-                                     recall_zs, mean_recall_zs, running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_pseudo_consistency,
+                record_train_results(args, record, rank, epoch, batch_count, optimizer.param_groups[0]['lr'], recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
+                                     running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_pseudo_consistency, running_loss_commonsense,
                                      connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase)
                 dist.monitored_barrier()
 
-            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_pseudo_consistency, connectivity_precision, \
-                num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_pseudo_consistency, running_loss_commonsense, \
+                connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if epoch == 0:
             mean_num_rel_before, mean_num_rel_after = train_dataset.calculate_mean_num_rel_before_after_semi()
@@ -422,7 +474,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
             print('Mean number of relations before and after semi-supervised training: %.4f' % mean_num_rel_before, '%.4f' % mean_num_rel_after)
 
         if args['models']['hierarchical_pred']:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_CS' + str(epoch) + '_' + str(rank) + '.pth')
         else:
             torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()

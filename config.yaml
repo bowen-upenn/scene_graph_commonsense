@@ -14,8 +14,8 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 1 #0.001
-    percent_test: 1 #0.01
+    percent_train: 0.001
+    percent_test: 0.01
     dataset: 'vg' # vg, oiv6
     return_annot: True
 models:
@@ -49,8 +49,8 @@ training:
     learning_rate: 0.00001 #0.00001
 #    refine_learning_rate: 0.0001
     weight_decay: 0.0001
-    batch_size: 8
-    num_epoch: 1
+    batch_size: 12
+    num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
     continue_train: False
@@ -64,6 +64,9 @@ training:
     lambda_connectivity: 0.1
     lambda_not_connected: 1
     lambda_pseudo_consistency: 10
+    lambda_commonsense: 1
+    lambda_cs_weak: 0.1
+    lambda_cs_strong: 10
     print_freq: 50
     eval_freq: 50
     print_freq_test: 50
