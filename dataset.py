@@ -60,7 +60,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         self.img_count = 0
         self.num_added_rel_semi = 0
 
-        self.triplets = {}
         self.triplets_train_gt = {}
         self.triplets_train_pseudo = {}
         self.commonsense_yes_triplets = {}
@@ -97,6 +96,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         #     curr_annot_no = torch.load(annot_name_no)
         # else:
         #     return None
+        # # print(annot_name_yes, annot_name_no)
 
         # if self.args['training']['run_mode'] == 'train_semi' and self.training:     # no pseudo labels at testing time
         #     # print('Load Semi-supervised pseudo labels')
@@ -216,19 +216,19 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         return mean_num_rel, mean_num_rel_semi
 
     def count_triplets(self, categories, relationships, subj_or_obj, bbox, annot_name_yes, annot_name_no):
-        # for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
-        #     for j, (rel, so) in enumerate(zip(rels, sos)):
-        #         if so == 1:  # if subject
-        #             key = (categories[i + 1].item(), rel.item(), categories[j].item())
-        #         elif so == 0:  # if object
-        #             key = (categories[j].item(), rel.item(), categories[i + 1].item())
-        #         else:
-        #             continue
-        #
-        #         # check if the key is already in the dictionary, if not, initialize the count to 0
-        #         if key not in self.training_triplets:
-        #             self.training_triplets[key] = 0
-        #         self.training_triplets[key] += 1
+        for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
+            for j, (rel, so) in enumerate(zip(rels, sos)):
+                if so == 1:  # if subject
+                    key = (categories[i + 1].item(), rel.item(), categories[j].item())
+                elif so == 0:  # if object
+                    key = (categories[j].item(), rel.item(), categories[i + 1].item())
+                else:
+                    continue
+
+                # check if the key is already in the dictionary, if not, initialize the count to 0
+                if key not in self.triplets_train_gt:
+                    self.triplets_train_gt[key] = 0
+                self.triplets_train_gt[key] += 1
 
         for edge in annot_name_yes:
             subject_bbox, relation_id, object_bbox, _, _ = edge
@@ -289,18 +289,22 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
     def get_triplets(self):
         if self.training:
-            print(len(self.triplets), len(self.commonsense_no_triplets), len(self.commonsense_yes_triplets))
+            # add ground truth annotations to the commonsense_yes_triplets
+            for k, v, in self.triplets_train_gt.items():
+                self.commonsense_yes_triplets[k] = v
+            # remove ground truth annotations from the commonsense_no_triplets
+            self.commonsense_no_triplets = {k: v for k, v in self.commonsense_no_triplets.items() if k not in self.triplets_train_gt.keys()}
+            print(len(self.triplets_train_gt), len(self.commonsense_no_triplets), len(self.commonsense_yes_triplets))
             # torch.save(self.triplets, 'training_triplets.pt')
-            torch.save(self.commonsense_no_triplets, 'commonsense_no_triplets.pt')
-            torch.save(self.commonsense_yes_triplets, 'commonsense_yes_triplets.pt')
-            # print(len(self.triplets), len(self.triplets_train_gt), len(self.triplets_train_pseudo))
-            # torch.save(self.triplets, 'training_triplets.pt')
-            # torch.save(self.triplets_train_gt, 'training_triplets_gt.pt')
+            torch.save(self.commonsense_no_triplets, 'triplets/commonsense_no_triplets.pt')
+            torch.save(self.commonsense_yes_triplets, 'triplets/commonsense_yes_triplets.pt')
+            # # print(len(self.triplets), len(self.triplets_train_gt), len(self.triplets_train_pseudo))
+            # # torch.save(self.triplets, 'training_triplets.pt')
+            torch.save(self.triplets_train_gt, 'triplets/training_triplets_gt.pt')
             # torch.save(self.triplets_train_pseudo, 'training_triplets_pseudo.pt')
         else:
-            torch.save(self.triplets, 'testing_triplets.pt')
+            torch.save(self.triplets, 'triplets/testing_triplets.pt')
         # print('self.triplets', self.triplets)
-        return self.triplets
 
     def collect_triplets_clip(self, relationships, subj_or_obj):
         # reformulate relation annots for a single image in a more efficient way

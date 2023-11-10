@@ -114,12 +114,12 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     # commonsense_yes_triplets = torch.load('training_triplets.pt')
-    dict_relation_names = relation_by_super_class_int2str()
-    dict_object_names = object_class_int2str()
-    commonsense_yes_triplets = torch.load('commonsense_yes_triplets.pt')
-    commonsense_no_triplets = torch.load('commonsense_no_triplets.pt')
-    print('commonsense_yes_triplets', [dict_object_names[triplet[0]] + ' ' + dict_relation_names[triplet[1]] + ' ' + dict_object_names[triplet[2]] for triplet in commonsense_yes_triplets])
-    print('commonsense_no_triplets', [dict_object_names[triplet[0]] + ' ' + dict_relation_names[triplet[1]] + ' ' + dict_object_names[triplet[2]] for triplet in commonsense_no_triplets])
+    # dict_relation_names = relation_by_super_class_int2str()
+    # dict_object_names = object_class_int2str()
+    # commonsense_yes_triplets = torch.load('commonsense_yes_triplets.pt')
+    # commonsense_no_triplets = torch.load('commonsense_no_triplets.pt')
+    # print('commonsense_yes_triplets', [dict_object_names[triplet[0]] + ' ' + dict_relation_names[triplet[1]] + ' ' + dict_object_names[triplet[2]] for triplet in commonsense_yes_triplets])
+    # print('commonsense_no_triplets', [dict_object_names[triplet[0]] + ' ' + dict_relation_names[triplet[1]] + ' ' + dict_object_names[triplet[2]] for triplet in commonsense_no_triplets])
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -475,7 +475,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
         if epoch == 0:
             mean_num_rel_before, mean_num_rel_after = train_dataset.calculate_mean_num_rel_before_after_semi()
-            all_triplets = train_dataset.get_triplets()
+            train_dataset.get_triplets()
             print('Mean number of relations before and after semi-supervised training: %.4f' % mean_num_rel_before, '%.4f' % mean_num_rel_after)
 
         # if args['models']['hierarchical_pred']:
