@@ -17,7 +17,7 @@ class Evaluator_PC:
     In our hierarchical relationship scheme, each edge has three predictions per direction under three disjoint super-categories.
     Therefore, each directed edge outputs three individual candidates to be ranked in the top k most confident predictions instead of one.
     """
-    def __init__(self, args, num_classes, iou_thresh, top_k, max_cache_size=2000):
+    def __init__(self, args, num_classes, iou_thresh, top_k, max_cache_size=10000):
         self.args = args
         self.hierar = args['models']['hierarchical_pred']
         self.top_k = top_k
@@ -600,7 +600,7 @@ class Evaluator_PC:
 
         if len(curr_image_graph) > 0:
             if self.args['training']['common_sense']:
-                responses, cache_hits = batch_query_openai_gpt_instruct(curr_predictions, self.cache, cache_hits=self.cache_hits)
+                responses, cache_hits = batch_query_openai_gpt(curr_predictions, self.cache, cache_hits=self.cache_hits)
 
                 # calculate cache hit percentage
                 self.cache_hits = cache_hits
@@ -634,14 +634,14 @@ class Evaluator_PC:
         self.dict_relation_names = relation_by_super_class_int2str()
         self.dict_object_names = object_class_int2str()
 
-        try:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                results = list(executor.map(lambda image: self._get_related_top_k_predictions(image, top_k), torch.unique(self.which_in_batch)))
+        # try:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            results = list(executor.map(lambda image: self._get_related_top_k_predictions(image, top_k), torch.unique(self.which_in_batch)))
             # for image in torch.unique(self.which_in_batch):
             #     top_k_predictions, top_k_image_graphs = self._get_related_top_k_predictions(image, top_k)
-        except:
-            cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
-            return None, None, cache_hit_percentage
+        # except:
+        #     cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
+        #     return None, None, cache_hit_percentage
 
         cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
 

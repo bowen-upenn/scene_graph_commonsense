@@ -180,7 +180,7 @@ def query_openai_gpt(predicted_edges, cache=None, model='gpt-3.5-turbo'):
 #
 #     return all_responses, cache_hits
 
-def batch_query_openai_gpt_instruct(predicted_edges, edge_cache, batch_size=4, cache_hits=0):
+def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=2, cache_hits=0):
     total_edges = len(predicted_edges)
     all_responses = []
 
@@ -205,76 +205,140 @@ def batch_query_openai_gpt_instruct(predicted_edges, edge_cache, batch_size=4, c
 
     return all_responses, cache_hits
 
+def _batch_query_openai_gpt(predicted_edges):
+    # Prepare the prompt for the system message
+    system_message = {
+        "role": "system",
+        "content": "You are required to respond to each of the following questions, separately. "
+                   "These questions ask about the validity of predicted edges in scene graph generation "
+                   "tasks, and there could be geometric, possessive, and semantic relationships. "
+                   "Always mark your answers with (1), (2), and (3)."
+    }
 
-# def _batch_query_openai_gpt_instruct(predicted_edge):
-#     # openai.api_key_path = 'openai_key_bw.txt' #'openai_api_key.txt'
-#     prompts = []
-#
-#     # Prepare multiple variations of each prompt
-#     prompt_variations = [
-#         "(1) Considering scene graph generation problems, is the relation '{}' possible, regardless of how common or informative it is? Answer with 'Yes' or 'No' and briefly provide your reasoning.",
-#         "(2) Does the relation '{}' represent a physically possible scenario in the real world? Simply answer 'Yes' or 'No'. A simple relation representing common knowledge is acceptable. No need to explain.",
-#         "(3) Could the relation '{}' be considered nonsensical? A relation is possible even if it's a trivial fact. Answer 'Yes' or 'No'. No need to explain."
-#     ]
-#
-#     # For each predicted edge, create multiple prompts
-#     for variation in prompt_variations:
-#         prompts.append(variation.format(predicted_edge))
-#
-#     # Call OpenAI with the batch of prompts
-#     # completions = openai.Completion.create(
-#     #     model="gpt-3.5-turbo-instruct",
-#     #     prompt=prompts,
-#     #     temperature=0,
-#     #     max_tokens=64
-#     # )
-#     client = OpenAI()
-#     completions = client.chat.completions.create(
-#         model="gpt-3.5-turbo",
-#         messages=[
-#             {"role": "system", "content": "You are required to respond each of the following three questions. Always to mark your answers with (1), (2), and (3)."},
-#             {"role": "user", "content": '\n'.join(prompts)}
-#         ],
-#         temperature=0,
-#         max_tokens=150,
-#         n=1  # Set the number of completions generated for the prompt
-#     )
-#     # print(completions.choices[0].message)
-#
-#     # Extract the text from the response
-#     completion_text = completions.choices[0].message.content.strip()
-#
-#     completion_text = re.split(r'\(\d\)', completion_text)
-#     completion_text = [response.strip() for response in completion_text if response.strip()]
-#     # print('completion_text', completion_text)
-#
-#     yes_votes = 0
-#     no_votes = 0
-#     for j in range(len(completion_text)):
-#         if j == 2:  # For the third question, we reverse the logic
-#             if re.search(r'Yes', completion_text[j]):
-#                 no_votes += 1
-#             elif re.search(r'No', completion_text[j]):
-#                 yes_votes += 1
-#             else:
-#                 no_votes += 1
-#         else:
-#             if re.search(r'Yes', completion_text[j]):
-#                 yes_votes += 1
-#             elif re.search(r'No', completion_text[j]):
-#                 no_votes += 1
-#             else:
-#                 no_votes += 1
-#
-#     if yes_votes > no_votes:
-#         # print(f'predicted_edge {predicted_edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
-#         response = 1
-#     else:
-#         # print(f'predicted_edge {predicted_edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
-#         response = -1
-#
-#     # Return the list of responses, which contains the majority vote for each prompt
-#     return response
+    # Initialize the user message list
+    user_messages = []
+
+    # Prepare multiple variations of each prompt
+    prompt_variations = [
+        "(1) Does the relation '{}' generally make sense, regardless of how informative it is? Answer with 'Yes' or 'No' and briefly justify your answer.",
+        "(2) Does the relation '{}' represent a physically possible scenario in real world? Answer 'Yes' or 'No'. No explanation needed. A simple relation representing common knowledge is acceptable.",
+        "(3) Could the relation '{}' be considered a mis-classification in scene graph generation that is incorrect in commonsense? Briefly show your reasoning and then answer 'Yes' or 'No'."
+    ]
+
+    # Combine all edge prompts into one user message
+    for predicted_edge in predicted_edges:
+        for variation in prompt_variations:
+            user_messages.append(variation.format(predicted_edge))
+
+    # Combine all prompts for user role
+    user_message = {"role": "user", "content": '\n'.join(user_messages)}
+
+    # Call OpenAI with the batch of prompts
+    client = OpenAI()
+    completions = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[system_message, user_message],
+        temperature=0,
+        max_tokens=150 * len(predicted_edges),  # Adjust max tokens based on the number of edges
+        n=1  # Set the number of completions generated for the prompt
+    )
+
+    # Process the API response
+    completion_text = completions.choices[0].message.content.strip()
+
+    # Parse the API response into separate answers for each question of each edge
+    # Assume that responses are returned in the same order as the questions were sent
+    completion_text = re.split(r'\(\d\)', completion_text)
+    completion_text = [response.strip() for response in completion_text if response.strip()]
+    # print('completion_text', completion_text)
+
+    # Analyze responses for each edge
+    responses = torch.ones(len(predicted_edges)) * -1
+    for i in range(0, len(completion_text), 3):  # Iterate over responses in groups of three
+        yes_votes = 0
+        no_votes = 0
+        for j in range(3):
+            if (i + j) < len(completion_text):  # Check to prevent index error
+                if j == 2:  # For the third question, we reverse the logic
+                    if "Yes" in completion_text[i + j]:
+                        no_votes += 1
+                    elif "No" in completion_text[i + j]:
+                        yes_votes += 1
+                else:
+                    if "Yes" in completion_text[i + j]:
+                        yes_votes += 1
+                    elif "No" in completion_text[i + j]:
+                        no_votes += 1
+
+        # Record the majority vote for the current edge
+        response = 1 if yes_votes > no_votes else -1
+        # print('Majority vote for edge', predicted_edges[i // 3], 'is', response, 'with', yes_votes, 'Yes votes and', no_votes, 'No votes\n')
+        responses[i // 3] = response
+
+    return responses
+
+    # # openai.api_key_path = 'openai_key_bw.txt' #'openai_api_key.txt'
+    # prompts = []
+    #
+    # # Prepare multiple variations of each prompt
+    # prompt_variations = [
+    #     "(1) Considering scene graph generation problems, is the relation '{}' possible, regardless of how informative it is? Answer with 'Yes' or 'No' and justify your answer.",
+    #     "(2) Does the relation '{}' represent a physically possible scenario in real world? Answer 'Yes' or 'No'. A simple relation representing common knowledge is acceptable.",
+    #     "(3) Could the relation '{}' be considered a mis-classification in scene graph generation that is incorrect in commonsense? Show your reasoning and then answer 'Yes' or 'No'."
+    # ]
+    #
+    # # For each predicted edge, create multiple prompts
+    # for variation in prompt_variations:
+    #     prompts.append(variation.format(predicted_edge))
+    #
+    # # Call OpenAI with the batch of prompts
+    # client = OpenAI()
+    # completions = client.chat.completions.create(
+    #     model="gpt-3.5-turbo",
+    #     messages=[
+    #         {"role": "system", "content": "You are required to respond each of the following three questions, separately. These questions ask the validity of predicted edges in scene graph generation"
+    #                                       "tasks, and there could be geometric, possessive, and semantic relationships. Always mark your answers with (1), (2), and (3)."},
+    #         {"role": "user", "content": '\n'.join(prompts)}
+    #     ],
+    #     temperature=0,
+    #     max_tokens=200,
+    #     n=1  # Set the number of completions generated for the prompt
+    # )
+    # # print(completions.choices[0].message)
+    #
+    # # Extract the text from the response
+    # completion_text = completions.choices[0].message.content.strip()
+    #
+    # completion_text = re.split(r'\(\d\)', completion_text)
+    # completion_text = [response.strip() for response in completion_text if response.strip()]
+    # # print('completion_text', completion_text)
+    #
+    # yes_votes = 0
+    # no_votes = 0
+    # for j in range(len(completion_text)):
+    #     if j == 2:  # For the third question, we reverse the logic
+    #         if re.search(r'Yes', completion_text[j]):
+    #             no_votes += 1
+    #         elif re.search(r'No', completion_text[j]):
+    #             yes_votes += 1
+    #         else:
+    #             no_votes += 1
+    #     else:
+    #         if re.search(r'Yes', completion_text[j]):
+    #             yes_votes += 1
+    #         elif re.search(r'No', completion_text[j]):
+    #             no_votes += 1
+    #         else:
+    #             no_votes += 1
+    #
+    # if yes_votes > no_votes:
+    #     # print(f'predicted_edge {predicted_edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes\n')
+    #     response = 1
+    # else:
+    #     # print(f'predicted_edge {predicted_edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes\n')
+    #     response = -1
+    #
+    # # Return the list of responses, which contains the majority vote for each prompt
 
 def _batch_query_openai_gpt_instruct(predicted_edges):
     openai.api_key_path = 'openai_key_bw.txt' #'openai_api_key.txt'
@@ -283,23 +347,30 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
     prompts = []
 
     # Prepare multiple variations of each prompt
+    # init_prompt = "In scene graph generation tasks, there could be geometric, possessive, or semantic relationships. " \
+    #               "You are ask about the validity of predicted edges in scene graph generation tasks."
     prompt_variations = [
-        "Considering scene graph generation problems, is the relation '{}' possible, regardless of how common or informative it is? Answer with 'Yes' or 'No' and briefly provide your reasoning.",
-        "Does the relation '{}' represent a physically possible scenario in the real world? Simply answer 'Yes' or 'No'. A simple relation representing common knowledge is acceptable. No need to explain.",
-        "Could the relation '{}' be considered nonsensical? A relation is possible even if it's a trivial fact. Answer 'Yes' or 'No'. No need to explain."
+        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+        "Could there be either a {} or a {}s? Yes or No and justify your answer.",
+        "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
+        "Is the relation {} impossible in real world? Answer 'Yes' or 'No' and explain your answer."
     ]
 
     # For each predicted edge, create multiple prompts
     for edge in predicted_edges:
-        for variation in prompt_variations:
-            prompts.append(variation.format(edge))
+        for i, variation in enumerate(prompt_variations):
+            if i == 2:
+                prompts.append(variation.format(edge, edge))
+            else:
+                prompts.append(variation.format(edge))
 
     # Call OpenAI with the batch of prompts
     completions = openai.Completion.create(
         model="gpt-3.5-turbo-instruct",
         prompt=prompts,
         temperature=0,
-        max_tokens=64
+        max_tokens=100
     )
     # completions = client.chat.completions.create(
     #     model="gpt-3.5-turbo",
@@ -315,9 +386,10 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
         no_votes = 0
         for j in range(len(prompt_variations)):
             completion_text = completions.choices[i * len(prompt_variations) + j].text
+            # print(completion_text)
             # completion_text = completions.choices[i * len(prompt_variations) + j].message
 
-            if j == 3:  # For the third question, we reverse the logic
+            if j > 2:  # For the last two questions, we reverse the logic
                 if re.search(r'Yes', completion_text):
                     no_votes += 1
                 elif re.search(r'No', completion_text):
