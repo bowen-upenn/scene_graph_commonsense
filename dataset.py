@@ -84,19 +84,19 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             return None
 
-        annot_name_yes = 'semi_cs_50/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
-        annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
-        if os.path.exists(annot_name_yes):
-            curr_annot_yes = torch.load(annot_name_yes)
-        else:
-            return None
-        annot_name_no = 'semi_cs_50_invalid/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
-        annot_name_no = os.path.join(self.annot_dir, annot_name_no)
-        if os.path.exists(annot_name_no):
-            curr_annot_no = torch.load(annot_name_no)
-        else:
-            return None
-        # print(annot_name_yes, annot_name_no)
+        # annot_name_yes = 'semi_cs_50/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
+        # if os.path.exists(annot_name_yes):
+        #     curr_annot_yes = torch.load(annot_name_yes)
+        # else:
+        #     return None
+        # annot_name_no = 'semi_cs_50_invalid/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_no = os.path.join(self.annot_dir, annot_name_no)
+        # if os.path.exists(annot_name_no):
+        #     curr_annot_no = torch.load(annot_name_no)
+        # else:
+        #     return None
+        # # print(annot_name_yes, annot_name_no)
 
         # if self.args['training']['run_mode'] == 'train_semi' and self.training:     # no pseudo labels at testing time
         #     # print('Load Semi-supervised pseudo labels')
@@ -174,7 +174,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         #         self.mean_num_rel_semi += len(rel[rel != -1])
 
         # self.count_triplets(categories, relationships, subj_or_obj, pseudo_label_mask)
-        self.count_triplets(categories, relationships, subj_or_obj, bbox, curr_annot_yes, curr_annot_no)
+        # self.count_triplets(categories, relationships, subj_or_obj, bbox, curr_annot_yes, curr_annot_no)
 
         if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             triplets = self.collect_triplets_clip(relationships, subj_or_obj)
@@ -291,7 +291,10 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         if self.training:
             # add ground truth annotations to the commonsense_yes_triplets
             for k, v, in self.triplets_train_gt.items():
-                self.commonsense_yes_triplets[k] = v
+                if k not in self.commonsense_yes_triplets.keys():
+                    self.commonsense_yes_triplets[k] = v
+                else:
+                    self.commonsense_yes_triplets[k] += v
             # remove ground truth annotations from the commonsense_no_triplets
             self.commonsense_no_triplets = {k: v for k, v in self.commonsense_no_triplets.items() if k not in self.triplets_train_gt.keys()}
             print(len(self.triplets_train_gt), len(self.commonsense_no_triplets), len(self.commonsense_yes_triplets))

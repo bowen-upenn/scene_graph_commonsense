@@ -140,9 +140,10 @@ class Evaluator_PC:
 
                 triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                self.confidence[not_in_yes_dict] = -math.inf
                 self.confidence[is_in_no_dict] = -math.inf
-                # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 1.5
+                # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
                 # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
 
                 if height is not None:
@@ -180,10 +181,12 @@ class Evaluator_PC:
 
                 triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
                 self.confidence[is_in_no_dict] = -math.inf
-                # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 1.5
+                # # print('self.confidence', self.confidence)
+                # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
                 # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
+                self.confidence[not_in_yes_dict] = -math.inf
 
                 # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
                 # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
@@ -214,12 +217,14 @@ class Evaluator_PC:
 
                 confidence = torch.max(relation_pred, dim=1)[0] #+ connectivity
                 confidence[~iou_mask] = -math.inf
+
                 triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
                 confidence[is_in_no_dict] = -math.inf
-                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 1.5
+                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
                 # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
+                confidence[not_in_yes_dict] = -math.inf
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity))
@@ -261,10 +266,11 @@ class Evaluator_PC:
 
                 triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
                 confidence[is_in_no_dict] = -math.inf
-                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 1.5
+                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
                 # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
+                confidence[not_in_yes_dict] = -math.inf
 
                 # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
                 # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
