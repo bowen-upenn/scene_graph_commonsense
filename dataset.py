@@ -84,13 +84,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             return None
 
-        # annot_name_yes = 'semi_cs_50/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_yes = 'semi_cs_10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
         # annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
         # if os.path.exists(annot_name_yes):
         #     curr_annot_yes = torch.load(annot_name_yes)
         # else:
         #     return None
-        # annot_name_no = 'semi_cs_50_invalid/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_no = 'semi_cs_10_invalid/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
         # annot_name_no = os.path.join(self.annot_dir, annot_name_no)
         # if os.path.exists(annot_name_no):
         #     curr_annot_no = torch.load(annot_name_no)
@@ -98,14 +98,14 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         #     return None
         # # print(annot_name_yes, annot_name_no)
 
-        # if self.args['training']['run_mode'] == 'train_semi' and self.training:     # no pseudo labels at testing time
-        #     # print('Load Semi-supervised pseudo labels')
-        #     annot_name_semi = 'semi_cs/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
-        #     annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
-        #     if os.path.exists(annot_path_semi):
-        #         curr_annot_semi = torch.load(annot_path_semi)
-        #     else:
-        #         return None
+        if self.args['training']['run_mode'] == 'train_semi' and self.training:     # no pseudo labels at testing time
+            # print('Load Semi-supervised pseudo labels')
+            annot_name_semi = 'semi_cs_10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+            annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
+            if os.path.exists(annot_path_semi):
+                curr_annot_semi = torch.load(annot_path_semi)
+            else:
+                return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
         image = cv2.imread(image_path)
@@ -164,14 +164,14 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             self.mean_num_rel += len(rel[rel != -1])
         relationships = relationships_reordered
 
-        # if self.args['training']['run_mode'] == 'train_semi' and self.training:
-        #     pseudo_label_mask = [torch.zeros(i, dtype=torch.bool) for i in range(1, len(categories))]
-        #     # print('relationships before', relationships)
-        #     relationships, subj_or_obj, pseudo_label_mask = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox, pseudo_label_mask)
-        #     # self.mean_num_rel_semi += self.num_added_rel_semi
-        #     # print('relationships after', relationships, '\n')
-        #     for rel in relationships:
-        #         self.mean_num_rel_semi += len(rel[rel != -1])
+        if self.args['training']['run_mode'] == 'train_semi' and self.training:
+            pseudo_label_mask = [torch.zeros(i, dtype=torch.bool) for i in range(1, len(categories))]
+            # print('relationships before', relationships)
+            relationships, subj_or_obj, pseudo_label_mask = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox, pseudo_label_mask)
+            # self.mean_num_rel_semi += self.num_added_rel_semi
+            # print('relationships after', relationships, '\n')
+            for rel in relationships:
+                self.mean_num_rel_semi += len(rel[rel != -1])
 
         # self.count_triplets(categories, relationships, subj_or_obj, pseudo_label_mask)
         # self.count_triplets(categories, relationships, subj_or_obj, bbox, curr_annot_yes, curr_annot_no)
@@ -327,7 +327,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
     def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox, pseudo_label_mask):
         for edge in annot_semi:
-            subject_bbox_semi, relation_id, object_bbox_semi = edge
+            subject_bbox_semi, relation_id, object_bbox_semi, _, _ = edge
             if iou(subject_bbox_semi, object_bbox_semi) == 0:
                 continue
 

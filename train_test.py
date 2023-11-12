@@ -81,7 +81,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
             local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
@@ -126,7 +126,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
         print('Start Training... EPOCH %d / %d\n' % (epoch, args['training']['num_epoch']))
         if epoch == args['training']['scheduler_param1'] or epoch == args['training']['scheduler_param2']:  # lr scheduler
             lr_decay *= 0.1
-        lambda_pseudo = 0 #sigmoid_rampup(epoch, args['training']['num_epoch']) if args['training']['run_mode'] == 'train_semi' else 1
+        lambda_pseudo = sigmoid_rampup(epoch, args['training']['num_epoch']) if args['training']['run_mode'] == 'train_semi' else 1
         print('lambda_pseudo', lambda_pseudo)
 
         for batch_count, data in enumerate(tqdm(train_loader), 0):
@@ -275,7 +275,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                         if args['training']['run_mode'] == 'train_semi':
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
+                                                                                   criterion_relationship, pseudo_label_mask[graph_iter - 1][edge_iter], lambda_pseudo)
                         else:
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter], criterion_relationship)
 
@@ -375,7 +375,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
                         if args['training']['run_mode'] == 'train_semi':
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter],
-                                                                                   pseudo_label_mask[graph_iter - 1][edge_iter], criterion_relationship, lambda_pseudo)
+                                                                                   criterion_relationship, pseudo_label_mask[graph_iter - 1][edge_iter], lambda_pseudo)
                         else:
                             loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter], criterion_relationship)
 
@@ -479,7 +479,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
             print('Mean number of relations before and after semi-supervised training: %.4f' % mean_num_rel_before, '%.4f' % mean_num_rel_after)
 
         if args['models']['hierarchical_pred']:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_CS' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
         else:
             torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()

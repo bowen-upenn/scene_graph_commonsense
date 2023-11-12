@@ -86,6 +86,7 @@ if __name__ == "__main__":
 
     # triplets = torch.load('/tmp/datasets/vg_scene_graph_annot/zero_shot_splits.json')
 
+    print(args)
     # select training or evaluation
     if args['training']['run_mode'] == 'train' or args['training']['run_mode'] == 'train_semi':
          mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset, train_dataset, test_dataset))

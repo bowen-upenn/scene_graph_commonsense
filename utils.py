@@ -350,12 +350,19 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
     # init_prompt = "In scene graph generation tasks, there could be geometric, possessive, or semantic relationships. " \
     #               "You are ask about the validity of predicted edges in scene graph generation tasks."
     prompt_variations = [
-        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
-        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
-        "Could there be either a {} or a {}s? Yes or No and justify your answer.",
-        "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
-        "Is the relation {} impossible in real world? Answer 'Yes' or 'No' and explain your answer."
+        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No'. A trivially true relation is still a 'Yes'.",
+        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No'. A trivially true relation is still a 'Yes'.",
+        "Could there be either a {} or a {}s? Yes or No.",
+        "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? 'Yes' or 'No'.",
+        "Is the relation {} impossible in real world? Answer 'Yes' or 'No'."
     ]
+    # prompt_variations = [
+    #     "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+    #     "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+    #     "Could there be either a {} or a {}s? Yes or No and justify your answer.",
+    #     "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
+    #     "Is the relation {} impossible in real world? Answer 'Yes' or 'No' and explain your answer."
+    # ]
 
     # For each predicted edge, create multiple prompts
     for edge in predicted_edges:
