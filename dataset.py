@@ -84,13 +84,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             return None
 
-        # annot_name_yes = 'semi_cs_10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_yes = 'semi_cs_10_no_reasoning/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
         # annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
         # if os.path.exists(annot_name_yes):
         #     curr_annot_yes = torch.load(annot_name_yes)
         # else:
         #     return None
-        # annot_name_no = 'semi_cs_10_invalid/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_no = 'semi_cs_10_invalid_no_reasoning/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
         # annot_name_no = os.path.join(self.annot_dir, annot_name_no)
         # if os.path.exists(annot_name_no):
         #     curr_annot_no = torch.load(annot_name_no)
@@ -299,11 +299,11 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             self.commonsense_no_triplets = {k: v for k, v in self.commonsense_no_triplets.items() if k not in self.triplets_train_gt.keys()}
             print(len(self.triplets_train_gt), len(self.commonsense_no_triplets), len(self.commonsense_yes_triplets))
             # torch.save(self.triplets, 'training_triplets.pt')
-            torch.save(self.commonsense_no_triplets, 'triplets/commonsense_no_triplets.pt')
-            torch.save(self.commonsense_yes_triplets, 'triplets/commonsense_yes_triplets.pt')
+            torch.save(self.commonsense_no_triplets, 'triplets/commonsense_no_triplets_no_reasoning.pt')
+            torch.save(self.commonsense_yes_triplets, 'triplets/commonsense_yes_triplets_no_reasoning.pt')
             # # print(len(self.triplets), len(self.triplets_train_gt), len(self.triplets_train_pseudo))
             # # torch.save(self.triplets, 'training_triplets.pt')
-            torch.save(self.triplets_train_gt, 'triplets/training_triplets_gt.pt')
+            # torch.save(self.triplets_train_gt, 'triplets/training_triplets_gt.pt')
             # torch.save(self.triplets_train_pseudo, 'training_triplets_pseudo.pt')
         else:
             torch.save(self.triplets, 'triplets/testing_triplets.pt')

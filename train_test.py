@@ -81,9 +81,9 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
         else:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
 
     optimizer = optim.SGD([{'params': local_predictor.parameters(), 'initial_lr': args['training']['learning_rate']}],
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
@@ -473,15 +473,15 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
             running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_pseudo_consistency, running_loss_commonsense, \
                 connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
+        # train_dataset.get_triplets()
         if epoch == 0:
             mean_num_rel_before, mean_num_rel_after = train_dataset.calculate_mean_num_rel_before_after_semi()
-            # train_dataset.get_triplets()
             print('Mean number of relations before and after semi-supervised training: %.4f' % mean_num_rel_before, '%.4f' % mean_num_rel_after)
 
         if args['models']['hierarchical_pred']:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_CS' + str(epoch) + '_' + str(rank) + '.pth')
         else:
-            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_Semi' + str(epoch) + '_' + str(rank) + '.pth')
+            torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(epoch) + '_' + str(rank) + '.pth')
         dist.monitored_barrier()
 
         test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank, writer, test_dataset)

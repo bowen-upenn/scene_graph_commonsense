@@ -201,8 +201,11 @@ class Evaluator_PC:
                 # confidence = connectivity + torch.max(relation_pred, dim=1)[0]
                 # confidence = torch.max(relation_pred, dim=1)[0]
                 # self.connected_pred = torch.hstack((self.connected_pred, torch.exp(connectivity)))
+                confidence = torch.max(relation_pred, dim=1)[0] #+ connectivity
+                confidence[~iou_mask] = -math.inf
 
-                self.relation_pred = torch.hstack((self.relation_pred, torch.argmax(relation_pred, dim=1)))
+                relation_pred = torch.argmax(relation_pred, dim=1)
+                self.relation_pred = torch.hstack((self.relation_pred, relation_pred))
                 self.relation_target = torch.hstack((self.relation_target, relation_target))
 
                 self.subject_cat_pred = torch.hstack((self.subject_cat_pred, subject_cat_pred))
@@ -214,9 +217,6 @@ class Evaluator_PC:
                 self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred))
                 self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                 self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
-
-                confidence = torch.max(relation_pred, dim=1)[0] #+ connectivity
-                confidence[~iou_mask] = -math.inf
 
                 triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
