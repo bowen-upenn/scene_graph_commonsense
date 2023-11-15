@@ -79,7 +79,8 @@ def calculate_losses_on_relationships(args, relation, super_relation, connected,
             loss_pseudo, loss_true = calculate_semi_supervised_loss(relation[connected], curr_relations_target[connected], curr_pseudo_labels, criterion_relationship, lambda_pseudo)
             loss_relationship += loss_pseudo + loss_true
         else:
-            loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
+            temp = criterion_relationship(relation[connected], curr_relations_target[connected])
+            loss_relationship += 0.0 if torch.isnan(temp) else temp
 
     return loss_relationship
 
@@ -877,16 +878,16 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
                      running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
                      connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
 
-            record.append({'rank': rank, 'epoch': epoch, 'batch': batch_count, 'lr': lr,
-                           'recall_relationship': [recall[0], recall[1], recall[2]],
-                           'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
-                           'zero_shot_recall': [recall_zs[0], recall_zs[1], recall_zs[2]],
-                           'mean_zero_shot_recall': [mean_recall_zs[0].item(), mean_recall_zs[1].item(), mean_recall_zs[2].item()],
-                           'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5), 'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
-                           'total_losses': running_losses / (args['training']['print_freq'] * args['training']['batch_size']),
-                           'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size']),
-                           'connectivity_loss': running_loss_connectivity.item() / (args['training']['print_freq'] * args['training']['batch_size']),
-                           'num_connected': num_connected, 'num_not_connected': num_not_connected})
+            # record.append({'rank': rank, 'epoch': epoch, 'batch': batch_count, 'lr': lr,
+            #                'recall_relationship': [recall[0], recall[1], recall[2]],
+            #                'mean_recall': [mean_recall[0].item(), mean_recall[1].item(), mean_recall[2].item()],
+            #                'zero_shot_recall': [recall_zs[0], recall_zs[1], recall_zs[2]],
+            #                'mean_zero_shot_recall': [mean_recall_zs[0].item(), mean_recall_zs[1].item(), mean_recall_zs[2].item()],
+            #                'connectivity_recall': connectivity_recall.item() / (num_connected + 1e-5), 'connectivity_precision': connectivity_precision.item() / (num_connected_pred + 1e-5),
+            #                'total_losses': running_losses / (args['training']['print_freq'] * args['training']['batch_size']),
+            #                'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+            #                'connectivity_loss': running_loss_connectivity.item() / (args['training']['print_freq'] * args['training']['batch_size']),
+            #                'num_connected': num_connected, 'num_not_connected': num_not_connected})
     else:
         print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
               'wmap_rel: %.4f, wmap_phrase: %.4f, loss: %.4f, %.4f, conn: %.4f, %.4f.'
