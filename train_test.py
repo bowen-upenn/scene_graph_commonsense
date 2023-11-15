@@ -864,7 +864,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
                     not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
                     is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-                    loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
+                    # loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
 
                     # evaluate on the connectivity
                     not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
@@ -962,7 +962,7 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
                     # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
                     not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
                     is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-                    loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
+                    # loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
                     # print('loss_commonsense', loss_commonsense)
                     # loss_commonsense += not_in_yes_dict.mean()
 
@@ -1049,8 +1049,8 @@ def train_local(gpu, args, train_subset, test_subset, train_dataset, test_datase
 
             running_loss_contrast += args['training']['lambda_contrast'] * loss_contrast
             losses += args['training']['lambda_contrast'] * loss_contrast
-            running_losses += losses.item()
-            losses = 0.0 if torch.isnan(losses) else losses
+            running_losses += losses#.item()
+            # losses = 0.0 if torch.isnan(losses) else losses
 
             optimizer.zero_grad()
             losses.backward()

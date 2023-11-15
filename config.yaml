@@ -35,7 +35,7 @@ models:
     faster_rcnn_hidden_dim: 2048
     use_depth: True
     depth_model_type: 'DPT_Large'
-    hierarchical_pred: False
+    hierarchical_pred: True
     topk_cat: 2
     nms: 0.5
     num_geometric: 15
@@ -57,14 +57,14 @@ training:
     start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
-    test_epoch: 0
+    test_epoch: 2
     load_model: True
     lambda_sparsity: 0
     lambda_contrast: 1
     lambda_connectivity: 0.1
     lambda_not_connected: 1
     lambda_pseudo_consistency: 10
-    lambda_commonsense: 0.1
+    lambda_commonsense: 0.01
     lambda_cs_weak: 0.1
     lambda_cs_strong: 10
     print_freq: 50

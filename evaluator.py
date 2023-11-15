@@ -44,6 +44,7 @@ class Evaluator_PC:
             self.num_conn_target_per_class_ap = torch.tensor([0.0 for i in range(self.num_classes)])
 
         self.which_in_batch = None
+        self.which_in_batch_target = None
         # self.connected_pred = None
         self.confidence = None
         self.connectivity = None
@@ -113,7 +114,8 @@ class Evaluator_PC:
 
     def accumulate(self, which_in_batch, relation_pred, relation_target, super_relation_pred, connectivity,
                    subject_cat_pred, object_cat_pred, subject_cat_target, object_cat_target,
-                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target, iou_mask, height=None, width=None):
+                   subject_bbox_pred, object_bbox_pred, subject_bbox_target, object_bbox_target, iou_mask,
+                   predcls=True, cat_subject_confidence=None, cat_object_confidence=None, height=None, width=None):
 
         if self.relation_pred is None:
             if not self.hierar:     # flat relationship prediction
@@ -122,21 +124,27 @@ class Evaluator_PC:
                 self.connectivity = connectivity
 
                 self.confidence = torch.max(relation_pred, dim=1)[0] #+ connectivity
+                if not predcls:
+                    ins_pair_confidence = cat_subject_confidence + cat_object_confidence
+                    self.confidence += ins_pair_confidence
                 self.confidence[~iou_mask] = -math.inf
+
                 # self.confidence = torch.max(relation_pred, dim=1)[0]
 
                 self.relation_pred = torch.argmax(relation_pred, dim=1)
-                self.relation_target = relation_target
-
                 self.subject_cat_pred = subject_cat_pred
                 self.object_cat_pred = object_cat_pred
-                self.subject_cat_target = subject_cat_target
-                self.object_cat_target = object_cat_target
-
                 self.subject_bbox_pred = subject_bbox_pred
                 self.object_bbox_pred = object_bbox_pred
-                self.subject_bbox_target = subject_bbox_target
-                self.object_bbox_target = object_bbox_target
+
+                if predcls:
+                    self.which_in_batch_target = which_in_batch
+                    self.relation_target = relation_target
+
+                    self.subject_cat_target = subject_cat_target
+                    self.object_cat_target = object_cat_target
+                    self.subject_bbox_target = subject_bbox_target
+                    self.object_bbox_target = object_bbox_target
 
                 triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
@@ -157,9 +165,13 @@ class Evaluator_PC:
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric']:
                                                                            self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
                                                 torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
+                if not predcls:
+                    ins_pair_confidence = cat_subject_confidence + cat_object_confidence
+                    self.confidence += ins_pair_confidence.repeat(3)
                 iou_mask = iou_mask.repeat(3)
-                # self.confidence += self.connectivity
                 self.confidence[~iou_mask] = -math.inf
+
+                # self.confidence += self.connectivity
                 # self.connected_pred = torch.exp(connectivity).repeat(3)
 
                 self.relation_pred = torch.hstack((torch.argmax(relation_pred[:, :self.args['models']['num_geometric']], dim=1),
@@ -167,17 +179,19 @@ class Evaluator_PC:
                                                    + self.args['models']['num_geometric'],
                                                    torch.argmax(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)
                                                    + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
-                self.relation_target = relation_target.repeat(3)
 
                 self.subject_cat_pred = subject_cat_pred.repeat(3)
                 self.object_cat_pred = object_cat_pred.repeat(3)
-                self.subject_cat_target = subject_cat_target.repeat(3)
-                self.object_cat_target = object_cat_target.repeat(3)
-
                 self.subject_bbox_pred = subject_bbox_pred.repeat(3, 1)
                 self.object_bbox_pred = object_bbox_pred.repeat(3, 1)
-                self.subject_bbox_target = subject_bbox_target.repeat(3, 1)
-                self.object_bbox_target = object_bbox_target.repeat(3, 1)
+
+                if predcls:
+                    self.which_in_batch_target = which_in_batch
+                    self.relation_target = relation_target  # .repeat(3)
+                    self.subject_cat_target = subject_cat_target  # .repeat(3)
+                    self.object_cat_target = object_cat_target  # .repeat(3)
+                    self.subject_bbox_target = subject_bbox_target  # .repeat(3, 1)
+                    self.object_bbox_target = object_bbox_target  # .repeat(3, 1)
 
                 triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
@@ -202,29 +216,33 @@ class Evaluator_PC:
                 # confidence = torch.max(relation_pred, dim=1)[0]
                 # self.connected_pred = torch.hstack((self.connected_pred, torch.exp(connectivity)))
                 confidence = torch.max(relation_pred, dim=1)[0] #+ connectivity
+                if not predcls:
+                    ins_pair_confidence = cat_subject_confidence + cat_object_confidence
+                    confidence += ins_pair_confidence
                 confidence[~iou_mask] = -math.inf
 
                 relation_pred = torch.argmax(relation_pred, dim=1)
                 self.relation_pred = torch.hstack((self.relation_pred, relation_pred))
-                self.relation_target = torch.hstack((self.relation_target, relation_target))
-
                 self.subject_cat_pred = torch.hstack((self.subject_cat_pred, subject_cat_pred))
                 self.object_cat_pred = torch.hstack((self.object_cat_pred, object_cat_pred))
-                self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target))
-                self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target))
-
                 self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred))
                 self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred))
-                self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
-                self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                # triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
-                # is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # confidence[is_in_no_dict] = -math.inf
-                # # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
-                # # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
-                # confidence[not_in_yes_dict] = -math.inf
+                if predcls:
+                    self.which_in_batch_target = torch.hstack((self.which_in_batch_target, which_in_batch))
+                    self.relation_target = torch.hstack((self.relation_target, relation_target))
+                    self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target))
+                    self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target))
+                    self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
+                    self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
+
+                triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
+                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                confidence[is_in_no_dict] = -math.inf
+                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
+                # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
+                confidence[not_in_yes_dict] = -math.inf
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity))
@@ -243,26 +261,29 @@ class Evaluator_PC:
                                                      torch.argmax(relation_pred[:, self.args['models']['num_geometric']+self.args['models']['num_possessive']:], dim=1)
                                                      + self.args['models']['num_geometric'] + self.args['models']['num_possessive']))
                 self.relation_pred = torch.hstack((self.relation_pred, relation_pred_candid))
-                self.relation_target = torch.hstack((self.relation_target, relation_target.repeat(3)))
-
                 self.subject_cat_pred = torch.hstack((self.subject_cat_pred, subject_cat_pred.repeat(3)))
                 self.object_cat_pred = torch.hstack((self.object_cat_pred, object_cat_pred.repeat(3)))
-                self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target.repeat(3)))
-                self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target.repeat(3)))
-
                 self.subject_bbox_pred = torch.vstack((self.subject_bbox_pred, subject_bbox_pred.repeat(3, 1)))
                 self.object_bbox_pred = torch.vstack((self.object_bbox_pred, object_bbox_pred.repeat(3, 1)))
-                self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target.repeat(3, 1)))
-                self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target.repeat(3, 1)))
 
-                iou_mask = iou_mask.repeat(3)
                 confidence = torch.hstack((torch.max(relation_pred[:, :self.args['models']['num_geometric']], dim=1)[0],
-                                           torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric']
-                                                                                                           + self.args['models']['num_possessive']], dim=1)[0],
+                                           torch.max(relation_pred[:, self.args['models']['num_geometric']:self.args['models']['num_geometric'] + self.args['models']['num_possessive']], dim=1)[0],
                                            torch.max(relation_pred[:, self.args['models']['num_geometric'] + self.args['models']['num_possessive']:], dim=1)[0]))
-                # confidence += connectivity.repeat(3)
+                if not predcls:
+                    ins_pair_confidence = cat_subject_confidence + cat_object_confidence
+                    confidence += ins_pair_confidence.repeat(3)
+                iou_mask = iou_mask.repeat(3)
                 confidence[~iou_mask] = -math.inf
                 # confidence += connectivity.repeat(3)
+                # confidence += connectivity.repeat(3)
+
+                if predcls:
+                    self.which_in_batch_target = torch.hstack((self.which_in_batch_target, which_in_batch))
+                    self.relation_target = torch.hstack((self.relation_target, relation_target))  # .repeat(3)))
+                    self.subject_cat_target = torch.hstack((self.subject_cat_target, subject_cat_target))  # .repeat(3)))
+                    self.object_cat_target = torch.hstack((self.object_cat_target, object_cat_target))  # .repeat(3)))
+                    self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))  # .repeat(3, 1)))
+                    self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))  # .repeat(3, 1)))
 
                 triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
                 is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
@@ -282,6 +303,106 @@ class Evaluator_PC:
                 if height is not None:
                     self.height = torch.hstack((self.height, height.repeat(3)))
                     self.width = torch.hstack((self.width, width.repeat(3)))
+
+
+    def accumulate_target(self, relation_target, subject_cat_target, object_cat_target, subject_bbox_target, object_bbox_target):
+        self.relation_target = relation_target
+        self.subject_cat_target = subject_cat_target
+        self.object_cat_target = object_cat_target
+        self.subject_bbox_target = subject_bbox_target
+        self.object_bbox_target = object_bbox_target
+
+
+    def compute(self, per_class=False, predcls=True):
+        """
+        A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,
+        the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
+        """
+
+        """
+        We calculate the recall scores for each image in a moving average fashion across the test dataset.
+        Otherwise, uncomment the following two lines and select batch size = 1 in the config file to view the recall on each individual image.
+        """
+        # self.result_dict = {20: 0.0, 50: 0.0, 100: 0.0}
+        # self.num_connected_target = 0.0
+
+        recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs = None, None, None
+        self.confidence += self.connectivity
+
+        for image_idx, image in enumerate(torch.unique(self.which_in_batch)):  # image-wise
+            curr_image = self.which_in_batch == image
+            if self.which_in_batch_target is None:
+                curr_image_target = image_idx
+                if self.relation_target[curr_image_target] is None:
+                    continue
+            else:
+                curr_image_target = self.which_in_batch_target == image
+            num_relation_pred = len(self.relation_pred[curr_image])
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            for i in range(len(self.relation_target[curr_image_target])):
+                if self.relation_target[curr_image_target][i] == -1:  # if target is not connected
+                    continue
+                if self.args['dataset']['dataset'] == 'vg':
+                    curr_triplet = str(self.subject_cat_target[curr_image_target][i].item()) + '_' + str(self.relation_target[curr_image_target][i].item()) \
+                                   + '_' + str(self.object_cat_target[curr_image_target][i].item())
+
+                # search in top k most confident predictions in each image
+                num_target = torch.sum(self.relation_target[curr_image_target] != -1)
+                this_k = min(self.top_k[-1], num_relation_pred)  # 100
+                keep_inds = sorted_inds[:this_k]
+
+                found = False   # found if any one of the three sub-models predict correctly
+                for j in range(len(keep_inds)):     # for each target <subject, relation, object> triple, find any match in the top k confident predictions
+                    if predcls:
+                        label_condition = (self.subject_cat_target[curr_image_target][i] == self.subject_cat_pred[curr_image][keep_inds][j] and
+                                           self.object_cat_target[curr_image_target][i] == self.object_cat_pred[curr_image][keep_inds][j])
+                    else:
+                        label_condition = (compare_object_cat(self.subject_cat_target[curr_image_target][i], self.subject_cat_pred[curr_image][keep_inds][j]) and
+                                           compare_object_cat(self.object_cat_target[curr_image_target][i], self.object_cat_pred[curr_image][keep_inds][j]))
+                    if label_condition:
+                        sub_iou = self.iou(self.subject_bbox_target[curr_image_target][i], self.subject_bbox_pred[curr_image][keep_inds][j])
+                        obj_iou = self.iou(self.object_bbox_target[curr_image_target][i], self.object_bbox_pred[curr_image][keep_inds][j])
+
+                        if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
+                            if self.relation_target[curr_image_target][i] == self.relation_pred[curr_image][keep_inds][j]:
+                                for k in self.top_k:
+                                    if j >= k:
+                                        continue
+                                    self.result_dict[k] += 1.0
+                                    if per_class:
+                                        self.result_per_class[k][self.relation_target[curr_image_target][i]] += 1.0
+
+                                    # if zero shot
+                                    if self.args['dataset']['dataset'] == 'vg':
+                                        if curr_triplet in self.zero_shot_triplets:
+                                            assert curr_triplet not in self.train_triplets
+                                            self.result_dict_zs[k] += 1.0
+                                            if per_class:
+                                                self.result_per_class_zs[k][self.relation_target[curr_image_target][i]] += 1.0
+                                found = True
+                            if found:
+                                break
+
+                self.num_connected_target += 1.0
+                self.num_conn_target_per_class[self.relation_target[curr_image_target][i]] += 1.0
+                # if zero shot
+                if self.args['dataset']['dataset'] == 'vg':
+                    if curr_triplet in self.zero_shot_triplets:
+                        self.num_connected_target_zs += 1.0
+                        self.num_conn_target_per_class_zs[self.relation_target[curr_image_target][i]] += 1.0
+
+        recall_k = [self.result_dict[k] / max(self.num_connected_target, 1e-3) for k in self.top_k]
+        recall_k_per_class = [self.result_per_class[k] / self.num_conn_target_per_class for k in self.top_k]
+        mean_recall_k = [torch.nanmean(r) for r in recall_k_per_class]
+
+        if self.args['dataset']['dataset'] == 'vg':
+            recall_k_zs = [self.result_dict_zs[k] / max(self.num_connected_target_zs, 1e-3) for k in self.top_k]
+            recall_k_per_class_zs = [self.result_per_class_zs[k] / self.num_conn_target_per_class_zs for k in self.top_k]
+            mean_recall_k_zs = [torch.nanmean(r) for r in recall_k_per_class_zs]
+
+        return recall_k, recall_k_per_class, mean_recall_k, recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs
 
 
     def filter_accumulated_predictions_by_commonsense(self, top_k=100):
@@ -731,88 +852,6 @@ class Evaluator_PC:
         # self.object_bbox_pred[curr_image][keep_inds] = self.object_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
         # self.subject_bbox_target[curr_image][keep_inds] = self.subject_bbox_target[curr_image][keep_inds][reorder_topk_inds]
         # self.object_bbox_target[curr_image][keep_inds] = self.object_bbox_target[curr_image][keep_inds][reorder_topk_inds]
-
-
-    def compute(self, per_class=False):
-        """
-        A ground truth predicate is considered to match a hypothesized relationship iff the predicted relationship is correct,
-        the subject and object labels match, and the bounding boxes associated with the subject and object both have IOU>0.5 with the ground-truth boxes.
-        """
-
-        """
-        We calculate the recall scores for each image in a moving average fashion across the test dataset.
-        Otherwise, uncomment the following two lines and select batch size = 1 in the config file to view the recall on each individual image.
-        """
-        # self.result_dict = {20: 0.0, 50: 0.0, 100: 0.0}
-        # self.num_connected_target = 0.0
-
-        recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs = None, None, None
-        self.confidence += self.connectivity
-
-        for image in torch.unique(self.which_in_batch):  # image-wise
-            curr_image = self.which_in_batch == image
-            num_relation_pred = len(self.relation_pred[curr_image])
-            curr_confidence = self.confidence[curr_image]
-            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
-
-            for i in range(len(self.relation_target[curr_image])):
-                if self.relation_target[curr_image][i] == -1:  # if target is not connected
-                    continue
-                if self.args['dataset']['dataset'] == 'vg':
-                    curr_triplet = str(self.subject_cat_target[curr_image][i].item()) + '_' + str(self.relation_target[curr_image][i].item()) \
-                                   + '_' + str(self.object_cat_target[curr_image][i].item())
-
-                # search in top k most confident predictions in each image
-                num_target = torch.sum(self.relation_target[curr_image] != -1)
-                this_k = min(self.top_k[-1], num_relation_pred)  # 100
-                keep_inds = sorted_inds[:this_k]
-
-                found = False   # found if any one of the three sub-models predict correctly
-                for j in range(len(keep_inds)):     # for each target <subject, relation, object> triple, find any match in the top k confident predictions
-                    if (self.subject_cat_target[curr_image][i] == self.subject_cat_pred[curr_image][keep_inds][j]
-                            and self.object_cat_target[curr_image][i] == self.object_cat_pred[curr_image][keep_inds][j]):
-
-                        sub_iou = self.iou(self.subject_bbox_target[curr_image][i], self.subject_bbox_pred[curr_image][keep_inds][j])
-                        obj_iou = self.iou(self.object_bbox_target[curr_image][i], self.object_bbox_pred[curr_image][keep_inds][j])
-
-                        if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
-                            if self.relation_target[curr_image][i] == self.relation_pred[curr_image][keep_inds][j]:
-                                for k in self.top_k:
-                                    if j >= k:
-                                        continue
-                                    self.result_dict[k] += 1.0
-                                    if per_class:
-                                        self.result_per_class[k][self.relation_target[curr_image][i]] += 1.0
-
-                                    # if zero shot
-                                    if self.args['dataset']['dataset'] == 'vg':
-                                        if curr_triplet in self.zero_shot_triplets:
-                                            assert curr_triplet not in self.train_triplets
-                                            self.result_dict_zs[k] += 1.0
-                                            if per_class:
-                                                self.result_per_class_zs[k][self.relation_target[curr_image][i]] += 1.0
-                                found = True
-                            if found:
-                                break
-
-                self.num_connected_target += 1.0
-                self.num_conn_target_per_class[self.relation_target[curr_image][i]] += 1.0
-                # if zero shot
-                if self.args['dataset']['dataset'] == 'vg':
-                    if curr_triplet in self.zero_shot_triplets:
-                        self.num_connected_target_zs += 1.0
-                        self.num_conn_target_per_class_zs[self.relation_target[curr_image][i]] += 1.0
-
-        recall_k = [self.result_dict[k] / max(self.num_connected_target, 1e-3) for k in self.top_k]
-        recall_k_per_class = [self.result_per_class[k] / self.num_conn_target_per_class for k in self.top_k]
-        mean_recall_k = [torch.nanmean(r) for r in recall_k_per_class]
-
-        if self.args['dataset']['dataset'] == 'vg':
-            recall_k_zs = [self.result_dict_zs[k] / max(self.num_connected_target_zs, 1e-3) for k in self.top_k]
-            recall_k_per_class_zs = [self.result_per_class_zs[k] / self.num_conn_target_per_class_zs for k in self.top_k]
-            mean_recall_k_zs = [torch.nanmean(r) for r in recall_k_per_class_zs]
-
-        return recall_k, recall_k_per_class, mean_recall_k, recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs
 
     def compute_precision(self):
         for image in torch.unique(self.which_in_batch):  # image-wise
@@ -1294,6 +1333,9 @@ class Evaluator_SGD:
         self.height = None
         self.width = None
         self.skipped = None
+
+        self.commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt')
+        self.commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt')
 
 
     def iou(self, bbox_target, bbox_pred):

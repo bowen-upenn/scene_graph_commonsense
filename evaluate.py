@@ -800,7 +800,7 @@ def eval_sgc(gpu, args, test_subset):
     else:
         local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
-    Recall = Evaluator_SGD(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
     # Recall_top3 = Evaluator_SGD_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
@@ -816,7 +816,7 @@ def eval_sgc(gpu, args, test_subset):
             PREPARE INPUT DATA WITH PREDICTED OBJECT BOUNDING BOXES AND LABELS
             """
             try:
-                images, image2, image_depth, categories_target, super_categories_target, bbox_target, relationships, subj_or_obj = data
+                images, image2, image_depth, categories_target, super_categories_target, bbox_target, relationships, subj_or_obj, _ = data
             except:
                 continue
 
@@ -938,7 +938,16 @@ def eval_sgc(gpu, args, test_subset):
                     bbox_edge_pred = torch.stack([bbox_target[i][edge_iter] for i in which_in_batch]).to(rank)    # use ground-truth bounding boxes
                     cat_edge_confidence = torch.hstack([cat_pred_confidence_matched[i][edge_iter] for i in which_in_batch])
 
-                    scat_graph_pred = []
+                    # filter out subject-object pairs whose iou=0
+                    joint_intersect = torch.logical_or(curr_graph_masks, curr_edge_masks)
+                    joint_union = torch.logical_and(curr_graph_masks, curr_edge_masks)
+                    joint_iou = (torch.sum(torch.sum(joint_intersect, dim=-1), dim=-1) / torch.sum(torch.sum(joint_union, dim=-1), dim=-1)).flatten()
+                    joint_iou[torch.isinf(joint_iou)] = 0
+                    iou_mask = joint_iou > 0
+                    if torch.sum(iou_mask) == 0:
+                        continue
+
+                    scat_graph_pred = []  # they are not tensors but lists, which requires special mask manipulations
                     scat_edge_pred = []
                     for count, i in enumerate(which_in_batch):
                         scat_graph_pred.append(super_categories_pred[i][graph_iter])
@@ -947,35 +956,33 @@ def eval_sgc(gpu, args, test_subset):
                     """
                     FIRST DIRECTION
                     """
-                    if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred,
-                                                                                                     scat_graph_pred, scat_edge_pred, rank)
-                        relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-                    else:
-                        relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, scat_graph_pred, scat_edge_pred, rank)
-                        super_relation = None
+                    with torch.no_grad():
+                        if args['models']['hierarchical_pred']:
+                            relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, scat_graph_pred, scat_edge_pred, rank)
+                            relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
+                        else:
+                            relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, scat_graph_pred, scat_edge_pred, rank)
+                            super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                        Recall.accumulate_pred(which_in_batch, relation, super_relation, cat_graph_pred, cat_edge_pred, bbox_graph_pred, bbox_edge_pred,
-                                               cat_graph_confidence, cat_edge_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
-                        # Recall_top3.accumulate_pred(which_in_batch, relation, super_relation, cat_graph_pred, cat_edge_pred, bbox_graph_pred, bbox_edge_pred,
-                        #                             cat_graph_confidence, cat_edge_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
+                            Recall.accumulate(which_in_batch, relation, None, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                              cat_graph_pred, cat_edge_pred, None, None, bbox_graph_pred, bbox_edge_pred, None, None,
+                                              iou_mask, False, cat_graph_confidence, cat_edge_confidence)
                     """
                     SECOND DIRECTION
                     """
-                    if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred,
-                                                                                                     scat_edge_pred, scat_graph_pred, rank)
-                        relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-                    else:
-                        relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, scat_edge_pred, scat_graph_pred, rank)
-                        super_relation = None
+                    with torch.no_grad():
+                        if args['models']['hierarchical_pred']:
+                            relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, scat_edge_pred, scat_graph_pred, rank)
+                            relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
+                        else:
+                            relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, scat_edge_pred, scat_graph_pred, rank)
+                            super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                        Recall.accumulate_pred(which_in_batch, relation, super_relation, cat_edge_pred, cat_graph_pred, bbox_edge_pred, bbox_graph_pred,
-                                               cat_edge_confidence, cat_graph_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
-                        # Recall_top3.accumulate_pred(which_in_batch, relation, super_relation, cat_edge_pred, cat_graph_pred, bbox_edge_pred, bbox_graph_pred,
-                        #                             cat_edge_confidence, cat_graph_confidence, torch.log(torch.sigmoid(connectivity[:, 0])))
+                        Recall.accumulate(which_in_batch, relation, None, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+                                               cat_edge_pred, cat_graph_pred, None, None, bbox_edge_pred, bbox_graph_pred, None, None,
+                                               iou_mask, False, cat_edge_confidence, cat_graph_confidence)
 
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 Recall.accumulate_target(relation_target, cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target)
@@ -985,7 +992,7 @@ def eval_sgc(gpu, args, test_subset):
             EVALUATE AND PRINT CURRENT RESULTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                recall, _, mean_recall, recall_k_wrong_label_corr_rel = Recall.compute(per_class=True)
+                recall, recall_per_class, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True, predcls=False)
                 # recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                 Recall.clear_data()
                 # Recall_top3.clear_data()

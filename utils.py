@@ -79,8 +79,9 @@ def calculate_losses_on_relationships(args, relation, super_relation, connected,
             loss_pseudo, loss_true = calculate_semi_supervised_loss(relation[connected], curr_relations_target[connected], curr_pseudo_labels, criterion_relationship, lambda_pseudo)
             loss_relationship += loss_pseudo + loss_true
         else:
-            temp = criterion_relationship(relation[connected], curr_relations_target[connected])
-            loss_relationship += 0.0 if torch.isnan(temp) else temp
+            # temp = criterion_relationship(relation[connected], curr_relations_target[connected])
+            # loss_relationship += 0.0 if torch.isnan(temp) else temp
+            loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
 
     return loss_relationship
 
@@ -794,6 +795,27 @@ def match_target_sgd(rank, relationships, subj_or_obj, categories_target, bbox_t
         relation_target.append(curr_relation_target)
 
     return cat_subject_target, cat_object_target, bbox_subject_target, bbox_object_target, relation_target
+
+
+def compare_object_cat(pred_cat, target_cat):
+    # man, person, woman, people, boy, girl, lady, child, kid, men  # tree, plant  # plane, airplane
+    equiv = [[1, 5, 11, 23, 38, 44, 121, 124, 148, 149], [0, 50], [92, 137]]
+    # vehicle -> car, bus, motorcycle, truck, vehicle
+    # animal -> zebra, sheep, horse, giraffe, elephant, dog, cow, cat, bird, bear, animal
+    # food -> vegetable, pizza, orange, fruit, banana, food
+    unsymm_equiv = {123: [14, 63, 95, 87, 123], 108: [89, 102, 67, 72, 71, 81, 96, 105, 90, 111, 108], 60: [145, 106, 142, 144, 77, 60]}
+
+    if pred_cat == target_cat:
+        return True
+    for group in self.equiv:
+        if pred_cat in group and target_cat in group:
+            return True
+    for key in self.unsymm_equiv:
+        if pred_cat == key and target_cat in self.unsymm_equiv[key]:
+            return True
+        elif target_cat == key and pred_cat in self.unsymm_equiv[key]:
+            return True
+    return False
 
 
 def match_object_categories(categories_pred, cat_pred_confidence, bbox_pred, bbox_target):
