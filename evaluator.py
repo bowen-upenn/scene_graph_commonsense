@@ -193,14 +193,14 @@ class Evaluator_PC:
                     self.subject_bbox_target = subject_bbox_target  # .repeat(3, 1)
                     self.object_bbox_target = object_bbox_target  # .repeat(3, 1)
 
-                triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                self.confidence[is_in_no_dict] = -math.inf
-                # # print('self.confidence', self.confidence)
-                # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
-                # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
-                self.confidence[not_in_yes_dict] = -math.inf
+                # triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
+                # is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # self.confidence[is_in_no_dict] = -math.inf
+                # # # print('self.confidence', self.confidence)
+                # # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
+                # # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
+                # self.confidence[not_in_yes_dict] = -math.inf
 
                 # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
                 # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
@@ -285,13 +285,13 @@ class Evaluator_PC:
                     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))  # .repeat(3, 1)))
                     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))  # .repeat(3, 1)))
 
-                triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                confidence[is_in_no_dict] = -math.inf
-                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
-                # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
-                confidence[not_in_yes_dict] = -math.inf
+                # triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
+                # is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # confidence[is_in_no_dict] = -math.inf
+                # # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
+                # # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
+                # confidence[not_in_yes_dict] = -math.inf
 
                 # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
                 # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
@@ -329,10 +329,10 @@ class Evaluator_PC:
         recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs = None, None, None
         self.confidence += self.connectivity
 
-        for image_idx, image in enumerate(torch.unique(self.which_in_batch)):  # image-wise
+        for image in torch.unique(self.which_in_batch):  # image-wise
             curr_image = self.which_in_batch == image
             if self.which_in_batch_target is None:
-                curr_image_target = image_idx
+                curr_image_target = image
                 if self.relation_target[curr_image_target] is None:
                     continue
             else:
@@ -448,6 +448,61 @@ class Evaluator_PC:
         # check if cache exceeded its size and evict the least frequently accessed item
         # while len(self.cache) > self.max_cache_size:
         #     self.cache.popitem(last=False)  # False means the first item will be removed
+
+
+    def save_visualization_results(self, annot_path, triplets, heights, widths, images, image_depth, bboxes, categories, batch_count, top_k):
+        dict_relation_names = relation_by_super_class_int2str()
+        dict_object_names = object_class_int2str()
+        if self.which_in_batch is None:
+            return
+
+        for image in torch.unique(self.which_in_batch):  # image-wise
+            curr_image = self.which_in_batch == image
+            curr_confidence = self.confidence[curr_image]
+            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
+
+            # select the top k predictions
+            this_k = min(top_k, len(self.relation_pred[curr_image]))
+            keep_inds = sorted_inds[:this_k]
+
+            curr_image_graph = []
+
+            for ind in keep_inds:
+                subject_id = self.subject_cat_pred[curr_image][ind].item()
+                relation_id = self.relation_pred[curr_image][ind].item()
+                object_id = self.object_cat_pred[curr_image][ind].item()
+
+                subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
+                object_bbox = self.object_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
+                height, width = heights[image], widths[image]
+                subject_bbox[:2] *= height
+                subject_bbox[2:] *= width
+                object_bbox[:2] *= height
+                object_bbox[2:] *= width
+                subject_bbox = subject_bbox.ceil().int()
+                object_bbox = object_bbox.ceil().int()
+
+                edge = {'edge': dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id],
+                        'subject_id': subject_id,
+                        'relation_id': relation_id,
+                        'object_id': object_id,
+                        'bbox_sub': subject_bbox.tolist(),
+                        'bbox_obj': object_bbox.tolist()}
+                curr_image_graph.append(edge)
+
+            vis_results = {'predicted_graph': curr_image_graph,
+                           'image_path': annot_path[image],
+                           'target_graph': triplets[image],
+                           'bboxes': bboxes[image],
+                           'categories': categories[image],
+                           'image': images[image],
+                           'image_depth': image_depth[image]}
+            # print('vis_results', vis_results)
+
+            annot_name = str(batch_count) + '_vis_results.pkl'
+            annot_path = os.path.join('results/visualization_results', annot_name)
+            print('annot_path', annot_path)
+            torch.save(vis_results, annot_path)
 
 
     def get_top_k_predictions(self, top_k):

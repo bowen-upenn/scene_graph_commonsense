@@ -807,13 +807,13 @@ def compare_object_cat(pred_cat, target_cat):
 
     if pred_cat == target_cat:
         return True
-    for group in self.equiv:
+    for group in equiv:
         if pred_cat in group and target_cat in group:
             return True
-    for key in self.unsymm_equiv:
-        if pred_cat == key and target_cat in self.unsymm_equiv[key]:
+    for key in unsymm_equiv:
+        if pred_cat == key and target_cat in unsymm_equiv[key]:
             return True
-        elif target_cat == key and pred_cat in self.unsymm_equiv[key]:
+        elif target_cat == key and pred_cat in unsymm_equiv[key]:
             return True
     return False
 
