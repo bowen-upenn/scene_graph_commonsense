@@ -146,13 +146,13 @@ class Evaluator_PC:
                     self.subject_bbox_target = subject_bbox_target
                     self.object_bbox_target = object_bbox_target
 
-                triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                self.confidence[not_in_yes_dict] = -math.inf
-                self.confidence[is_in_no_dict] = -math.inf
-                # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
-                # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
+                # triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
+                # is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # self.confidence[not_in_yes_dict] = -math.inf
+                # self.confidence[is_in_no_dict] = -math.inf
+                # # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
+                # # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
 
                 if height is not None:
                     self.height = height
@@ -193,14 +193,14 @@ class Evaluator_PC:
                     self.subject_bbox_target = subject_bbox_target  # .repeat(3, 1)
                     self.object_bbox_target = object_bbox_target  # .repeat(3, 1)
 
-                # triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
-                # is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # self.confidence[is_in_no_dict] = -math.inf
-                # # # print('self.confidence', self.confidence)
-                # # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
-                # # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
-                # self.confidence[not_in_yes_dict] = -math.inf
+                triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
+                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                self.confidence[is_in_no_dict] = -math.inf
+                # # print('self.confidence', self.confidence)
+                # self.confidence[self.confidence < 0][not_in_yes_dict[self.confidence < 0]] *= 5
+                # self.confidence[self.confidence > 0][not_in_yes_dict[self.confidence > 0]] *= 0.5
+                self.confidence[not_in_yes_dict] = -math.inf
 
                 # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
                 # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
@@ -236,13 +236,13 @@ class Evaluator_PC:
                     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                confidence[is_in_no_dict] = -math.inf
-                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
-                # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
-                confidence[not_in_yes_dict] = -math.inf
+                # triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
+                # is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                # confidence[is_in_no_dict] = -math.inf
+                # # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
+                # # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
+                # confidence[not_in_yes_dict] = -math.inf
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity))
@@ -285,13 +285,13 @@ class Evaluator_PC:
                     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))  # .repeat(3, 1)))
                     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))  # .repeat(3, 1)))
 
-                # triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
-                # is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                # confidence[is_in_no_dict] = -math.inf
-                # # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
-                # # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
-                # confidence[not_in_yes_dict] = -math.inf
+                triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
+                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                confidence[is_in_no_dict] = -math.inf
+                # confidence[confidence < 0][not_in_yes_dict[confidence < 0]] *= 5
+                # confidence[confidence > 0][not_in_yes_dict[confidence > 0]] *= 0.5
+                confidence[not_in_yes_dict] = -math.inf
 
                 # curr_triplets = [tuple(triplets[i].cpu().tolist()) for i in range(len(triplets))]
                 # print('triplets', [self.dict_object_names[triplet[0]] + ' ' + self.dict_relation_names[triplet[1]] + ' ' + self.dict_object_names[triplet[2]] for triplet in curr_triplets])
@@ -496,13 +496,19 @@ class Evaluator_PC:
                            'bboxes': bboxes[image],
                            'categories': categories[image],
                            'image': images[image],
-                           'image_depth': image_depth[image]}
+                           'image_depth': image_depth[image],
+                           'height': heights[image],
+                           'width': widths[image]}
             # print('vis_results', vis_results)
 
+            if batch_count == 164:
+                print([edge['edge'] for edge in curr_image_graph])
+                print('target_graph', triplets[image])
+
             annot_name = str(batch_count) + '_vis_results.pkl'
-            annot_path = os.path.join('results/visualization_results', annot_name)
+            annot_path = os.path.join('results/visualization_results/cs', annot_name)
             print('annot_path', annot_path)
-            torch.save(vis_results, annot_path)
+            # torch.save(vis_results, annot_path)
 
 
     def get_top_k_predictions(self, top_k):
@@ -763,8 +769,15 @@ class Evaluator_PC:
         curr_predictions = []
         curr_image_graph = []
 
-        for i in range(0, len(self.subject_cat_target[curr_image]), 3):
-            if self.relation_target[curr_image][i] == -1:  # if target is not connected
+        if self.which_in_batch_target is None:
+            curr_image_target = image
+            if self.relation_target[curr_image_target] is None:
+                return
+        else:
+            curr_image_target = self.which_in_batch_target == image
+
+        for i in range(0, len(self.subject_cat_target[curr_image_target])):
+            if self.relation_target[curr_image_target][i] == -1:  # if target is not connected
                 continue
             if len(curr_image_graph) >= 15:     # enforce efficiency
                 break
@@ -776,8 +789,8 @@ class Evaluator_PC:
                 object_id_pred = self.object_cat_pred[curr_image][ind].item()
 
                 # check if the predicted subject or object matches the target
-                if (self.subject_cat_target[curr_image][i] == subject_id_pred and torch.sum(torch.abs(self.subject_bbox_target[curr_image][i] - self.subject_bbox_pred[curr_image][ind])) == 0) \
-                        or (self.object_cat_target[curr_image][i] == object_id_pred and torch.sum(torch.abs(self.object_bbox_target[curr_image][i] - self.object_bbox_pred[curr_image][ind])) == 0):
+                if (self.subject_cat_target[curr_image_target][i] == subject_id_pred and torch.sum(torch.abs(self.subject_bbox_target[curr_image_target][i] - self.subject_bbox_pred[curr_image][ind])) == 0) \
+                        or (self.object_cat_target[curr_image_target][i] == object_id_pred and torch.sum(torch.abs(self.object_bbox_target[curr_image_target][i] - self.object_bbox_pred[curr_image][ind])) == 0):
 
                     relation_id = self.relation_pred[curr_image][ind].item()
                     string = self.dict_object_names[subject_id_pred] + ' ' + self.dict_relation_names[relation_id] + ' ' + self.dict_object_names[object_id_pred]
@@ -813,12 +826,12 @@ class Evaluator_PC:
                 valid_curr_image_graph = curr_image_graph
                 invalid_curr_image_graph = []
 
-            annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_10_no_reasoning', annot_name)
-            # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
-            torch.save(valid_curr_image_graph, annot_path)
-            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_10_invalid_no_reasoning', annot_name)
-            torch.save(invalid_curr_image_graph, annot_path)
+            # annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
+            # annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_10_no_reasoning', annot_name)
+            # # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
+            # torch.save(valid_curr_image_graph, annot_path)
+            # annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_10_invalid_no_reasoning', annot_name)
+            # torch.save(invalid_curr_image_graph, annot_path)
 
         # check if cache exceeded its size and evict the least frequently accessed item
         # while len(self.cache) > self.max_cache_size:

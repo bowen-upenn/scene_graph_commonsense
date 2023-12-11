@@ -27,65 +27,6 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-def calculate_losses_on_relationships(args, relation, super_relation, connected, curr_relations_target, criterion_relationship, pseudo_label_mask=None, lambda_pseudo=1):
-    loss_relationship = 0.0
-    is_hierarchical_pred = args['models']['hierarchical_pred']
-    is_train_semi = args['training']['run_mode'] == 'train_semi'
-
-    # Only proceed if there are any connected edges to evaluate
-    if connected.numel() == 0:
-        return loss_relationship
-
-    # Compute super category losses if hierarchical_pred is enabled
-    if is_hierarchical_pred:
-        criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship = criterion_relationship
-        super_relation_target = super_relation_processing(args, connected, curr_relations_target)
-
-        # Compute losses for super relationships
-        if is_train_semi:
-            # Get the mask for pseudo labels in the super relation context
-            curr_pseudo_labels = pseudo_label_mask[connected]
-            # Calculate super relation loss separately for pseudo and true labels
-            loss_pseudo, loss_true = calculate_semi_supervised_loss(super_relation[connected], super_relation_target, curr_pseudo_labels, criterion_super_relationship, lambda_pseudo)
-            loss_relationship += loss_pseudo + loss_true
-        else:
-            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
-
-        # Compute sub category losses
-        connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
-        connected_2 = torch.nonzero(torch.logical_and(curr_relations_target[connected] >= args['models']['num_geometric'],
-                                                      curr_relations_target[connected] < args['models']['num_geometric'] + args['models']['num_possessive'])).flatten()  # possessive
-        connected_3 = torch.nonzero(curr_relations_target[connected] >= args['models']['num_geometric'] + args['models']['num_possessive']).flatten()  # semantic
-        connected_sub = [connected_1, connected_2, connected_3]
-
-        for i, (criterion_rel, offset) in enumerate(zip(
-                [criterion_relationship_1, criterion_relationship_2, criterion_relationship_3],
-                [0, args['models']['num_geometric'], args['models']['num_geometric'] + args['models']['num_possessive']]
-        )):
-            connected_i = connected_sub[i]
-
-            if is_train_semi and connected_i.numel() > 0:
-                # Calculate losses for the current category
-                loss_pseudo, loss_true = calculate_semi_supervised_loss(
-                    relation[i][connected][connected_i], curr_relations_target[connected][connected_i] - offset, curr_pseudo_labels[connected_i], criterion_rel, lambda_pseudo)
-                loss_relationship += loss_pseudo + loss_true
-            elif connected_i.numel() > 0:  # Non-semi-supervised or non-empty connected indices
-                loss_relationship += criterion_rel(relation[i][connected][connected_i], curr_relations_target[connected][connected_i] - offset)
-
-    # Compute losses if not using hierarchical predictions
-    else:
-        if is_train_semi:
-            curr_pseudo_labels = pseudo_label_mask[connected]
-            loss_pseudo, loss_true = calculate_semi_supervised_loss(relation[connected], curr_relations_target[connected], curr_pseudo_labels, criterion_relationship, lambda_pseudo)
-            loss_relationship += loss_pseudo + loss_true
-        else:
-            # temp = criterion_relationship(relation[connected], curr_relations_target[connected])
-            # loss_relationship += 0.0 if torch.isnan(temp) else temp
-            loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
-
-    return loss_relationship
-
-
 def super_relation_processing(args, connected, curr_relations_target):
     # Clone the target relations for modification without affecting the original data
     super_relation_target = curr_relations_target[connected].clone()
@@ -279,68 +220,6 @@ def _batch_query_openai_gpt(predicted_edges):
 
     return responses
 
-    # # openai.api_key_path = 'openai_key_bw.txt' #'openai_api_key.txt'
-    # prompts = []
-    #
-    # # Prepare multiple variations of each prompt
-    # prompt_variations = [
-    #     "(1) Considering scene graph generation problems, is the relation '{}' possible, regardless of how informative it is? Answer with 'Yes' or 'No' and justify your answer.",
-    #     "(2) Does the relation '{}' represent a physically possible scenario in real world? Answer 'Yes' or 'No'. A simple relation representing common knowledge is acceptable.",
-    #     "(3) Could the relation '{}' be considered a mis-classification in scene graph generation that is incorrect in commonsense? Show your reasoning and then answer 'Yes' or 'No'."
-    # ]
-    #
-    # # For each predicted edge, create multiple prompts
-    # for variation in prompt_variations:
-    #     prompts.append(variation.format(predicted_edge))
-    #
-    # # Call OpenAI with the batch of prompts
-    # client = OpenAI()
-    # completions = client.chat.completions.create(
-    #     model="gpt-3.5-turbo",
-    #     messages=[
-    #         {"role": "system", "content": "You are required to respond each of the following three questions, separately. These questions ask the validity of predicted edges in scene graph generation"
-    #                                       "tasks, and there could be geometric, possessive, and semantic relationships. Always mark your answers with (1), (2), and (3)."},
-    #         {"role": "user", "content": '\n'.join(prompts)}
-    #     ],
-    #     temperature=0,
-    #     max_tokens=200,
-    #     n=1  # Set the number of completions generated for the prompt
-    # )
-    # # print(completions.choices[0].message)
-    #
-    # # Extract the text from the response
-    # completion_text = completions.choices[0].message.content.strip()
-    #
-    # completion_text = re.split(r'\(\d\)', completion_text)
-    # completion_text = [response.strip() for response in completion_text if response.strip()]
-    # # print('completion_text', completion_text)
-    #
-    # yes_votes = 0
-    # no_votes = 0
-    # for j in range(len(completion_text)):
-    #     if j == 2:  # For the third question, we reverse the logic
-    #         if re.search(r'Yes', completion_text[j]):
-    #             no_votes += 1
-    #         elif re.search(r'No', completion_text[j]):
-    #             yes_votes += 1
-    #         else:
-    #             no_votes += 1
-    #     else:
-    #         if re.search(r'Yes', completion_text[j]):
-    #             yes_votes += 1
-    #         elif re.search(r'No', completion_text[j]):
-    #             no_votes += 1
-    #         else:
-    #             no_votes += 1
-    #
-    # if yes_votes > no_votes:
-    #     # print(f'predicted_edge {predicted_edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes\n')
-    #     response = 1
-    # else:
-    #     # print(f'predicted_edge {predicted_edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes\n')
-    #     response = -1
-    #
-    # # Return the list of responses, which contains the majority vote for each prompt
 
 def _batch_query_openai_gpt_instruct(predicted_edges):
     openai.api_key_path = 'openai_key_bw.txt' #'openai_api_key.txt'
@@ -359,12 +238,19 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
     #     "Is the relation {} impossible in real world? Answer 'Yes' or 'No'."
     # ]
     prompt_variations = [
-        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+        "Is the relation '{}' make sense? Answer with 'Yes' or 'No' and justify your answer.",
         "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
         "Could there be either a {} or a {}s? Yes or No and justify your answer.",
-        "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
+        "Is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
         "Is the relation {} impossible in real world? Answer 'Yes' or 'No' and explain your answer."
     ]
+    # prompt_variations = [
+    #     "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+    #     "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+    #     "Could there be either a {} or a {}s? Yes or No and justify your answer.",
+    #     "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
+    #     "Is the relation {} impossible in real world? Answer 'Yes' or 'No' and explain your answer."
+    # ]
 
     # For each predicted edge, create multiple prompts
     for edge in predicted_edges:
@@ -395,7 +281,7 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
         no_votes = 0
         for j in range(len(prompt_variations)):
             completion_text = completions.choices[i * len(prompt_variations) + j].text
-            # print(completion_text)
+            print(completion_text)
             # completion_text = completions.choices[i * len(prompt_variations) + j].message
 
             if j > 2:  # For the last two questions, we reverse the logic
@@ -414,10 +300,10 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
                     no_votes += 1
 
         if yes_votes > no_votes:
-            # print(f'predicted_edge {edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
+            print(f'predicted_edge {edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
             responses[i] = 1
         else:
-            # print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
+            print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
             responses[i] = -1
 
     return responses
@@ -868,7 +754,7 @@ def match_object_categories(categories_pred, cat_pred_confidence, bbox_pred, bbo
 
 
 def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs,
-                         running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_pseudo_consistency, running_loss_commonsense,
+                         running_losses, running_loss_relationship, running_loss_contrast, running_loss_connectivity, running_loss_commonsense,
                          connectivity_recall, num_connected, num_not_connected, connectivity_precision, num_connected_pred, wmap_rel, wmap_phrase):
 
     if args['dataset']['dataset'] == 'vg':

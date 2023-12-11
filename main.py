@@ -89,9 +89,9 @@ if __name__ == "__main__":
     print(args)
     # select training or evaluation
     if args['training']['run_mode'] == 'train' or args['training']['run_mode'] == 'train_semi':
-         mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset, train_dataset, test_dataset))
+         mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
     elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_semi':
-        print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
+        # print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
         curr_subset = train_subset if args['training']['run_mode'] == 'prepare_semi' else test_subset
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification

@@ -240,7 +240,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
         # local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'old_model.pth', map_location=map_location))
         local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
     else:
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_Baseline' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
@@ -260,6 +260,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     images, images_raw, image_depth, categories, super_categories, bbox, heights, widths, relationships, subj_or_obj, triplets = data
                 else:
                     images, images_raw, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_path, heights, widths, triplets, bbox_raw = data
+                    # images, images_raw, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_path = data
                     Recall.load_annotation_paths(annot_path)
             except:
                 continue
@@ -424,7 +425,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     Recall.clear_data()
 
                 else:
-                    Recall.save_visualization_results(annot_path, triplets, heights, widths, images_raw, image_depth, bbox_raw, categories, batch_count, top_k=10)
+                    Recall.save_visualization_results(annot_path, triplets, heights, widths, images_raw, image_depth, bbox, categories, batch_count, top_k=15)
 
                     # if args['dataset']['dataset'] == 'vg':
                     #     # Recall.filter_accumulated_predictions_by_commonsense(100)
@@ -437,7 +438,7 @@ def eval_pc(gpu, args, test_subset, topk_global_refine=50, epochs=1, training=Fa
                     #     # Recall.filter_accumulated_predictions_by_commonsense()
                     #     # print('R@k_per_class', recall_per_class)
                     #     if args['models']['hierarchical_pred']:
-                    #         # recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
+                    #         recall_top3, _, mean_recall_top3 = Recall_top3.compute(per_class=True)
                     #         Recall_top3.clear_data()
                     # else:
                     #     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
@@ -506,7 +507,7 @@ def eval_sgd(gpu, args, test_subset, topk_global_refine=50):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
+        local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_Baseline' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
     else:
         local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth', map_location=map_location))
 

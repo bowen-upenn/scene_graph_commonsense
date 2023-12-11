@@ -120,13 +120,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         if self.args['training']['run_mode'] == 'eval':
             del image_aug
-            if self.args['training']['eval_mode'] != 'pc':
-                image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
-                image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
-                image_nonsq = self.image_norm(image_nonsq)
-            else:
-                image_raw = Image.open(image_path).convert('RGB')
-                image_raw = self.image_transform_s(image_raw)
+            # if self.args['training']['eval_mode'] != 'pc':
+            image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
+            image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
+            image_nonsq = self.image_norm(image_nonsq)
+            # else:
+            #     image_raw = Image.open(image_path).convert('RGB')
+            #     image_raw = self.image_transform_s(image_raw)
         elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
             del image_aug
             if self.args['training']['eval_mode'] != 'pc':
@@ -192,7 +192,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         if self.args['training']['run_mode'] == 'eval':
             if self.args['training']['eval_mode'] == 'pc':
-                return image, image_raw, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, height, width, triplets, bbox_raw
+                return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, height, width, triplets, bbox_raw
             else:
                 return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
         elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
@@ -203,7 +203,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         elif self.args['training']['run_mode'] == 'train_semi' and self.training:
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, pseudo_label_mask
         else:
-            return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj
+            return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
 
     def calculate_mean_num_rel_before_after_semi(self):
         # Print current state of relevant variables for debugging purposes.
