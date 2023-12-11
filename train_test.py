@@ -114,6 +114,7 @@ def train_local(gpu, args, train_subset, test_subset):
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall_top3 = None
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
@@ -198,75 +199,6 @@ def train_local(gpu, args, train_subset, test_subset):
                     """
                     FIRST DIRECTION
                     """
-                    # if args['models']['hierarchical_pred']:
-                    #     relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug \
-                    #                                 = local_predictor(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank, h_graph_aug, h_edge_aug)
-                    #     relation = [relation_1, relation_2, relation_3]
-                    #     hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
-                    #
-                    #     # match with the commonsense filtering pool
-                    #     relation_pred = torch.hstack((torch.argmax(relation_1, dim=1),
-                    #                                   torch.argmax(relation_2, dim=1) + args['models']['num_geometric'],
-                    #                                   torch.argmax(relation_3, dim=1) + args['models']['num_geometric'] + args['models']['num_possessive']))
-                    #     triplets = torch.hstack((cat_graph.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_edge.repeat(3).unsqueeze(1)))
-                    #
-                    # else:
-                    #     relation, connectivity, hidden, hidden_aug = local_predictor(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank, h_graph_aug, h_edge_aug)
-                    #     hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
-                    #     super_relation = None
-                    #
-                    #     # match with the commonsense filtering pool
-                    #     relation_pred = torch.argmax(relation, dim=1)
-                    #     triplets = torch.hstack((cat_graph.unsqueeze(1), relation_pred.unsqueeze(1), cat_edge.unsqueeze(1)))
-                    #
-                    # # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
-                    # not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-                    # is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-                    # loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
-                    #
-                    # # evaluate on the connectivity
-                    # not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
-                    # num_not_connected += len(not_connected)
-                    # temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
-                    # loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
-                    #
-                    # connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 1)[0]  # which data samples in curr keep_in_batch are connected
-                    # num_connected += len(connected)
-                    # connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
-                    # connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
-                    # num_connected_pred += len(connected_pred)
-                    #
-                    # connected_indices = torch.zeros(len(hidden_cat), dtype=torch.bool).to(rank)
-                    # hidden_cat = hidden_cat[connected]
-                    # connected_indices[connected] = 1
-                    # connected_indices_accumulated.append(connected_indices)
-                    #
-                    # # evaluate on the relationships
-                    # if len(connected) > 0:
-                    #     temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
-                    #     loss_connectivity += 0.0 if torch.isnan(temp) else temp
-                    #     connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
-                    #
-                    #     loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter], criterion_relationship)
-                    #
-                    #     hidden_cat_labels = relations_target[graph_iter - 1][edge_iter][connected]
-                    #     for index, batch_index in enumerate(keep_in_batch[connected]):
-                    #         hidden_cat_accumulated[batch_index].append(hidden_cat[index])
-                    #         hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels[index])
-                    #
-                    # # evaluate recall@k scores
-                    # relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
-                    # relations_target_directed[not_connected] = -1
-                    #
-                    # if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                    #     if args['models']['hierarchical_pred']:
-                    #         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-                    #     Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                       cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-                    #     if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                    #         Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                                cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-
                     curr_loss_relationship, curr_loss_connectivity, curr_loss_commonsense, curr_num_not_connected, curr_num_connected, curr_num_connected_pred, \
                     curr_connectivity_precision, curr_connectivity_recall, hidden_cat_accumulated, hidden_cat_labels_accumulated = \
                         train_one_direction(args, h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, bbox_graph, bbox_edge, h_graph_aug, h_edge_aug, iou_mask, rank, graph_iter, edge_iter,
@@ -292,75 +224,6 @@ def train_local(gpu, args, train_subset, test_subset):
                     """
                     SECOND DIRECTION
                     """
-                    # if args['models']['hierarchical_pred']:
-                    #     relation_1, relation_2, relation_3, super_relation, connectivity, hidden2, hidden_aug2 \
-                    #                                 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank, h_edge_aug, h_graph_aug)
-                    #     relation = [relation_1, relation_2, relation_3]
-                    #     hidden_cat2 = torch.cat((hidden2.unsqueeze(1), hidden_aug2.unsqueeze(1)), dim=1)
-                    #
-                    #     # match with the commonsense filtering pool
-                    #     relation_pred = torch.hstack((torch.argmax(relation_1, dim=1),
-                    #                                   torch.argmax(relation_2, dim=1) + args['models']['num_geometric'],
-                    #                                   torch.argmax(relation_3, dim=1) + args['models']['num_geometric'] + args['models']['num_possessive']))
-                    #     triplets = torch.hstack((cat_edge.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_graph.repeat(3).unsqueeze(1)))
-                    #
-                    # else:
-                    #     relation, connectivity, hidden2, hidden_aug2 = local_predictor(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank, h_edge_aug, h_graph_aug)
-                    #     hidden_cat2 = torch.cat((hidden2.unsqueeze(1), hidden_aug2.unsqueeze(1)), dim=1)
-                    #     super_relation = None
-                    #
-                    #     # match with the commonsense filtering pool
-                    #     relation_pred = torch.argmax(relation, dim=1)
-                    #     triplets = torch.hstack((cat_edge.unsqueeze(1), relation_pred.unsqueeze(1), cat_graph.unsqueeze(1)))
-                    #
-                    # # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
-                    # not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-                    # is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-                    # loss_commonsense += (not_in_yes_dict + is_in_no_dict).mean()
-                    #
-                    # # evaluate on the connectivity
-                    # not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr keep_in_batch are not connected
-                    # num_not_connected += len(not_connected)
-                    # temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
-                    # loss_connectivity += 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
-                    #
-                    # connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 0)[0]  # which data samples in curr keep_in_batch are connected
-                    # num_connected += len(connected)
-                    # connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
-                    # connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
-                    # num_connected_pred += len(connected_pred)
-                    #
-                    # connected_indices = torch.zeros(len(hidden_cat2), dtype=torch.bool).to(rank)
-                    # hidden_cat2 = hidden_cat2[connected]
-                    # connected_indices[connected] = 1
-                    # connected_indices_accumulated.append(connected_indices)
-                    #
-                    # # evaluate on the relationships
-                    # if len(connected) > 0:
-                    #     temp = criterion_connectivity(connectivity[connected, 0], torch.ones(len(connected)).to(rank))
-                    #     loss_connectivity += 0.0 if torch.isnan(temp) else temp
-                    #     connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
-                    #
-                    #     loss_relationship += calculate_losses_on_relationships(args, relation, super_relation, connected, relations_target[graph_iter - 1][edge_iter], criterion_relationship)
-                    #
-                    #     hidden_cat_labels2 = relations_target[graph_iter - 1][edge_iter][connected]
-                    #     for index, batch_index in enumerate(keep_in_batch[connected]):
-                    #         hidden_cat_accumulated[batch_index].append(hidden_cat2[index])
-                    #         hidden_cat_labels_accumulated[batch_index].append(hidden_cat_labels2[index])
-                    #
-                    # # evaluate recall@k scores
-                    # relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
-                    # relations_target_directed[not_connected] = -1
-                    #
-                    # if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len(train_loader)):
-                    #     if args['models']['hierarchical_pred']:
-                    #         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-                    #     Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                       cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-                    #     if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                    #         Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                                cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-
                     curr_loss_relationship, curr_loss_connectivity, curr_loss_commonsense, curr_num_not_connected, curr_num_connected, curr_num_connected_pred, \
                     curr_connectivity_precision, curr_connectivity_recall, hidden_cat_accumulated, hidden_cat_labels_accumulated = \
                         train_one_direction(args, h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, bbox_edge, bbox_graph, h_edge_aug, h_graph_aug, iou_mask, rank, graph_iter, edge_iter,
@@ -456,6 +319,7 @@ def test_local(args, detr, local_predictor, test_loader, test_record, epoch, ran
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None
     Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall_top3 = None
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
@@ -539,35 +403,6 @@ def test_local(args, detr, local_predictor, test_loader, test_record, epoch, ran
                     connectivity_precision += curr_connectivity_precision
                     connectivity_recall += curr_connectivity_recall
 
-                    # if args['models']['hierarchical_pred']:
-                    #     relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank)
-                    #     relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-                    # else:
-                    #     relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank)
-                    #     super_relation = None
-                    #
-                    # not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
-                    # num_not_connected += len(not_connected)
-                    # connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 1)[0]  # which data samples in curr keep_in_batch are connected
-                    # num_connected += len(connected)
-                    # connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
-                    # connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
-                    # num_connected_pred += len(connected_pred)
-                    #
-                    # if len(connected) > 0:
-                    #     connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
-                    #
-                    # # evaluate recall@k scores
-                    # relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
-                    # relations_target_directed[not_connected] = -1
-                    #
-                    # if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                    #     Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                       cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-                    #     if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                    #         Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                                cat_graph, cat_edge, cat_graph, cat_edge, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-
                     """
                     SECOND DIRECTION
                     """
@@ -581,41 +416,11 @@ def test_local(args, detr, local_predictor, test_loader, test_record, epoch, ran
                     connectivity_precision += curr_connectivity_precision
                     connectivity_recall += curr_connectivity_recall
 
-                    # if args['models']['hierarchical_pred']:
-                    #     relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank)
-                    #     relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-                    # else:
-                    #     relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank)
-                    #     super_relation = None
-                    #
-                    # not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr keep_in_batch are not connected
-                    # num_not_connected += len(not_connected)
-                    # connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 0)[0]  # which data samples in curr keep_in_batch are connected
-                    # num_connected += len(connected)
-                    # connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
-                    # connectivity_precision += torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
-                    # num_connected_pred += len(connected_pred)
-                    #
-                    # if len(connected) > 0:
-                    #     connectivity_recall += torch.sum(torch.round(torch.sigmoid(connectivity[connected, 0])))
-                    #
-                    # relations_target_directed = relations_target[graph_iter - 1][edge_iter].clone()
-                    # relations_target_directed[not_connected] = -1
-                    #
-                    # if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                    #     Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                       cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-                    #     if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
-                    #         Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
-                    #                                cat_edge, cat_graph, cat_edge, cat_graph, bbox_graph, bbox_edge, bbox_graph, bbox_edge, iou_mask)
-
             """
             EVALUATE AND PRINT CURRENT RESULTS
             """
             if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
                 recall_top3, mean_recall_top3 = None, None
-                # top_k_predictions, top_k_image_graph = Recall.get_top_k_predictions(20)
-                # print('top_k_predictions', top_k_predictions)
                 if args['dataset']['dataset'] == 'vg':
                     recall, _, mean_recall, recall_zs, _, mean_recall_zs = Recall.compute(per_class=True)
                     if rank == 0:
