@@ -84,28 +84,19 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             return None
 
-        # annot_name_yes = 'semi_cs_10_no_reasoning/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_yes = 'cs_aligned_top10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
         # annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
         # if os.path.exists(annot_name_yes):
         #     curr_annot_yes = torch.load(annot_name_yes)
         # else:
         #     return None
-        # annot_name_no = 'semi_cs_10_invalid_no_reasoning/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+        # annot_name_no = 'cs_violated_top10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
         # annot_name_no = os.path.join(self.annot_dir, annot_name_no)
         # if os.path.exists(annot_name_no):
         #     curr_annot_no = torch.load(annot_name_no)
         # else:
         #     return None
         # # print(annot_name_yes, annot_name_no)
-
-        if self.args['training']['run_mode'] == 'train_semi' and self.training:     # no pseudo labels at testing time
-            # print('Load Semi-supervised pseudo labels')
-            annot_name_semi = 'semi_cs_10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
-            annot_path_semi = os.path.join(self.annot_dir, annot_name_semi)
-            if os.path.exists(annot_path_semi):
-                curr_annot_semi = torch.load(annot_path_semi)
-            else:
-                return None
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
         image = cv2.imread(image_path)
@@ -191,17 +182,10 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         """
 
         if self.args['training']['run_mode'] == 'eval':
-            if self.args['training']['eval_mode'] == 'pc':
+            if args['training']['save_vis_results'] and self.args['training']['eval_mode'] == 'pc':
                 return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, height, width, triplets, bbox_raw
             else:
                 return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
-        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
-            if self.args['training']['eval_mode'] == 'pc':
-                return image, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
-            else:
-                return image, image_nonsq, image_raw, image_depth, categories, super_categories, bbox, height, width, relationships, subj_or_obj, triplets
-        elif self.args['training']['run_mode'] == 'train_semi' and self.training:
-            return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, pseudo_label_mask
         else:
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
 
@@ -269,31 +253,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                     self.commonsense_no_triplets[key] = 0
                 self.commonsense_no_triplets[key] += 1
 
-    # def count_triplets(self, categories, relationships, subj_or_obj, pseudo_label_mask):
-    #     for i, (rels, sos, pses) in enumerate(zip(relationships, subj_or_obj, pseudo_label_mask)):
-    #         for j, (rel, so, pse) in enumerate(zip(rels, sos, pses)):
-    #             if so == 1:  # if subject
-    #                 key = (categories[i + 1].item(), rel.item(), categories[j].item())
-    #             elif so == 0:  # if object
-    #                 key = (categories[j].item(), rel.item(), categories[i + 1].item())
-    #             else:
-    #                 continue
-    #
-    #             # check if the key is already in the dictionary, if not, initialize the count to 0
-    #             if key not in self.triplets:
-    #                 self.triplets[key] = 0
-    #             self.triplets[key] += 1
-    #
-    #             if self.training:   # update triplets_train_gt and triplets_train_pseudo
-    #                 if pse:
-    #                     if key not in self.triplets_train_pseudo:
-    #                         self.triplets_train_pseudo[key] = 0
-    #                     self.triplets_train_pseudo[key] += 1
-    #                 else:
-    #                     if key not in self.triplets_train_gt:
-    #                         self.triplets_train_gt[key] = 0
-    #                     self.triplets_train_gt[key] += 1
-
     def get_triplets(self):
         if self.training:
             # add ground truth annotations to the commonsense_yes_triplets
@@ -315,52 +274,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             torch.save(self.triplets, 'triplets/testing_triplets.pt')
         # print('self.triplets', self.triplets)
-
-    def collect_triplets_clip(self, relationships, subj_or_obj, categories, bbox_raw):
-        # reformulate relation annots for a single image in a more efficient way
-        triplets = []
-        for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
-            for j, (rel, so) in enumerate(zip(rels, sos)):
-                bbox_sub = bbox_raw[i + 1]
-                bbox_obj = bbox_raw[j]
-
-                if so == 1:  # if subject
-                    triplets.append((tuple(bbox_sub.tolist()), rel.item(), tuple(bbox_obj.tolist()),
-                                     self.dict_object_names[categories[i + 1].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[j].item()]))
-                elif so == 0:  # if object
-                    triplets.append((tuple(bbox_obj.tolist()), rel.item(), tuple(bbox_sub.tolist()),
-                                     self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
-        return triplets
-
-    def integrate_pseudo_labels(self, relationships, subj_or_obj, annot_semi, bbox, pseudo_label_mask):
-        for edge in annot_semi:
-            subject_bbox_semi, relation_id, object_bbox_semi, _, _ = edge
-            if iou(subject_bbox_semi, object_bbox_semi) == 0:
-                continue
-
-            # Match bbox for subject and object
-            subject_bbox_idx = self.match_bbox(subject_bbox_semi, bbox)
-            object_bbox_idx = self.match_bbox(object_bbox_semi, bbox)
-            if subject_bbox_idx == object_bbox_idx:
-                continue
-
-            if subject_bbox_idx is not None and object_bbox_idx is not None:
-                # print('edge', edge, 'subject_bbox_idx', subject_bbox_idx, 'object_bbox_idx', object_bbox_idx)
-                if subject_bbox_idx < object_bbox_idx:
-                    # If subject comes before the object in bbox order, it goes in subj_or_obj as 1
-                    if relationships[object_bbox_idx - 1][subject_bbox_idx].item() == -1:  # only assign the pseudo label if no relationship is assigned yet
-                        subj_or_obj[object_bbox_idx - 1][subject_bbox_idx] = 0
-                        relationships[object_bbox_idx - 1][subject_bbox_idx] = relation_id
-                        pseudo_label_mask[object_bbox_idx - 1][subject_bbox_idx] = 1
-                        self.num_added_rel_semi += 1
-                else:
-                    if relationships[subject_bbox_idx - 1][object_bbox_idx].item() == -1:
-                        subj_or_obj[subject_bbox_idx - 1][object_bbox_idx] = 1
-                        relationships[subject_bbox_idx - 1][object_bbox_idx] = relation_id
-                        pseudo_label_mask[subject_bbox_idx - 1][object_bbox_idx] = 1
-                        self.num_added_rel_semi += 1
-
-        return relationships, subj_or_obj, pseudo_label_mask
 
     def match_bbox(self, bbox_semi, bbox_raw):
         """

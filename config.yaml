@@ -43,8 +43,9 @@ models:
     num_semantic: 24
     num_negatives: 49
 training:
-    run_mode: 'train'      # train, eval, prepare_semi, train_semi, caption, clip_zs, clip_train
+    run_mode: 'train'      # train, eval, prepare_cs
     eval_mode: 'pc'        # pc sgc or sgd
+    save_vis_results: False
     common_sense: True
     learning_rate: 0.00001 #0.00001
 #    refine_learning_rate: 0.0001

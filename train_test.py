@@ -297,6 +297,7 @@ def train_local(gpu, args, train_subset, test_subset):
             running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_commonsense, \
                 connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
+        # train_dataset.get_triplets()
         # if args['models']['hierarchical_pred']:
         #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_CS' + str(epoch) + '_' + str(rank) + '.pth')
         # else:
@@ -434,6 +435,7 @@ def test_local(args, detr, local_predictor, test_loader, test_record, epoch, ran
                 else:
                     recall, _, mean_recall, _, _, _ = Recall.compute(per_class=True)
                     wmap_rel, wmap_phrase = Recall.compute_precision()
+
                 Recall.clear_data()
 
             if (batch_count % args['training']['print_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):

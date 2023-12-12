@@ -8,6 +8,7 @@ import concurrent.futures
 from functools import partial
 
 from utils import *
+from query_llm import *
 from dataset_utils import relation_by_super_class_int2str, object_class_int2str
 
 
@@ -405,49 +406,9 @@ class Evaluator_PC:
         return recall_k, recall_k_per_class, mean_recall_k, recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs
 
 
-    def filter_accumulated_predictions_by_commonsense(self, top_k=100):
-        # only call this function at evaluation time, not training time
-        dict_relation_names = relation_by_super_class_int2str()
-        dict_object_names = object_class_int2str()
-
-        all_edges = []
-        all_keep_inds = []
-        all_images = []
-
-        for image in torch.unique(self.which_in_batch):  # gather predictions across all images
-            curr_image = self.which_in_batch == image
-            curr_confidence = self.confidence[curr_image]
-            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
-            this_k = min(top_k, len(self.relation_pred[curr_image]))
-            keep_inds = sorted_inds[:this_k]
-
-            for ind in keep_inds:
-                subject_id_pred = self.subject_cat_pred[curr_image][ind].item()
-                object_id_pred = self.object_cat_pred[curr_image][ind].item()
-                relation_id_pred = self.relation_pred[curr_image][ind].item()
-                string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id_pred] + ' ' + dict_object_names[object_id_pred]
-                all_edges.append(string)
-                all_keep_inds.append(ind)
-                all_images.append(curr_image)
-
-        # check commonsense in batches and parallel
-        batch_size = 5
-        batches = [all_edges[i:min(i + batch_size, len(all_edges))] for i in range(0, len(all_edges), batch_size)]
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            func = partial(batch_query_openai_gpt_instruct)
-            responses = list(executor.map(func, batches))
-
-        # Flatten the list of responses and apply to confidence
-        responses = [item for sublist in responses for item in sublist]
-
-        for i, (ind, curr_image) in enumerate(zip(all_keep_inds, all_images)):
-            if responses[i] == -1:
-                self.confidence[curr_image][ind] = float('-inf')
-
-        # check if cache exceeded its size and evict the least frequently accessed item
-        # while len(self.cache) > self.max_cache_size:
-        #     self.cache.popitem(last=False)  # False means the first item will be removed
+    def load_annotation_paths(self, annot_path):
+        self.annotation_paths = None    # reset
+        self.annotation_paths = annot_path
 
 
     def save_visualization_results(self, annot_path, triplets, heights, widths, images, image_depth, bboxes, categories, batch_count, top_k):
@@ -508,7 +469,7 @@ class Evaluator_PC:
             annot_name = str(batch_count) + '_vis_results.pkl'
             annot_path = os.path.join('results/visualization_results/cs', annot_name)
             print('annot_path', annot_path)
-            # torch.save(vis_results, annot_path)
+            torch.save(vis_results, annot_path)
 
 
     def get_top_k_predictions(self, top_k):
@@ -540,21 +501,6 @@ class Evaluator_PC:
                 relation_id = self.relation_pred[curr_image][ind].item()
                 object_id = self.object_cat_pred[curr_image][ind].item()
 
-                # subject_bbox = self.subject_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
-                # object_bbox = self.object_bbox_pred[curr_image][ind].cpu() / self.args['models']['feature_size']
-                # height, width = self.height[curr_image][ind], self.width[curr_image][ind]
-                # subject_bbox[:2] *= height
-                # subject_bbox[2:] *= width
-                # object_bbox[:2] *= height
-                # object_bbox[2:] *= width
-                # subject_bbox = subject_bbox.ceil().int()
-                # object_bbox = object_bbox.ceil().int()
-                #
-                # edge = [subject_bbox.tolist(), relation_id, object_bbox.tolist()]
-                # if edge in curr_image_graph:    # remove redundant edges
-                #     curr_skipped.append(ind.item())
-                #     continue
-
                 curr_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
                 # curr_image_graph.append(edge)
 
@@ -567,11 +513,6 @@ class Evaluator_PC:
         else:
             self.skipped = skipped
         return top_k_predictions, top_k_image_graphs
-
-
-    def load_annotation_paths(self, annot_path):
-        self.annotation_paths = None    # reset
-        self.annotation_paths = annot_path
 
 
     def get_unique_top_k_predictions(self, top_k, save_to_annot=True):
@@ -626,141 +567,6 @@ class Evaluator_PC:
             return top_k_predictions, top_k_image_graphs
 
 
-    def extract_matched_edges_with_neighbors(self, top_k=50):
-        matched_predictions = []    # in the format of strings
-        matched_image_graphs = []   # in the format of numbers
-        # related_predictions = []    # in the format of numbers
-        # related_image_graphs = []   # in the format of numbers
-        selected_indices = []
-
-        dict_relation_names = relation_by_super_class_int2str()
-        dict_object_names = object_class_int2str()
-
-        for image in torch.unique(self.which_in_batch):  # image-wise
-            curr_image = self.which_in_batch == image
-            curr_confidence = self.confidence[curr_image]
-            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
-
-            this_k = min(top_k, len(self.relation_pred[curr_image]))
-            top_k_inds = sorted_inds[:this_k]
-
-            curr_matched_predictions = []
-            curr_matched_image_graph = []
-            # curr_related_image_graph = []
-            # curr_related_predictions = []
-            curr_selected_indices = []
-
-            for i in range(len(self.subject_cat_target[curr_image])):
-                for j in top_k_inds:
-                    # Check if the subject and object match
-                    if (self.subject_cat_target[curr_image][i] == self.subject_cat_pred[curr_image][j]
-                            and self.object_cat_target[curr_image][i] == self.object_cat_pred[curr_image][j]):
-
-                        sub_iou = self.iou(self.subject_bbox_target[curr_image][i], self.subject_bbox_pred[curr_image][j])
-                        obj_iou = self.iou(self.object_bbox_target[curr_image][i], self.object_bbox_pred[curr_image][j])
-
-                        # If IOUs are above the threshold, add this edge
-                        if sub_iou >= self.iou_thresh and obj_iou >= self.iou_thresh:
-                            subject_id = self.subject_cat_pred[curr_image][j].item()
-                            relation_id = self.relation_pred[curr_image][j].item()
-                            object_id = self.object_cat_pred[curr_image][j].item()
-
-                            subject_bbox = self.subject_bbox_pred[curr_image][j].cpu().tolist()
-                            object_bbox = self.object_bbox_pred[curr_image][j].cpu().tolist()
-
-                            edge = [subject_bbox, relation_id, object_bbox]
-
-                            if edge not in curr_matched_image_graph:  # remove redundant edges
-                                curr_matched_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
-                                curr_matched_image_graph.append(edge)
-
-                                curr_selected_indices.append(j.item())
-                            break
-
-            for edge in curr_matched_image_graph:
-                for j in top_k_inds:
-                    if (edge[0] == self.subject_bbox_pred[curr_image][j].cpu().tolist() or
-                            edge[2] == self.object_bbox_pred[curr_image][j].cpu().tolist()):
-
-                        subject_id = self.subject_cat_pred[curr_image][j].item()
-                        relation_id = self.relation_pred[curr_image][j].item()
-                        object_id = self.object_cat_pred[curr_image][j].item()
-
-                        subject_bbox = self.subject_bbox_pred[curr_image][j].cpu().tolist()
-                        object_bbox = self.object_bbox_pred[curr_image][j].cpu().tolist()
-
-                        rel_edge = [subject_bbox, relation_id, object_bbox]
-
-                        if rel_edge not in curr_matched_image_graph:  # remove redundant edges
-                            curr_matched_predictions.append(dict_object_names[subject_id] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id])
-                            curr_matched_image_graph.append(rel_edge)
-
-                            curr_selected_indices.append(j.item())
-                        break
-
-            matched_predictions.append(curr_matched_predictions)
-            matched_image_graphs.append(curr_matched_image_graph)
-            selected_indices.append(torch.as_tensor(curr_selected_indices))
-
-        self.selected_indices = selected_indices
-        return matched_predictions, matched_image_graphs
-
-
-    def get_related_top_k_predictions(self, top_k, save_to_annot=True):
-        top_k_predictions = []
-        top_k_image_graphs = []
-        dict_relation_names = relation_by_super_class_int2str()
-        dict_object_names = object_class_int2str()
-
-        for image in torch.unique(self.which_in_batch):  # image-wise
-            curr_image = self.which_in_batch == image
-            curr_confidence = self.confidence[curr_image]
-            sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
-
-            curr_predictions = []
-            curr_image_graph = []
-
-            for i in range(0, len(self.subject_cat_target[curr_image]), 3):
-                if self.relation_target[curr_image][i] == -1:  # if target is not connected
-                    continue
-
-                for j in range(min(top_k, len(sorted_inds))):
-                    ind = sorted_inds[j]
-
-                    subject_id_pred = self.subject_cat_pred[curr_image][ind].item()
-                    object_id_pred = self.object_cat_pred[curr_image][ind].item()
-
-                    # check if the predicted subject or object matches the target
-                    if (self.subject_cat_target[curr_image][i] == subject_id_pred and torch.sum(torch.abs(self.subject_bbox_target[curr_image][i] - self.subject_bbox_pred[curr_image][ind])) == 0) \
-                            or (self.object_cat_target[curr_image][i] == object_id_pred and torch.sum(torch.abs(self.object_bbox_target[curr_image][i] - self.object_bbox_pred[curr_image][ind]) == 0)):
-
-                        relation_id = self.relation_pred[curr_image][ind].item()
-                        string = dict_object_names[subject_id_pred] + ' ' + dict_relation_names[relation_id] + ' ' + dict_object_names[object_id_pred]
-                        if string not in curr_predictions:
-                            # filter the edge by commonsense
-                            response = query_openai_gpt(predicted_edge=string, cache=self.cache, model='gpt-3.5-turbo')
-                            if response == 1:
-                                edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist()]
-                                curr_image_graph.append(edge)
-                                curr_predictions.append(string)
-
-            if not save_to_annot:
-                top_k_predictions.append(curr_predictions)
-                top_k_image_graphs.append(curr_image_graph)
-            else:
-                annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-                annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi', annot_name)
-                print('annot_path', annot_path, 'curr_predictions', curr_predictions)
-                torch.save(curr_image_graph, annot_path)
-
-        # check if cache exceeded its size and evict the least frequently accessed item
-        while len(self.cache) > self.max_cache_size:
-            self.cache.popitem(last=False)  # False means the first item will be removed
-
-        if not save_to_annot:
-            return top_k_predictions, top_k_image_graphs
-
-
     def _get_related_top_k_predictions(self, image, top_k):
         curr_image = self.which_in_batch == image
         curr_confidence = self.confidence[curr_image]
@@ -796,10 +602,6 @@ class Evaluator_PC:
                     string = self.dict_object_names[subject_id_pred] + ' ' + self.dict_relation_names[relation_id] + ' ' + self.dict_object_names[object_id_pred]
                     if string not in curr_predictions:
                         # filter the edge by commonsense
-                        # print('string', string)
-                        # response = query_openai_gpt(predicted_edge=string, cache=self.cache, model='gpt-3.5-turbo')
-                        # if response == 1:
-                        # print('valid string', string)
                         edge = [self.subject_bbox_pred[curr_image][ind].cpu().tolist(), relation_id, self.object_bbox_pred[curr_image][ind].cpu().tolist(), self.confidence[curr_image][ind].item(), j]
                         curr_image_graph.append(edge)
                         curr_predictions.append(string)
@@ -826,31 +628,21 @@ class Evaluator_PC:
                 valid_curr_image_graph = curr_image_graph
                 invalid_curr_image_graph = []
 
-            # annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-            # annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_10_no_reasoning', annot_name)
-            # # print('annot_path', annot_path, 'valid_curr_image_graph', len(valid_curr_image_graph), 'curr_image_graph', len(curr_image_graph))
-            # torch.save(valid_curr_image_graph, annot_path)
-            # annot_path = os.path.join(self.args['dataset']['annot_dir'], 'semi_cs_10_invalid_no_reasoning', annot_name)
-            # torch.save(invalid_curr_image_graph, annot_path)
-
-        # check if cache exceeded its size and evict the least frequently accessed item
-        # while len(self.cache) > self.max_cache_size:
-        #     self.cache.popitem(last=False)  # False means the first item will be removed
+            annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
+            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top10', annot_name)
+            torch.save(valid_curr_image_graph, annot_path)
+            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top10', annot_name)
+            torch.save(invalid_curr_image_graph, annot_path)
 
         return curr_predictions, curr_image_graph
+
 
     def get_related_top_k_predictions_parallel(self, top_k, save_to_annot=True):
         self.dict_relation_names = relation_by_super_class_int2str()
         self.dict_object_names = object_class_int2str()
 
-        # try:
         with concurrent.futures.ThreadPoolExecutor() as executor:
             results = list(executor.map(lambda image: self._get_related_top_k_predictions(image, top_k), torch.unique(self.which_in_batch)))
-            # for image in torch.unique(self.which_in_batch):
-            #     top_k_predictions, top_k_image_graphs = self._get_related_top_k_predictions(image, top_k)
-        # except:
-        #     cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
-        #     return None, None, cache_hit_percentage
 
         cache_hit_percentage = (self.cache_hits / self.total_cache_queries) * 100 if self.total_cache_queries > 0 else 0
 
@@ -859,67 +651,6 @@ class Evaluator_PC:
             top_k_image_graphs = [item[1] for item in results]
             return top_k_predictions, top_k_image_graphs, cache_hit_percentage
 
-
-    def global_refine(self, refined_relation_pred, refined_confidence, batch_idx, top_k, rank, training=False):
-        """
-        For the batch_idx image in the batch, update the relation_pred and confidence of its top_k predictions.
-        Because we calculate the confidence scores in a different way in global graphical refine, we only use new confidence scores
-        to reorder the new top_k predictions, without actually
-        """
-        # correspond to the function extract_matched_edges_with_neighbors
-        # if training:
-        #     image = torch.unique(self.which_in_batch)[batch_idx]
-        #     curr_image = self.which_in_batch == image
-        #     tmp = self.relation_pred[curr_image].clone()
-        #     curr_indices = self.selected_indices[batch_idx]
-        #
-        #     for i, idx in enumerate(curr_indices):
-        #         tmp[idx] = refined_relation_pred[i]
-        #     self.relation_pred[curr_image] = tmp
-        #
-        # # correspond to the function get_top_k_predictions, because we shall have no access to targets during the testing
-        # else:
-        # print('torch.unique(self.which_in_batch)', torch.unique(self.which_in_batch), 'batch_idx', batch_idx)
-        # find the top k predictions to be updated
-        image = torch.unique(self.which_in_batch)[batch_idx]
-        curr_image = self.which_in_batch == image
-        curr_confidence = self.confidence[curr_image]
-        sorted_inds = torch.argsort(curr_confidence, dim=0, descending=True)
-
-        # select the top k predictions
-        this_k = min(top_k, len(self.relation_pred[curr_image]))
-        keep_inds = sorted_inds[:this_k]
-        if self.skipped is not None:
-            curr_skipped = self.skipped[image]
-            if len(curr_skipped) > 0:   # remove redundant edges
-                mask = ~torch.isin(keep_inds, torch.tensor(curr_skipped).to(rank))
-                keep_inds = keep_inds[mask]
-
-        # assign new relation predictions
-        # self.relation_pred[curr_image][keep_inds] = refined_relation_pred[:min(top_k, len(keep_inds))]
-        # print('self.relation_pred', len(self.relation_pred[curr_image]), len(self.relation_pred[curr_image][keep_inds]), 'refined_relation_pred', len(refined_relation_pred))
-        tmp = self.relation_pred[curr_image].clone()
-        for i, idx in enumerate(keep_inds):
-            tmp[idx] = refined_relation_pred[i]
-        self.relation_pred[curr_image] = tmp
-        # print('self.relation_pred after', self.relation_pred[curr_image][keep_inds], '\n')
-
-        # # shuffle the top k predictions based on their new confidence, without affecting the order of remaining predictions
-        # reorder_topk_inds = torch.argsort(refined_confidence, descending=True)
-        #
-        # self.relation_pred[curr_image][keep_inds] = self.relation_pred[curr_image][keep_inds][reorder_topk_inds]
-        # self.relation_target[curr_image][keep_inds] = self.relation_target[curr_image][keep_inds][reorder_topk_inds]
-        # self.confidence[curr_image][keep_inds] = self.confidence[curr_image][keep_inds][reorder_topk_inds]
-        # self.connectivity[curr_image][keep_inds] = self.connectivity[curr_image][keep_inds][reorder_topk_inds]
-        #
-        # self.subject_cat_pred[curr_image][keep_inds] = self.subject_cat_pred[curr_image][keep_inds][reorder_topk_inds]
-        # self.object_cat_pred[curr_image][keep_inds] = self.object_cat_pred[curr_image][keep_inds][reorder_topk_inds]
-        # self.subject_cat_target[curr_image][keep_inds] = self.subject_cat_target[curr_image][keep_inds][reorder_topk_inds]
-        # self.object_cat_target[curr_image][keep_inds] = self.object_cat_target[curr_image][keep_inds][reorder_topk_inds]
-        # self.subject_bbox_pred[curr_image][keep_inds] = self.subject_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
-        # self.object_bbox_pred[curr_image][keep_inds] = self.object_bbox_pred[curr_image][keep_inds][reorder_topk_inds]
-        # self.subject_bbox_target[curr_image][keep_inds] = self.subject_bbox_target[curr_image][keep_inds][reorder_topk_inds]
-        # self.object_bbox_target[curr_image][keep_inds] = self.object_bbox_target[curr_image][keep_inds][reorder_topk_inds]
 
     def compute_precision(self):
         for image in torch.unique(self.which_in_batch):  # image-wise

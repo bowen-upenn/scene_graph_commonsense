@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description='Command line arguments')
-    parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_semi, eval_semi, clip_train, clip_eval, clip_zs, caption)')
+    parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_cs)')
     parser.add_argument('--eval_mode', type=str, default=None, help='Override eval_mode (pc, sgc, sgd)')
     parser.add_argument('--continue_train', type=bool, default=None, help='Override continue_train (True/False)')
     parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
@@ -83,16 +83,14 @@ if __name__ == "__main__":
     test_subset_idx = torch.randperm(len(test_dataset))[:int(args['dataset']['percent_test'] * len(test_dataset))]
     test_subset = Subset(test_dataset, test_subset_idx)
     print('num of train, test:', len(train_subset), len(test_subset))
-
     # triplets = torch.load('/tmp/datasets/vg_scene_graph_annot/zero_shot_splits.json')
 
     print(args)
     # select training or evaluation
-    if args['training']['run_mode'] == 'train' or args['training']['run_mode'] == 'train_semi':
+    if args['training']['run_mode'] == 'train':
          mp.spawn(train_local, nprocs=world_size, args=(args, train_subset, test_subset))
-    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_semi':
-        # print("Please manually comment out 'yield sgg_results' at evaluate.py:401")
-        curr_subset = train_subset if args['training']['run_mode'] == 'prepare_semi' else test_subset
+    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_cs':
+        curr_subset = train_subset if args['training']['run_mode'] == 'prepare_cs' else test_subset
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification
             mp.spawn(eval_pc, nprocs=world_size, args=(args, curr_subset))
@@ -104,12 +102,5 @@ if __name__ == "__main__":
             mp.spawn(eval_sgd, nprocs=world_size, args=(args, curr_subset))
         else:
             print('Invalid arguments or not implemented.')
-    elif args['training']['run_mode'] == 'caption':
-        image_captioning(device, world_size, args, test_dataset)
-    elif args['training']['run_mode'] == 'clip_zs' or args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
-        print("Please manually uncomment 'yield sgg_results' at evaluate.py:401")
-        if args['training']['eval_mode'] != 'pc' and args['training']['run_mode'] != 'clip_eval':
-            print('Invalid arguments. You must set run_mode as clip_eval')
-        mp.spawn(query_clip, nprocs=world_size, args=(args, train_subset, test_subset))
     else:
         print('Invalid arguments.')
