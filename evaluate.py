@@ -14,8 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import datetime
 
 from evaluator import *
-from model import FlatMotif, HierMotif
-from train_test import test_local
+from model import *
 from utils import *
 from train_utils import *
 from dataset_utils import object_class_alp2fre
@@ -49,15 +48,16 @@ def eval_pc(gpu, args, test_subset):
         json.dump(start, f)
 
     if args['models']['hierarchical_pred']:
-        local_predictor = DDP(HierMotif(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
-                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
-                                     num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+        relation_classifier = DDP(BayesianRelationClassifier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+                                                             num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                                             num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'],
+                                                             num_semantic=args['models']['num_semantic'])).to(rank)
     else:
-        local_predictor = DDP(FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
-                                 num_classes=args['models']['num_classes'])).to(rank)
+        relation_classifier = DDP(FlatRelationClassifier(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'],
+                                                         feature_size=args['models']['feature_size'], num_classes=args['models']['num_classes'])).to(rank)
 
     detr = DDP(build_detr101(args)).to(rank)
-    local_predictor.eval()
+    relation_classifier.eval()
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
@@ -66,7 +66,7 @@ def eval_pc(gpu, args, test_subset):
         load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
-    local_predictor.load_state_dict(torch.load(load_model_name, map_location=map_location))
+    relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))
 
     recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None
     Recall = Evaluator(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
@@ -149,8 +149,8 @@ def eval_pc(gpu, args, test_subset):
                     FIRST DIRECTION
                     """
                     curr_num_not_connected, curr_num_connected, curr_num_connected_pred, curr_connectivity_precision, curr_connectivity_recall = \
-                        evaluate_one_direction(args, h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, bbox_graph, bbox_edge, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
-                                               Recall, Recall_top3, local_predictor, relations_target, direction_target, batch_count, len(test_loader))
+                        evaluate_one_direction(relation_classifier, args, h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, bbox_graph, bbox_edge, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
+                                               Recall, Recall_top3, relations_target, direction_target, batch_count, len(test_loader))
 
                     num_not_connected += curr_num_not_connected
                     num_connected += curr_num_connected
@@ -162,8 +162,8 @@ def eval_pc(gpu, args, test_subset):
                     SECOND DIRECTION
                     """
                     curr_num_not_connected, curr_num_connected, curr_num_connected_pred, curr_connectivity_precision, curr_connectivity_recall = \
-                        evaluate_one_direction(args, h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, bbox_edge, bbox_graph, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
-                                               Recall, Recall_top3, local_predictor, relations_target, direction_target, batch_count, len(test_loader))
+                        evaluate_one_direction(relation_classifier, args, h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, bbox_edge, bbox_graph, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
+                                               Recall, Recall_top3, relations_target, direction_target, batch_count, len(test_loader))
 
                     num_not_connected += curr_num_not_connected
                     num_connected += curr_num_connected
@@ -234,19 +234,20 @@ def eval_sgd(gpu, args, test_subset):
         json.dump(start, f)
 
     if args['models']['hierarchical_pred']:
-        local_predictor = DDP(HierMotif(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
-                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
-                                     num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+        relation_classifier = DDP(BayesianRelationClassifier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+                                                             num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                                             num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'],
+                                                             num_semantic=args['models']['num_semantic'])).to(rank)
     else:
-        local_predictor = DDP(FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
-                                 num_classes=args['models']['num_classes'])).to(rank)
+        relation_classifier = DDP(FlatRelationClassifier(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'],
+                                                         feature_size=args['models']['feature_size'], num_classes=args['models']['num_classes'])).to(rank)
 
     detr = DDP(build_detr101(args)).to(rank)
     backbone = DDP(detr.module.backbone).to(rank)
     input_proj = DDP(detr.module.input_proj).to(rank)
     feature_encoder = DDP(detr.module.transformer.encoder).to(rank)
 
-    local_predictor.eval()
+    relation_classifier.eval()
     backbone.eval()
     input_proj.eval()
     feature_encoder.eval()
@@ -258,7 +259,7 @@ def eval_sgd(gpu, args, test_subset):
         load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
-    local_predictor.load_state_dict(torch.load(load_model_name, map_location=map_location))
+    relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
@@ -397,10 +398,10 @@ def eval_sgd(gpu, args, test_subset):
                     FIRST DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = relation_classifier(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
+                        relation, connectivity, _, _ = relation_classifier(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
                         super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
@@ -411,10 +412,10 @@ def eval_sgd(gpu, args, test_subset):
                     SECOND DIRECTION
                     """
                     if args['models']['hierarchical_pred']:
-                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
+                        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = relation_classifier(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
                         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                     else:
-                        relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
+                        relation, connectivity, _, _ = relation_classifier(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
                         super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
@@ -463,19 +464,20 @@ def eval_sgc(gpu, args, test_subset):
         json.dump(start, f)
 
     if args['models']['hierarchical_pred']:
-        local_predictor = DDP(HierMotif(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
-                                        num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
-                                        num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic'])).to(rank)
+        relation_classifier = DDP(BayesianRelationClassifier(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+                                                             num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
+                                                             num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'],
+                                                             num_semantic=args['models']['num_semantic'])).to(rank)
     else:
-        local_predictor = DDP(FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
-                                        num_classes=args['models']['num_classes'])).to(rank)
+        relation_classifier = DDP(FlatRelationClassifier(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'],
+                                                         feature_size=args['models']['feature_size'], num_classes=args['models']['num_classes'])).to(rank)
 
     detr = DDP(build_detr101(args)).to(rank)
     backbone = DDP(detr.module.backbone).to(rank)
     input_proj = DDP(detr.module.input_proj).to(rank)
     feature_encoder = DDP(detr.module.transformer.encoder).to(rank)
 
-    local_predictor.eval()
+    relation_classifier.eval()
     backbone.eval()
     input_proj.eval()
     feature_encoder.eval()
@@ -487,7 +489,7 @@ def eval_sgc(gpu, args, test_subset):
         load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
-    local_predictor.load_state_dict(torch.load(load_model_name, map_location=map_location))
+    relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))
 
     Recall = Evaluator(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
@@ -633,10 +635,10 @@ def eval_sgc(gpu, args, test_subset):
                     """
                     with torch.no_grad():
                         if args['models']['hierarchical_pred']:
-                            relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
+                            relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = relation_classifier(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
                             relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         else:
-                            relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
+                            relation, connectivity, _, _ = relation_classifier(h_graph, h_edge, cat_graph_pred, cat_edge_pred, spcat_graph_pred, spcat_edge_pred, rank)
                             super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
@@ -648,10 +650,10 @@ def eval_sgc(gpu, args, test_subset):
                     """
                     with torch.no_grad():
                         if args['models']['hierarchical_pred']:
-                            relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
+                            relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = relation_classifier(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
                             relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                         else:
-                            relation, connectivity, _, _ = local_predictor(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
+                            relation, connectivity, _, _ = relation_classifier(h_edge, h_graph, cat_edge_pred, cat_graph_pred, spcat_edge_pred, spcat_graph_pred, rank)
                             super_relation = None
 
                     if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
@@ -685,25 +687,23 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
     :param test_dataset: testing dataset
     """
     if args['models']['hierarchical_pred']:
-        local_predictor = HierMotif(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
+        relation_classifier = HierMotif(args=args, input_dim=args['models']['hidden_dim'], feature_size=args['models']['feature_size'],
                                     num_classes=args['models']['num_classes'], num_super_classes=args['models']['num_super_classes'],
                                     num_geometric=args['models']['num_geometric'], num_possessive=args['models']['num_possessive'], num_semantic=args['models']['num_semantic']).to(rank)
     else:
-        local_predictor = FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
+        relation_classifier = FlatMotif(args=args, input_dim=args['models']['hidden_dim'], output_dim=args['models']['num_relations'], feature_size=args['models']['feature_size'],
                                     num_classes=args['models']['num_classes']).to(rank)
 
     detr = build_detr101(args).to(rank)
     detr.eval()
-    local_predictor.eval()
+    relation_classifier.eval()
 
     if args['models']['hierarchical_pred']:
         saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'HierMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
     else:
         saved_state_dict = torch.load(args['training']['checkpoint_path'] + 'FlatMotif' + str(args['training']['test_epoch']) + '_0' + '.pth')
     renamed_state_dict = remove_ddp_module_in_weights(saved_state_dict)
-    local_predictor.load_state_dict(renamed_state_dict)
-
-
+    relation_classifier.load_state_dict(renamed_state_dict)
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
@@ -776,10 +776,10 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
                 FIRST DIRECTION
                 """
                 if args['models']['hierarchical_pred']:
-                    relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = local_predictor(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank)
+                    relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = relation_classifier(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank)
                     relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                 else:
-                    relation, connectivity = local_predictor(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank)
+                    relation, connectivity = relation_classifier(h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, rank)
                     super_relation = None
 
                 not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
@@ -806,10 +806,10 @@ def inference(rank, args, test_dataset, top_k=5, file_name=None, file_idx=None):
                 SECOND DIRECTION
                 """
                 if args['models']['hierarchical_pred']:
-                    relation_1, relation_2, relation_3, super_relation, connectivity, _, _= local_predictor(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank)
+                    relation_1, relation_2, relation_3, super_relation, connectivity, _, _= relation_classifier(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank)
                     relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
                 else:
-                    relation, connectivity = local_predictor(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank)
+                    relation, connectivity = relation_classifier(h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, rank)
                     super_relation = None
 
                 not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]  # which data samples in curr keep_in_batch are not connected

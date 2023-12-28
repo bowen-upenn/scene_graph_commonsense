@@ -185,6 +185,22 @@ def remove_ddp_module_in_weights(saved_state_dict):
     return renamed_state_dict
 
 
+def process_super_class(s1, s2, num_super_classes, rank):
+    sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=num_super_classes)
+    for i in range(1, 4):  # at most 4 diff super class for each subclass instance
+        idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
+        if len(idx) > 0:
+            sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=num_super_classes)
+    sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=num_super_classes)
+    for i in range(1, 4):
+        idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
+        if len(idx) > 0:
+            sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=num_super_classes)
+
+    sc1, sc2 = sc1.to(rank), sc2.to(rank)
+    return sc1, sc2
+
+
 def get_num_each_class():  # number of training data in total for each relationship class
     return torch.tensor([712432, 277943, 251756, 146339, 136099, 96589, 66425, 47342, 42722,
                          41363, 22596, 18643, 15457, 14185, 13715, 10191, 9903, 9894, 9317, 9145, 8856,

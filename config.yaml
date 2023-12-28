@@ -35,7 +35,7 @@ models:
     faster_rcnn_hidden_dim: 2048
     use_depth: True
     depth_model_type: 'DPT_Large'
-    hierarchical_pred: True
+    hierarchical_pred: False
     topk_cat: 2
     nms: 0.5
     num_geometric: 15
@@ -46,7 +46,6 @@ training:
     run_mode: 'train'      # train, eval, prepare_cs
     eval_mode: 'pc'        # pc sgc or sgd
     save_vis_results: False
-    common_sense: True
     learning_rate: 0.00001 #0.00001
     weight_decay: 0.0001
     batch_size: 12

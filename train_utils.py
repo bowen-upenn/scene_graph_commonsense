@@ -18,13 +18,13 @@ def process_image_features(args, images, detr, rank):
     return image_feature
 
 
-def train_one_direction(args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, bbox_sub, bbox_obj, h_sub_aug, h_obj_aug, iou_mask, rank, graph_iter, edge_iter, keep_in_batch, Recall, Recall_top3,
-                        prediction_model, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count, hidden_cat_accumulated, hidden_cat_labels_accumulated,
+def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, bbox_sub, bbox_obj, h_sub_aug, h_obj_aug, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
+                        Recall, Recall_top3, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count, hidden_cat_accumulated, hidden_cat_labels_accumulated,
                         commonsense_yes_triplets, commonsense_no_triplets, len_train_loader, first_direction=True):
 
     if args['models']['hierarchical_pred']:
         relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug \
-            = prediction_model(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank, h_sub_aug, h_obj_aug)
+            = relation_classifier(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank, h_sub_aug, h_obj_aug)
         relation = [relation_1, relation_2, relation_3]
         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
 
@@ -35,7 +35,7 @@ def train_one_direction(args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_o
         triplets = torch.hstack((cat_sub.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.repeat(3).unsqueeze(1)))
 
     else:
-        relation, connectivity, hidden, hidden_aug = prediction_model(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank, h_sub_aug, h_obj_aug)
+        relation, connectivity, hidden, hidden_aug = relation_classifier(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank, h_sub_aug, h_obj_aug)
         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
         super_relation = None
 
@@ -161,13 +161,13 @@ def calculate_losses_on_relationships(args, relation, super_relation, connected,
     return loss_relationship
 
 
-def evaluate_one_direction(args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, bbox_sub, bbox_obj, iou_mask, rank, graph_iter, edge_iter, keep_in_batch, Recall, Recall_top3,
-                           prediction_model, relations_target, direction_target, batch_count, len_test_loader, first_direction=True):
+def evaluate_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, bbox_sub, bbox_obj, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
+                           Recall, Recall_top3, relations_target, direction_target, batch_count, len_test_loader, first_direction=True):
     if args['models']['hierarchical_pred']:
-        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = prediction_model(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank)
+        relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = relation_classifier(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank)
         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
     else:
-        relation, connectivity, _, _ = prediction_model(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank)
+        relation, connectivity, _, _ = relation_classifier(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank)
         super_relation = None
 
     if first_direction:
