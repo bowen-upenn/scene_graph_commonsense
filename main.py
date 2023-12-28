@@ -93,10 +93,8 @@ if __name__ == "__main__":
         if args['training']['eval_mode'] == 'pc':          # predicate classification
             mp.spawn(eval_pc, nprocs=world_size, args=(args, curr_subset))
         elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
-            args['models']['topk_cat'] = 1
             mp.spawn(eval_sgc, nprocs=world_size, args=(args, curr_subset))
         elif args['training']['eval_mode'] == 'sgd' and args['dataset']['dataset'] == 'vg':       # scene graph detection
-            args['models']['topk_cat'] = 2
             mp.spawn(eval_sgd, nprocs=world_size, args=(args, curr_subset))
         else:
             print('Invalid arguments or not implemented.')

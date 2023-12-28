@@ -182,7 +182,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         """
 
         if self.args['training']['run_mode'] == 'eval':
-            if args['training']['save_vis_results'] and self.args['training']['eval_mode'] == 'pc':
+            if self.args['training']['save_vis_results'] and self.args['training']['eval_mode'] == 'pc':
                 return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, height, width, triplets, bbox_raw
             else:
                 return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name

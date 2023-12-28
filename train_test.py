@@ -14,7 +14,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 
-from evaluator import Evaluator_PC, Evaluator_PC_Top3
+from evaluator import Evaluator, Evaluator_Top3
 from model import *
 from utils import *
 from train_utils import *
@@ -117,10 +117,10 @@ def train_local(gpu, args, train_subset, test_subset):
         connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     recall_top3, recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None, None
 
-    Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall = Evaluator(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
     Recall_top3 = None
     if args['dataset']['dataset'] == 'vg':
-        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+        Recall_top3 = Evaluator_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt')
     commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt')
@@ -325,10 +325,10 @@ def test_local(args, detr, local_predictor, test_loader, test_record, epoch, ran
 
     connectivity_recall, connectivity_precision, num_connected, num_not_connected, num_connected_pred = 0.0, 0.0, 0.0, 0.0, 0.0
     recall, mean_recall_top3, mean_recall, recall_zs, mean_recall_zs, wmap_rel, wmap_phrase = None, None, None, None, None, None, None
-    Recall = Evaluator_PC(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+    Recall = Evaluator(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
     Recall_top3 = None
     if args['dataset']['dataset'] == 'vg':
-        Recall_top3 = Evaluator_PC_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
+        Recall_top3 = Evaluator_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
     print('Start Testing PC...')
     with torch.no_grad():
