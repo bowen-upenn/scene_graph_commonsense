@@ -172,7 +172,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         # self.count_triplets(categories, relationships, subj_or_obj, bbox, curr_annot_yes, curr_annot_no)
 
         # if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
-        triplets = self.collect_triplets_clip(relationships, subj_or_obj, categories, bbox_raw)
+        # triplets = self.collect_triplets_clip(relationships, subj_or_obj, categories, bbox_raw)
 
         """
         image: the image transformed to a squared shape of size self.args['models']['image_size'] (to generate a uniform-sized image features)
@@ -274,6 +274,22 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             torch.save(self.triplets, 'triplets/testing_triplets.pt')
         # print('self.triplets', self.triplets)
+
+    def collect_triplets_clip(self, relationships, subj_or_obj):
+        # reformulate relation annots for a single image in a more efficient way
+        triplets = []
+        for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
+            for j, (rel, so) in enumerate(zip(rels, sos)):
+                bbox_sub = bbox_raw[i + 1]
+                bbox_obj = bbox_raw[j]
+
+                if so == 1:  # if subject
+                    triplets.append((tuple(bbox_sub.tolist()), rel.item(), tuple(bbox_obj.tolist()),
+                                     self.dict_object_names[categories[i + 1].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[j].item()]))
+                elif so == 0:  # if object
+                    triplets.append((tuple(bbox_obj.tolist()), rel.item(), tuple(bbox_sub.tolist()),
+                                     self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
+        return triplets
 
     def match_bbox(self, bbox_semi, bbox_raw):
         """

@@ -20,7 +20,7 @@ def process_image_features(args, images, detr, rank):
 
 def train_one_direction(args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, bbox_sub, bbox_obj, h_sub_aug, h_obj_aug, iou_mask, rank, graph_iter, edge_iter, keep_in_batch, Recall, Recall_top3,
                         prediction_model, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count, hidden_cat_accumulated, hidden_cat_labels_accumulated,
-                        commonsense_yes_triplets, commonsense_no_triplets, len_train_loader):
+                        commonsense_yes_triplets, commonsense_no_triplets, len_train_loader, first_direction=True):
 
     if args['models']['hierarchical_pred']:
         relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug \
@@ -49,12 +49,18 @@ def train_one_direction(args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_o
     loss_commonsense = (not_in_yes_dict + is_in_no_dict).mean()
 
     # evaluate on the connectivity
-    not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
+    if first_direction:
+        not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
+    else:
+        not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]
     num_not_connected = len(not_connected)
     temp = criterion_connectivity(connectivity[not_connected, 0], torch.zeros(len(not_connected)).to(rank))
     loss_connectivity = 0.0 if torch.isnan(temp) else args['training']['lambda_not_connected'] * temp
 
-    connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 1)[0]  # which data samples in curr keep_in_batch are connected
+    if first_direction:
+        connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 1)[0]  # which data samples in curr keep_in_batch are connected
+    else:
+        connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 0)[0]
     num_connected = len(connected)
     connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
     connectivity_precision = torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)
@@ -156,7 +162,7 @@ def calculate_losses_on_relationships(args, relation, super_relation, connected,
 
 
 def evaluate_one_direction(args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, bbox_sub, bbox_obj, iou_mask, rank, graph_iter, edge_iter, keep_in_batch, Recall, Recall_top3,
-                           prediction_model, relations_target, direction_target, batch_count, len_test_loader):
+                           prediction_model, relations_target, direction_target, batch_count, len_test_loader, first_direction=True):
     if args['models']['hierarchical_pred']:
         relation_1, relation_2, relation_3, super_relation, connectivity, _, _ = prediction_model(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank)
         relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
@@ -164,9 +170,13 @@ def evaluate_one_direction(args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spca
         relation, connectivity, _, _ = prediction_model(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank)
         super_relation = None
 
-    not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
+    if first_direction:
+        not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 1)[0]  # which data samples in curr keep_in_batch are not connected
+        connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 1)[0]  # which data samples in curr keep_in_batch are connected
+    else:
+        not_connected = torch.where(direction_target[graph_iter - 1][edge_iter] != 0)[0]
+        connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 0)[0]  # which data samples in curr keep_in_batch are connected
     num_not_connected = len(not_connected)
-    connected = torch.where(direction_target[graph_iter - 1][edge_iter] == 1)[0]  # which data samples in curr keep_in_batch are connected
     num_connected = len(connected)
     connected_pred = torch.nonzero(torch.sigmoid(connectivity[:, 0]) >= 0.5).flatten()
     connectivity_precision = torch.sum(relations_target[graph_iter - 1][edge_iter][connected_pred] != -1)

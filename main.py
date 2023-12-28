@@ -12,8 +12,6 @@ import argparse
 from dataset import VisualGenomeDataset, OpenImageV6Dataset
 from train_test import train_local
 from evaluate import eval_pc, eval_sgc, eval_sgd
-from downstream_tasks import image_captioning
-from graph_refine import query_clip
 
 if __name__ == "__main__":
     print('Torch', torch.__version__, 'Torchvision', torchvision.__version__)

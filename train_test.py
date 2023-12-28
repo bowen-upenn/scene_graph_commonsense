@@ -24,7 +24,7 @@ from sup_contrast.losses import SupConLoss, SupConLossHierar
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12354'
+    os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -83,12 +83,16 @@ def train_local(gpu, args, train_subset, test_subset):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            load_model_name = args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
         else:
-            local_predictor.load_state_dict(torch.load(args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth', map_location=map_location))
+            load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
+        if rank == 0:
+            print('Loading pretrained model from %s...' % load_model_name)
+        local_predictor.load_state_dict(torch.load(load_model_name, map_location=map_location))
 
-    # total_params = sum(p.numel() for p in local_predictor.parameters())
-    # print(f"Total number of parameters in the model: {total_params}")
+    if rank == 0:
+        total_params = sum(p.numel() for p in local_predictor.parameters())
+        print(f"Total number of parameters in the model: {total_params}")
 
     optimizer = optim.SGD([{'params': local_predictor.parameters(), 'initial_lr': args['training']['learning_rate']}],
                           lr=args['training']['learning_rate'], momentum=0.9, weight_decay=args['training']['weight_decay'])
@@ -202,8 +206,8 @@ def train_local(gpu, args, train_subset, test_subset):
                     curr_loss_relationship, curr_loss_connectivity, curr_loss_commonsense, curr_num_not_connected, curr_num_connected, curr_num_connected_pred, \
                     curr_connectivity_precision, curr_connectivity_recall, hidden_cat_accumulated, hidden_cat_labels_accumulated = \
                         train_one_direction(args, h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, bbox_graph, bbox_edge, h_graph_aug, h_edge_aug, iou_mask, rank, graph_iter, edge_iter,
-                                            keep_in_batch, Recall, Recall_top3, local_predictor, criterion_relationship, criterion_connectivity, relations_target, direction_target,
-                                            batch_count, hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_yes_triplets, commonsense_no_triplets, len(train_loader))
+                                            keep_in_batch, Recall, Recall_top3, local_predictor, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count,
+                                            hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_yes_triplets, commonsense_no_triplets, len(train_loader), first_direction=True)
 
                     loss_relationship += curr_loss_relationship
                     loss_connectivity += curr_loss_connectivity
@@ -227,8 +231,8 @@ def train_local(gpu, args, train_subset, test_subset):
                     curr_loss_relationship, curr_loss_connectivity, curr_loss_commonsense, curr_num_not_connected, curr_num_connected, curr_num_connected_pred, \
                     curr_connectivity_precision, curr_connectivity_recall, hidden_cat_accumulated, hidden_cat_labels_accumulated = \
                         train_one_direction(args, h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, bbox_edge, bbox_graph, h_edge_aug, h_graph_aug, iou_mask, rank, graph_iter, edge_iter,
-                                            keep_in_batch, Recall, Recall_top3, local_predictor, criterion_relationship, criterion_connectivity, relations_target, direction_target,
-                                            batch_count, hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_yes_triplets, commonsense_no_triplets, len(train_loader))
+                                            keep_in_batch, Recall, Recall_top3, local_predictor, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count,
+                                            hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_yes_triplets, commonsense_no_triplets, len(train_loader), first_direction=False)
 
                     loss_relationship += curr_loss_relationship
                     loss_connectivity += curr_loss_connectivity
@@ -298,10 +302,13 @@ def train_local(gpu, args, train_subset, test_subset):
                 connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         # train_dataset.get_triplets()
-        # if args['models']['hierarchical_pred']:
-        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'HierMotif_CS' + str(epoch) + '_' + str(rank) + '.pth')
-        # else:
-        #     torch.save(local_predictor.state_dict(), args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(epoch) + '_' + str(rank) + '.pth')
+        if args['models']['hierarchical_pred']:
+            save_model_name = args['training']['checkpoint_path'] + 'HierMotif_CS' + str(epoch) + '_' + str(rank) + '.pth'
+        else:
+            save_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(epoch) + '_' + str(rank) + '.pth'
+        if rank == 0:
+            print('Saving model to %s...' % save_model_name)
+        torch.save(local_predictor.state_dict(), save_model_name)
         dist.monitored_barrier()
 
         test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank, writer)
@@ -310,7 +317,6 @@ def train_local(gpu, args, train_subset, test_subset):
     if rank == 0:
         writer.close()
     print('FINISHED TRAINING\n')
-
 
 
 def test_local(args, detr, local_predictor, test_loader, test_record, epoch, rank, writer):
@@ -389,14 +395,14 @@ def test_local(args, detr, local_predictor, test_loader, test_record, epoch, ran
                     iou_mask = joint_iou > 0
                     if torch.sum(iou_mask) == 0:
                         continue
-                    # iou_mask = torch.ones(len(iou_mask), dtype=torch.bool).to(rank)
+                    # iou_mask = torch.ones(len(keep_in_batch), dtype=torch.bool).to(rank)
 
                     """
                     FIRST DIRECTION
                     """
                     curr_num_not_connected, curr_num_connected, curr_num_connected_pred, curr_connectivity_precision, curr_connectivity_recall = \
                         evaluate_one_direction(args, h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, bbox_graph, bbox_edge, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
-                                               Recall, Recall_top3, local_predictor, relations_target, direction_target, batch_count, len(test_loader))
+                                               Recall, Recall_top3, local_predictor, relations_target, direction_target, batch_count, len(test_loader), first_direction=True)
 
                     num_not_connected += curr_num_not_connected
                     num_connected += curr_num_connected
@@ -409,7 +415,7 @@ def test_local(args, detr, local_predictor, test_loader, test_record, epoch, ran
                     """
                     curr_num_not_connected, curr_num_connected, curr_num_connected_pred, curr_connectivity_precision, curr_connectivity_recall = \
                         evaluate_one_direction(args, h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, bbox_edge, bbox_graph, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
-                                               Recall, Recall_top3, local_predictor, relations_target, direction_target, batch_count, len(test_loader))
+                                               Recall, Recall_top3, local_predictor, relations_target, direction_target, batch_count, len(test_loader), first_direction=False)
 
                     num_not_connected += curr_num_not_connected
                     num_connected += curr_num_connected
