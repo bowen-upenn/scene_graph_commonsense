@@ -83,9 +83,11 @@ def training(gpu, args, train_subset, test_subset):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            load_model_name = args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
+            load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
+            load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
         else:
-            load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
+            load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
+            load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
         if rank == 0:
             print('Loading pretrained model from %s...' % load_model_name)
         relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))
@@ -122,8 +124,8 @@ def training(gpu, args, train_subset, test_subset):
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
-    commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt')
-    commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt')
+    commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt') if args['dataset']['run_mode'] == 'train_cs' else None
+    commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt') if args['dataset']['run_mode'] == 'train_cs' else None
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -302,9 +304,11 @@ def training(gpu, args, train_subset, test_subset):
 
         # train_dataset.get_triplets()
         if args['models']['hierarchical_pred']:
-            save_model_name = args['training']['checkpoint_path'] + 'HierMotif_CS' + str(epoch) + '_' + str(rank) + '.pth'
+            save_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
+            save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
         else:
-            save_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(epoch) + '_' + str(rank) + '.pth'
+            save_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
+            save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
         if rank == 0:
             print('Saving model to %s...' % save_model_name)
         torch.save(relation_classifier.state_dict(), save_model_name)

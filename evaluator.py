@@ -31,6 +31,7 @@ class Evaluator:
         self.result_per_class = {k: torch.tensor([0.0 for i in range(self.num_classes)]) for k in self.top_k}
         self.num_conn_target_per_class = torch.tensor([0.0 for i in range(self.num_classes)])
         self.feature_size = args['models']['feature_size']
+        self.run_mode = args['dataset']['run_mode']
 
         if args['dataset']['dataset'] == 'vg':
             self.train_triplets = torch.load(args['dataset']['train_triplets'])
@@ -63,18 +64,13 @@ class Evaluator:
         self.subject_bbox_target = None
         self.object_bbox_target = None
 
-        self.height = None
-        self.width = None
-        self.skipped = None
-        self.selected_indices = None
         self.annotation_paths = None
-
         self.cache_hits = 0
         self.total_cache_queries = 0
         self.max_cache_size = max_cache_size
         self.cache = EdgeCache(max_cache_size)
-        self.commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt')
-        self.commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt')
+        self.commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt') if self.run_mode == 'train_cs' else None
+        self.commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt') if self.run_mode == 'train_cs' else None
         self.dict_relation_names = relation_by_super_class_int2str()
         self.dict_object_names = object_class_int2str()
 
@@ -144,15 +140,13 @@ class Evaluator:
                     self.subject_bbox_target = subject_bbox_target
                     self.object_bbox_target = object_bbox_target
 
-                triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                self.confidence[not_in_yes_dict] = -math.inf
-                self.confidence[is_in_no_dict] = -math.inf
+                if self.run_mode == 'train_cs':
+                    triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    self.confidence[not_in_yes_dict] = -math.inf
+                    self.confidence[is_in_no_dict] = -math.inf
 
-                if height is not None:
-                    self.height = height
-                    self.width = width
             else:
                 self.which_in_batch = which_in_batch.repeat(3)
                 self.connectivity = connectivity.repeat(3)
@@ -186,15 +180,13 @@ class Evaluator:
                     self.subject_bbox_target = subject_bbox_target
                     self.object_bbox_target = object_bbox_target
 
-                triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                self.confidence[is_in_no_dict] = -math.inf
-                self.confidence[not_in_yes_dict] = -math.inf
+                if self.run_mode == 'train_cs':
+                    triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    self.confidence[is_in_no_dict] = -math.inf
+                    self.confidence[not_in_yes_dict] = -math.inf
 
-                if height is not None:
-                    self.height = height.repeat(3)
-                    self.width = width.repeat(3)
         else:
             if not self.hierar:     # flat relationship prediction
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch))
@@ -219,18 +211,16 @@ class Evaluator:
                     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                confidence[is_in_no_dict] = -math.inf
-                confidence[not_in_yes_dict] = -math.inf
+                if self.run_mode == 'train_cs':
+                    triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    confidence[is_in_no_dict] = -math.inf
+                    confidence[not_in_yes_dict] = -math.inf
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity))
 
-                if height is not None:
-                    self.height = torch.hstack((self.height, height))
-                    self.width = torch.hstack((self.width, width))
             else:
                 self.which_in_batch = torch.hstack((self.which_in_batch, which_in_batch.repeat(3)))
 
@@ -262,18 +252,15 @@ class Evaluator:
                     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
-                is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
-                confidence[is_in_no_dict] = -math.inf
-                confidence[not_in_yes_dict] = -math.inf
+                if self.run_mode == 'train_cs':
+                    triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    confidence[is_in_no_dict] = -math.inf
+                    confidence[not_in_yes_dict] = -math.inf
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity.repeat(3)))
-
-                if height is not None:
-                    self.height = torch.hstack((self.height, height.repeat(3)))
-                    self.width = torch.hstack((self.width, width.repeat(3)))
 
 
     def accumulate_target(self, relation_target, subject_cat_target, object_cat_target, subject_bbox_target, object_bbox_target):
@@ -294,8 +281,6 @@ class Evaluator:
         We calculate the recall scores for each image in a moving average fashion across the test dataset.
         Otherwise, uncomment the following two lines and select batch size = 1 in the config file to view the recall on each individual image.
         """
-        # self.result_dict = {20: 0.0, 50: 0.0, 100: 0.0}
-        # self.num_connected_target = 0.0
 
         recall_k_zs, recall_k_per_class_zs, mean_recall_k_zs = None, None, None
         self.confidence += self.connectivity
@@ -443,9 +428,9 @@ class Evaluator:
                 invalid_curr_image_graph = []
 
             annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top10', annot_name)
+            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k), annot_name)
             torch.save(valid_curr_image_graph, annot_path)
-            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top10', annot_name)
+            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k), annot_name)
             torch.save(invalid_curr_image_graph, annot_path)
 
         return curr_predictions, curr_image_graph
@@ -585,9 +570,6 @@ class Evaluator:
         self.object_bbox_pred = None
         self.subject_bbox_target = None
         self.object_bbox_target = None
-
-        self.height = None
-        self.width = None
 
     def clear_gpt_cache(self):
         self.cache = {}

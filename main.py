@@ -25,7 +25,7 @@ if __name__ == "__main__":
 
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description='Command line arguments')
-    parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_cs)')
+    parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_cs, train_cs, eval_cs)')
     parser.add_argument('--eval_mode', type=str, default=None, help='Override eval_mode (pc, sgc, sgd)')
     parser.add_argument('--continue_train', dest='continue_train', action='store_true', help='Set continue_train to True')
     parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
@@ -84,9 +84,10 @@ if __name__ == "__main__":
 
     print(args)
     # select training or evaluation
-    if args['training']['run_mode'] == 'train':
+    if args['training']['run_mode'] == 'train' or args['training']['run_mode'] == 'train_cs':
          mp.spawn(training, nprocs=world_size, args=(args, train_subset, test_subset))
-    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_cs':
+    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs':
+        # we have to collect commonsense-aligned and violated triplets only from the training dataset to prevent data leakage
         curr_subset = train_subset if args['training']['run_mode'] == 'prepare_cs' else test_subset
         # select evaluation mode
         if args['training']['eval_mode'] == 'pc':          # predicate classification

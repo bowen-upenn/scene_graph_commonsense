@@ -61,9 +61,11 @@ def eval_pc(gpu, args, test_subset):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
+        load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
+        load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
     relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))
@@ -254,9 +256,11 @@ def eval_sgd(gpu, args, test_subset):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
+        load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
+        load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
     relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))
@@ -484,9 +488,11 @@ def eval_sgc(gpu, args, test_subset):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = args['training']['checkpoint_path'] + 'HierMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
+        load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = args['training']['checkpoint_path'] + 'FlatMotif_CS' + str(args['training']['test_epoch']) + '_0' + '.pth'
+        load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
     relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))

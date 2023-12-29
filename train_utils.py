@@ -43,10 +43,13 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
         relation_pred = torch.argmax(relation, dim=1)
         triplets = torch.hstack((cat_sub.unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.unsqueeze(1)))
 
-    # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
-    not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-    is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-    loss_commonsense = (not_in_yes_dict + is_in_no_dict).mean()
+    if args['dataset']['run_mode'] == 'train_cs':
+        # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
+        not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+        is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+        loss_commonsense = (not_in_yes_dict + is_in_no_dict).mean()
+    else:
+        loss_commonsense = 0.0
 
     # evaluate on the connectivity
     if first_direction:

@@ -109,7 +109,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         image_aug = self.image_norm(image_aug)
         self.img_count += 1
 
-        if self.args['training']['run_mode'] == 'eval':
+        if self.args['training']['run_mode'] == 'eval' or self.args['training']['run_mode'] == 'eval_cs':
             del image_aug
             # if self.args['training']['eval_mode'] != 'pc':
             image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
@@ -181,7 +181,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         image_raw: the image transformed to tensor retaining its original shape (used in CLIP only)
         """
 
-        if self.args['training']['run_mode'] == 'eval':
+        if self.args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'eval_cs':
             if self.args['training']['save_vis_results'] and self.args['training']['eval_mode'] == 'pc':
                 return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, height, width, triplets, bbox_raw
             else:
