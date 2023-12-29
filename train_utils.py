@@ -43,7 +43,7 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
         relation_pred = torch.argmax(relation, dim=1)
         triplets = torch.hstack((cat_sub.unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.unsqueeze(1)))
 
-    if args['dataset']['run_mode'] == 'train_cs':
+    if args['training']['run_mode'] == 'train_cs':
         # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
         not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
         is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
@@ -108,7 +108,6 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
 def calculate_losses_on_relationships(args, relation, super_relation, connected, curr_relations_target, criterion_relationship, pseudo_label_mask=None, lambda_pseudo=1):
     loss_relationship = 0.0
     is_hierarchical_pred = args['models']['hierarchical_pred']
-    is_train_semi = args['training']['run_mode'] == 'train_semi'
 
     # Only proceed if there are any connected edges to evaluate
     if connected.numel() == 0:
@@ -120,14 +119,7 @@ def calculate_losses_on_relationships(args, relation, super_relation, connected,
         super_relation_target = super_relation_processing(args, connected, curr_relations_target)
 
         # Compute losses for super relationships
-        if is_train_semi:
-            # Get the mask for pseudo labels in the super relation context
-            curr_pseudo_labels = pseudo_label_mask[connected]
-            # Calculate super relation loss separately for pseudo and true labels
-            loss_pseudo, loss_true = calculate_semi_supervised_loss(super_relation[connected], super_relation_target, curr_pseudo_labels, criterion_super_relationship, lambda_pseudo)
-            loss_relationship += loss_pseudo + loss_true
-        else:
-            loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
+        loss_relationship += criterion_super_relationship(super_relation[connected], super_relation_target)
 
         # Compute sub category losses
         connected_1 = torch.nonzero(curr_relations_target[connected] < args['models']['num_geometric']).flatten()  # geometric
@@ -142,24 +134,12 @@ def calculate_losses_on_relationships(args, relation, super_relation, connected,
         )):
             connected_i = connected_sub[i]
 
-            if is_train_semi and connected_i.numel() > 0:
-                # Calculate losses for the current category
-                loss_pseudo, loss_true = calculate_semi_supervised_loss(
-                    relation[i][connected][connected_i], curr_relations_target[connected][connected_i] - offset, curr_pseudo_labels[connected_i], criterion_rel, lambda_pseudo)
-                loss_relationship += loss_pseudo + loss_true
-            elif connected_i.numel() > 0:  # Non-semi-supervised or non-empty connected indices
+            if connected_i.numel() > 0:  # Non-semi-supervised or non-empty connected indices
                 loss_relationship += criterion_rel(relation[i][connected][connected_i], curr_relations_target[connected][connected_i] - offset)
 
     # Compute losses if not using hierarchical predictions
     else:
-        if is_train_semi:
-            curr_pseudo_labels = pseudo_label_mask[connected]
-            loss_pseudo, loss_true = calculate_semi_supervised_loss(relation[connected], curr_relations_target[connected], curr_pseudo_labels, criterion_relationship, lambda_pseudo)
-            loss_relationship += loss_pseudo + loss_true
-        else:
-            # temp = criterion_relationship(relation[connected], curr_relations_target[connected])
-            # loss_relationship += 0.0 if torch.isnan(temp) else temp
-            loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
+        loss_relationship += criterion_relationship(relation[connected], curr_relations_target[connected])
 
     return loss_relationship
 

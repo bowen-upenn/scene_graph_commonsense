@@ -31,7 +31,7 @@ class Evaluator:
         self.result_per_class = {k: torch.tensor([0.0 for i in range(self.num_classes)]) for k in self.top_k}
         self.num_conn_target_per_class = torch.tensor([0.0 for i in range(self.num_classes)])
         self.feature_size = args['models']['feature_size']
-        self.run_mode = args['dataset']['run_mode']
+        self.run_mode = args['training']['run_mode']
 
         if args['dataset']['dataset'] == 'vg':
             self.train_triplets = torch.load(args['dataset']['train_triplets'])

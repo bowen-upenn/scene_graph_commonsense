@@ -40,26 +40,17 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         self.image_transform = transforms.Compose([transforms.ToTensor(),
                                                    transforms.Resize(size=600, max_size=1000, antialias=True)])
         self.image_transform_to_tensor = transforms.ToTensor()
-        self.image_transform_s = transforms.Compose([transforms.ToTensor(),
+        self.image_transform_square = transforms.Compose([transforms.ToTensor(),
                                                      transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']), antialias=True)])
-        self.image_transform_s_jitter = transforms.Compose([transforms.ToTensor(),
+        self.image_transform_square_jitter = transforms.Compose([transforms.ToTensor(),
                                                             transforms.RandomApply([
                                                                  transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
                                                             ], p=0.8),
                                                             transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']), antialias=True)])
-        self.image_transform_contrastive = TwoCropTransform(self.image_transform_s, self.image_transform_s_jitter)
-        # self.image_norm = transforms.Compose([transforms.Normalize((103.530, 116.280, 123.675), (1.0, 1.0, 1.0))])
+        self.image_transform_contrastive = TwoCropTransform(self.image_transform_square, self.image_transform_square_jitter)
         self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
 
-        # if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or args['training']['run_mode'] == 'clip_eval':
-        self.dict_relation_names = relation_by_super_class_int2str()
-        self.dict_object_names = object_class_int2str()
-
-        self.mean_num_rel = 0
-        self.mean_num_rel_semi = 0
-        self.img_count = 0
-        self.num_added_rel_semi = 0
-
+        self.train_cs_step = 1  # 1 or 2
         self.triplets_train_gt = {}
         self.triplets_train_pseudo = {}
         self.commonsense_yes_triplets = {}
@@ -84,19 +75,21 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             return None
 
-        # annot_name_yes = 'cs_aligned_top10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
-        # annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
-        # if os.path.exists(annot_name_yes):
-        #     curr_annot_yes = torch.load(annot_name_yes)
-        # else:
-        #     return None
-        # annot_name_no = 'cs_violated_top10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
-        # annot_name_no = os.path.join(self.annot_dir, annot_name_no)
-        # if os.path.exists(annot_name_no):
-        #     curr_annot_no = torch.load(annot_name_no)
-        # else:
-        #     return None
-        # # print(annot_name_yes, annot_name_no)
+        if self.args['training']['run_mode'] == 'prepare_cs' and self.train_cs_step == 2:
+            # load saved commonsense-aligned and violated triplets for each current image
+            annot_name_yes = 'cs_aligned_top10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+            annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
+            if os.path.exists(annot_name_yes):
+                curr_annot_yes = torch.load(annot_name_yes)
+            else:
+                return None
+            annot_name_no = 'cs_violated_top10/' + self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
+            annot_name_no = os.path.join(self.annot_dir, annot_name_no)
+            if os.path.exists(annot_name_no):
+                curr_annot_no = torch.load(annot_name_no)
+            else:
+                return None
+            # print(annot_name_yes, annot_name_no)
 
         image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
         image = cv2.imread(image_path)
@@ -107,7 +100,6 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         image, image_aug = image[0], image[1]
         image = self.image_norm(image)  # squared size that unifies the size of feature maps
         image_aug = self.image_norm(image_aug)
-        self.img_count += 1
 
         if self.args['training']['run_mode'] == 'eval' or self.args['training']['run_mode'] == 'eval_cs':
             del image_aug
@@ -115,24 +107,9 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
             image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
             image_nonsq = self.image_norm(image_nonsq)
-            # else:
-            #     image_raw = Image.open(image_path).convert('RGB')
-            #     image_raw = self.image_transform_s(image_raw)
-        elif self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
-            del image_aug
-            if self.args['training']['eval_mode'] != 'pc':
-                image_nonsq = Image.open(image_path).convert('RGB')  # keep original shape ratio, not reshaped to square
-                image_nonsq = 255 * self.image_transform(image_nonsq)[[2, 1, 0]]  # BGR
-                image_nonsq = self.image_norm(image_nonsq)
-            image_raw = Image.open(image_path).convert('RGB')
-            image_raw = self.image_transform_to_tensor(image_raw)
 
-        if self.args['models']['use_depth']:
-            image_depth = curr_annot['image_depth']
-        else:
-            image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
-        # image_aug = None
-        # image_depth = None
+        image_depth = curr_annot['image_depth'] if self.args['models']['use_depth'] \
+            else torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])
 
         categories = curr_annot['categories']
         super_categories = curr_annot['super_categories']
@@ -156,23 +133,10 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         for rel in relationships:
             rel[rel == 12] = 4      # wearing <- wears
             relationships_reordered.append(rel_reorder_dict[rel])
-            self.mean_num_rel += len(rel[rel != -1])
         relationships = relationships_reordered
 
-        if self.args['training']['run_mode'] == 'train_semi' and self.training:
-            pseudo_label_mask = [torch.zeros(i, dtype=torch.bool) for i in range(1, len(categories))]
-            # print('relationships before', relationships)
-            relationships, subj_or_obj, pseudo_label_mask = self.integrate_pseudo_labels(relationships, subj_or_obj, curr_annot_semi, bbox, pseudo_label_mask)
-            # self.mean_num_rel_semi += self.num_added_rel_semi
-            # print('relationships after', relationships, '\n')
-            for rel in relationships:
-                self.mean_num_rel_semi += len(rel[rel != -1])
-
-        # self.count_triplets(categories, relationships, subj_or_obj, pseudo_label_mask)
-        # self.count_triplets(categories, relationships, subj_or_obj, bbox, curr_annot_yes, curr_annot_no)
-
-        # if self.args['training']['run_mode'] == 'clip_zs' or self.args['training']['run_mode'] == 'clip_train' or self.args['training']['run_mode'] == 'clip_eval':
-        # triplets = self.collect_triplets_clip(relationships, subj_or_obj, categories, bbox_raw)
+        if self.args['training']['run_mode'] == 'prepare_cs' and self.train_cs_step == 2:
+            self.accumulate_triplets(categories, relationships, subj_or_obj, bbox, curr_annot_yes, curr_annot_no)
 
         """
         image: the image transformed to a squared shape of size self.args['models']['image_size'] (to generate a uniform-sized image features)
@@ -181,7 +145,7 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         image_raw: the image transformed to tensor retaining its original shape (used in CLIP only)
         """
 
-        if self.args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'eval_cs':
+        if self.args['training']['run_mode'] == 'eval' or self.args['training']['run_mode'] == 'eval_cs':
             if self.args['training']['save_vis_results'] and self.args['training']['eval_mode'] == 'pc':
                 return image, image_nonsq, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name, height, width, triplets, bbox_raw
             else:
@@ -189,24 +153,13 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         else:
             return image, image_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_name
 
-    def calculate_mean_num_rel_before_after_semi(self):
-        # Print current state of relevant variables for debugging purposes.
-        print('Mean_num_rel:', self.mean_num_rel,
-              'mean_num_rel_semi:', self.mean_num_rel_semi,
-              'img_count:', self.img_count,
-              'num_added_rel_semi:', self.num_added_rel_semi)
 
-        # Calculate the mean number of relationships before and after a semi-colon.
-        mean_num_rel = self.mean_num_rel / self.img_count if self.img_count else 0
-        mean_num_rel_semi = self.mean_num_rel_semi / self.img_count if self.img_count else 0
-
-        # Reset the counts after calculation to be ready for next calculation cycle.
-        self.mean_num_rel, self.mean_num_rel_semi, self.img_count, self.num_added_rel_semi = 0, 0, 0, 0
-
-        # Return the calculated means.
-        return mean_num_rel, mean_num_rel_semi
-
-    def count_triplets(self, categories, relationships, subj_or_obj, bbox, annot_name_yes, annot_name_no):
+    def accumulate_triplets(self, categories, relationships, subj_or_obj, bbox, annot_name_yes, annot_name_no):
+        """
+        This function is called iff run_mode == 'prepare_cs' and train_cs_step == 2
+        It accumulates all the commonsense-aligned and violated triplets for each current image
+        by gradually adding triplets into two dictionaries named self.commonsense_yes_triplets and self.commonsense_no_triplets during the inference
+        """
         for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
             for j, (rel, so) in enumerate(zip(rels, sos)):
                 if so == 1:  # if subject
@@ -225,8 +178,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             subject_bbox, relation_id, object_bbox, _, _ = edge
 
             # Match bbox for subject and object
-            subject_idx = self.match_bbox(subject_bbox, bbox)
-            object_idx = self.match_bbox(object_bbox, bbox)
+            subject_idx = match_bbox(subject_bbox, bbox, args['training']['eval_mode'])
+            object_idx = match_bbox(object_bbox, bbox, args['training']['eval_mode'])
             if subject_idx == object_idx:
                 continue
 
@@ -241,8 +194,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             subject_bbox, relation_id, object_bbox, _, _ = edge
 
             # Match bbox for subject and object
-            subject_idx = self.match_bbox(subject_bbox, bbox)
-            object_idx = self.match_bbox(object_bbox, bbox)
+            subject_idx = match_bbox(subject_bbox, bbox, args['training']['eval_mode'])
+            object_idx = match_bbox(object_bbox, bbox, args['training']['eval_mode'])
             if subject_idx == object_idx:
                 continue
 
@@ -253,232 +206,27 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
                     self.commonsense_no_triplets[key] = 0
                 self.commonsense_no_triplets[key] += 1
 
-    def get_triplets(self):
-        if self.training:
-            # add ground truth annotations to the commonsense_yes_triplets
-            for k, v, in self.triplets_train_gt.items():
-                if k not in self.commonsense_yes_triplets.keys():
-                    self.commonsense_yes_triplets[k] = v
-                else:
-                    self.commonsense_yes_triplets[k] += v
-            # remove ground truth annotations from the commonsense_no_triplets
-            self.commonsense_no_triplets = {k: v for k, v in self.commonsense_no_triplets.items() if k not in self.triplets_train_gt.keys()}
-            print(len(self.triplets_train_gt), len(self.commonsense_no_triplets), len(self.commonsense_yes_triplets))
-            # torch.save(self.triplets, 'training_triplets.pt')
-            torch.save(self.commonsense_no_triplets, 'triplets/commonsense_no_triplets_no_reasoning.pt')
-            torch.save(self.commonsense_yes_triplets, 'triplets/commonsense_yes_triplets_no_reasoning.pt')
-            # # print(len(self.triplets), len(self.triplets_train_gt), len(self.triplets_train_pseudo))
-            # # torch.save(self.triplets, 'training_triplets.pt')
-            # torch.save(self.triplets_train_gt, 'triplets/training_triplets_gt.pt')
-            # torch.save(self.triplets_train_pseudo, 'training_triplets_pseudo.pt')
-        else:
-            torch.save(self.triplets, 'triplets/testing_triplets.pt')
-        # print('self.triplets', self.triplets)
 
-    def collect_triplets_clip(self, relationships, subj_or_obj):
-        # reformulate relation annots for a single image in a more efficient way
-        triplets = []
-        for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
-            for j, (rel, so) in enumerate(zip(rels, sos)):
-                bbox_sub = bbox_raw[i + 1]
-                bbox_obj = bbox_raw[j]
-
-                if so == 1:  # if subject
-                    triplets.append((tuple(bbox_sub.tolist()), rel.item(), tuple(bbox_obj.tolist()),
-                                     self.dict_object_names[categories[i + 1].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[j].item()]))
-                elif so == 0:  # if object
-                    triplets.append((tuple(bbox_obj.tolist()), rel.item(), tuple(bbox_sub.tolist()),
-                                     self.dict_object_names[categories[j].item()] + ' ' + self.dict_relation_names[rel.item()] + ' ' + self.dict_object_names[categories[i + 1].item()]))
-        return triplets
-
-    def match_bbox(self, bbox_semi, bbox_raw):
+    def save_all_triplets(self):
         """
-        Returns the index of the bounding box from bbox_raw that most closely matches the pseudo bbox.
+        This function is called iff run_mode == 'prepare_cs' and train_cs_step == 2
+        It saves the two dictionaries named self.commonsense_yes_triplets and self.commonsense_no_triplets as two .pt files at the end of the inference
         """
-        if self.args['training']['eval_mode'] == 'pc':
-            for idx, bbox in enumerate(bbox_raw):
-                if torch.sum(torch.abs(bbox - torch.as_tensor(bbox_semi))) == 0:
-                    return idx
-            return None
-        else:
-            ious = self.calculate_iou_for_all(bbox_semi, bbox_raw)
-            return torch.argmax(ious).item()
-
-    def calculate_iou_for_all(self, box1, boxes):
-        """
-        Calculate the Intersection over Union (IoU) of a bounding box with a set of bounding boxes.
-        """
-        x1 = torch.max(box1[0], boxes[:, 0])
-        y1 = torch.max(box1[1], boxes[:, 1])
-        x2 = torch.min(box1[2], boxes[:, 2])
-        y2 = torch.min(box1[3], boxes[:, 3])
-
-        inter_area = torch.clamp(x2 - x1 + 1, 0) * torch.clamp(y2 - y1 + 1, 0)
-
-        box1_area = (box1[2] - box1[0] + 1) * (box1[3] - box1[1] + 1)
-        boxes_area = (boxes[:, 2] - boxes[:, 0] + 1) * (boxes[:, 3] - boxes[:, 1] + 1)
-
-        union_area = box1_area + boxes_area - inter_area
-
-        return inter_area / union_area
-
-    def load_one_image(self, file_name=None, idx=None, return_annot=False):
-        # only return the image for inference
-        if not return_annot:
-            if file_name is not None:
-                image_path = file_name
-                image = cv2.imread(image_path)
+        # add ground truth annotations to the commonsense_yes_triplets
+        for k, v, in self.triplets_train_gt.items():
+            if k not in self.commonsense_yes_triplets.keys():
+                self.commonsense_yes_triplets[k] = v
             else:
-                image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-                image = cv2.imread(image_path)
+                self.commonsense_yes_triplets[k] += v
+        # remove ground truth annotations from the commonsense_no_triplets
+        self.commonsense_no_triplets = {k: v for k, v in self.commonsense_no_triplets.items() if k not in self.triplets_train_gt.keys()}
 
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            image = 255 * self.image_transform_s(image)
-            image = self.image_norm(image)
-            return image
+        print('len(self.triplets_train_gt), len(self.commonsense_no_triplets), len(self.commonsense_yes_triplets)',
+              len(self.triplets_train_gt), len(self.commonsense_no_triplets), len(self.commonsense_yes_triplets))
+        print('Saving triplets/commonsense_no_triplets_no_reasoning.pt and triplets/commonsense_yes_triplets_no_reasoning.pt')
+        torch.save(self.commonsense_no_triplets, 'triplets/commonsense_no_triplets.pt')
+        torch.save(self.commonsense_yes_triplets, 'triplets/commonsense_yes_triplets.pt')
 
-        # return the image and image annotations
-        else:
-            if id is not None:
-                annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
-                annot_path = os.path.join(self.annot_dir, annot_name)
-            else:
-                annot_path = os.path.join(self.annot_dir, file_name)
-            try:
-                curr_annot = torch.load(annot_path)
-            except:
-                return None
-
-            image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-            images = cv2.imread(image_path)
-
-            images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
-            images = 255 * self.image_transform_s(images)
-            images = self.image_norm(images)
-
-            image_depth = curr_annot['image_depth']
-            categories = curr_annot['categories']
-            super_categories = curr_annot['super_categories']
-            if categories.shape[0] <= 1:
-                return None
-            bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
-
-            subj_or_obj = curr_annot['subj_or_obj']
-            relationships = curr_annot['relationships']
-            relationships_reordered = []
-            rel_reorder_dict = relation_class_freq2scat()
-            for rel in relationships:
-                rel[rel == 12] = 4      # wearing <- wears
-                relationships_reordered.append(rel_reorder_dict[rel])
-            relationships = relationships_reordered
-
-            # # reformulate relation annots for a single image in a more efficient way
-            # triplets = []
-            # for i, (rels, sos) in enumerate(zip(relationships, subj_or_obj)):
-            #     for j, (rel, so) in enumerate(zip(rels, sos)):
-            #         if so == 1:  # if subject
-            #             triplets.append([categories[i + 1].item(), rel.item(), categories[j].item()])
-            #         elif so == 0:  # if object
-            #             triplets.append([categories[j].item(), rel.item(), categories[i + 1].item()])
-
-            # print('categories', categories)
-            # print('triplets', triplets)
-
-            return (images,), (image_path,), (image_depth,), (categories,), (super_categories,), (bbox,), (relationships,), (subj_or_obj,)
-
-    def __len__(self):
-        return len(self.annotations['images'])
-
-
-class VisualGenomeDatasetEfficient(torch.utils.data.Dataset):
-    def __init__(self, args, device, annotations):
-        self.args = args
-        self.device = device
-        self.image_dir = self.args['dataset']['image_dir']
-        self.annot_dir = self.args['dataset']['annot_dir']
-        self.subset_indices = None
-        with open(annotations) as f:
-            self.annotations = json.load(f)
-        self.image_transform_to_tensor = transforms.ToTensor()
-        self.image_transform = transforms.Compose([transforms.ToTensor(),
-                                                     transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
-
-        self.image_transform_jitter = transforms.Compose([transforms.ToTensor(),
-                                                   transforms.RandomApply([
-                                                        transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
-                                                   ], p=0.8),
-                                                   transforms.Resize((self.args['models']['image_size'], self.args['models']['image_size']))])
-        self.image_norm = transforms.Compose([transforms.Normalize((102.9801, 115.9465, 122.7717), (1.0, 1.0, 1.0))])
-
-    def __getitem__(self, idx):
-        """
-        Dataloader Outputs:
-            image: an image in the Visual Genome dataset (to predict bounding boxes and labels in DETR-101)
-            image_s: an image in the Visual Genome dataset resized to a square shape (to generate a uniform-sized image features)
-            image_depth: the estimated image depth map
-            categories: categories of all objects in the image
-            super_categories: super-categories of all objects in the image
-            masks: squared masks of all objects in the image
-            bbox: bounding boxes of all objects in the image
-            relationships: all target relationships in the image
-            subj_or_obj: the edge directions of all target relationships in the image
-        """
-        annot_name = self.annotations['images'][idx]['file_name'][:-4] + '_annotations.pkl'
-        annot_path = os.path.join(self.annot_dir, annot_name)
-        try:
-            curr_annot = torch.load(annot_path)
-        except:
-            return None
-
-        image_path = os.path.join(self.image_dir, self.annotations['images'][idx]['file_name'])
-
-        image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = 255 * self.image_transform(image)
-        image = self.image_norm(image)  # original size that produce better bounding boxes
-
-        if self.args['models']['use_depth']:
-            image_depth = curr_annot['image_depth']
-        else:
-            image_depth = torch.zeros(1, self.args['models']['feature_size'], self.args['models']['feature_size'])    # ablation no depth map
-
-        categories = curr_annot['categories']
-        super_categories = curr_annot['super_categories']
-        masks = curr_annot['masks']
-        # total in train: 60548, >20: 2651, >30: 209, >40: 23, >50: 4. Don't let rarely long data dominate the computation power.
-        if masks.shape[0] <= 1 or masks.shape[0] > 30: # 25
-            return None
-        bbox = curr_annot['bbox']   # x_min, x_max, y_min, y_max
-
-        subj_or_obj = curr_annot['subj_or_obj']
-        relationships = curr_annot['relationships']
-        relationships_reordered = []
-        rel_reorder_dict = relation_class_freq2scat()
-        for rel in relationships:
-            rel[rel == 12] = 4      # wearing <- wears
-            relationships_reordered.append(rel_reorder_dict[rel])
-        relationships = relationships_reordered
-
-        triplets = []
-        for i in range(len(categories)):
-            for j in range(i):
-                if subj_or_obj[i-1][j] == 1:
-                    triplets.append([categories[i], super_categories[i], bbox[i], masks[i], relationships[i-1][j],
-                                     categories[j], super_categories[j], bbox[j], masks[j]])
-                elif subj_or_obj[i-1][j] == 0:
-                    triplets.append([categories[j], super_categories[j], bbox[j], masks[j], relationships[i-1][j],
-                                     categories[i], super_categories[i], bbox[i], masks[i]])
-                else:
-                    continue    # no relationship in the annotation
-
-        if len(triplets) == 0:
-            return None
-        # print("triplets", triplets, "\n")
-
-        return image, image_depth, triplets
-
-    def __len__(self):
-        return len(self.annotations['images'])
 
 
 class PrepareOpenImageV6Dataset(torch.utils.data.Dataset):

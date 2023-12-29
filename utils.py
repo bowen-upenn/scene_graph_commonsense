@@ -201,6 +201,39 @@ def process_super_class(s1, s2, num_super_classes, rank):
     return sc1, sc2
 
 
+def match_bbox(bbox_semi, bbox_raw, eval_mode):
+    """
+    Returns the index of the bounding box from bbox_raw that most closely matches the pseudo bbox.
+    """
+    if eval_mode == 'pc':
+        for idx, bbox in enumerate(bbox_raw):
+            if torch.sum(torch.abs(bbox - torch.as_tensor(bbox_semi))) == 0:
+                return idx
+        return None
+    else:
+        ious = calculate_iou_for_all(bbox_semi, bbox_raw)
+        return torch.argmax(ious).item()
+
+
+def calculate_iou_for_all(box1, boxes):
+    """
+    Calculate the Intersection over Union (IoU) of a bounding box with a set of bounding boxes.
+    """
+    x1 = torch.max(box1[0], boxes[:, 0])
+    y1 = torch.max(box1[1], boxes[:, 1])
+    x2 = torch.min(box1[2], boxes[:, 2])
+    y2 = torch.min(box1[3], boxes[:, 3])
+
+    inter_area = torch.clamp(x2 - x1 + 1, 0) * torch.clamp(y2 - y1 + 1, 0)
+
+    box1_area = (box1[2] - box1[0] + 1) * (box1[3] - box1[1] + 1)
+    boxes_area = (boxes[:, 2] - boxes[:, 0] + 1) * (boxes[:, 3] - boxes[:, 1] + 1)
+
+    union_area = box1_area + boxes_area - inter_area
+
+    return inter_area / union_area
+
+
 def get_num_each_class():  # number of training data in total for each relationship class
     return torch.tensor([712432, 277943, 251756, 146339, 136099, 96589, 66425, 47342, 42722,
                          41363, 22596, 18643, 15457, 14185, 13715, 10191, 9903, 9894, 9317, 9145, 8856,

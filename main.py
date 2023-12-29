@@ -80,22 +80,31 @@ if __name__ == "__main__":
     test_subset_idx = torch.randperm(len(test_dataset))[:int(args['dataset']['percent_test'] * len(test_dataset))]
     test_subset = Subset(test_dataset, test_subset_idx)
     print('num of train, test:', len(train_subset), len(test_subset))
-    # triplets = torch.load('/tmp/datasets/vg_scene_graph_annot/zero_shot_splits.json')
 
     print(args)
     # select training or evaluation
     if args['training']['run_mode'] == 'train' or args['training']['run_mode'] == 'train_cs':
          mp.spawn(training, nprocs=world_size, args=(args, train_subset, test_subset))
-    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs':
-        # we have to collect commonsense-aligned and violated triplets only from the training dataset to prevent data leakage
-        curr_subset = train_subset if args['training']['run_mode'] == 'prepare_cs' else test_subset
+
+    elif args['training']['run_mode'] == 'prepare_cs':
+        """ 
+        we have to collect commonsense-aligned and violated triplets only from the training dataset to prevent data leakage
+        the process is divided into two steps to avoid unexpected interrupts from OpenAI API connections
+        the first step requires model inference, but the second step only requires calling the __getitem__ function in dataloader
+        """
+        # step 1: collect and save commonsense-aligned and violated triplets on the current baseline model for each image
+        mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 1))
+        # step 2: rerun it again but to accumulate all collected triplets from the two sets and save them into two .pt files
+        mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 2))
+
+    elif args['training']['run_mode'] == 'eval' or args['training']['run_mode'] == 'eval_cs':
         # select evaluation mode
-        if args['training']['eval_mode'] == 'pc':          # predicate classification
-            mp.spawn(eval_pc, nprocs=world_size, args=(args, curr_subset))
-        elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':       # scene graph classification
-            mp.spawn(eval_sgc, nprocs=world_size, args=(args, curr_subset))
-        elif args['training']['eval_mode'] == 'sgd' and args['dataset']['dataset'] == 'vg':       # scene graph detection
-            mp.spawn(eval_sgd, nprocs=world_size, args=(args, curr_subset))
+        if args['training']['eval_mode'] == 'pc':    # predicate classification
+            mp.spawn(eval_pc, nprocs=world_size, args=(args, test_subset))
+        elif args['training']['eval_mode'] == 'sgc' and args['dataset']['dataset'] == 'vg':     # scene graph classification
+            mp.spawn(eval_sgc, nprocs=world_size, args=(args, test_subset))
+        elif args['training']['eval_mode'] == 'sgd' and args['dataset']['dataset'] == 'vg':     # scene graph detection
+            mp.spawn(eval_sgd, nprocs=world_size, args=(args, test_subset))
         else:
             print('Invalid arguments or not implemented.')
     else:

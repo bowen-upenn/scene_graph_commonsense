@@ -124,8 +124,8 @@ def training(gpu, args, train_subset, test_subset):
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
-    commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt') if args['dataset']['run_mode'] == 'train_cs' else None
-    commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt') if args['dataset']['run_mode'] == 'train_cs' else None
+    commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
+    commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -302,16 +302,15 @@ def training(gpu, args, train_subset, test_subset):
             running_losses, running_loss_connectivity, running_loss_relationship, running_loss_contrast, running_loss_commonsense, \
                 connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-        # train_dataset.get_triplets()
-        if args['models']['hierarchical_pred']:
-            save_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
-            save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
-        else:
-            save_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
-            save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
-        if rank == 0:
-            print('Saving model to %s...' % save_model_name)
-        torch.save(relation_classifier.state_dict(), save_model_name)
+        # if args['models']['hierarchical_pred']:
+        #     save_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
+        #     save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
+        # else:
+        #     save_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
+        #     save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
+        # if rank == 0:
+        #     print('Saving model to %s...' % save_model_name)
+        # torch.save(relation_classifier.state_dict(), save_model_name)
         dist.monitored_barrier()
 
         testing(args, detr, relation_classifier, test_loader, test_record, epoch, rank, writer)
