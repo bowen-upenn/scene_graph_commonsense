@@ -9,7 +9,7 @@ import json
 import torch.multiprocessing as mp
 import argparse
 
-from dataset import VisualGenomeDataset, OpenImageV6Dataset
+from dataloader import VisualGenomeDataset, OpenImageV6Dataset
 from train_test import training
 from evaluate import eval_pc, eval_sgc, eval_sgd
 
