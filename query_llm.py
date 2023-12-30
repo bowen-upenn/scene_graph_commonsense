@@ -78,7 +78,7 @@ def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=4, cache_hits
 
 
 def _batch_query_openai_gpt_instruct(predicted_edges, verbose=False):
-    openai.api_key_path = 'openai_key_bw.txt'
+    openai.api_key_path = 'openai_key.txt'
     responses = torch.ones(len(predicted_edges)) * -1
 
     prompts = []
