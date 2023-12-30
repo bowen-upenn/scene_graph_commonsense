@@ -52,7 +52,7 @@ Please check [requirements.txt](requirements.txt). You can run the following com
 
   ### To set the dataset:
   set ```dataset: 'vg'``` in [config.yaml](config.yaml) to run experiments on the [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) dataset (recommended),  
-  or set ```dataset: 'oiv6'``` in [config.yaml](config.yaml) to choose the [OpenImage V6](https://storage.googleapis.com/openimages/web/download.html) dataset.
+  or set ```dataset: 'oiv6'``` in [config.yaml](config.yaml) to choose the [OpenImage V6](https://storage.googleapis.com/openimages/web/download.html) dataset (limited supports).
 
   ### To train the model on Visual Genome:
 
