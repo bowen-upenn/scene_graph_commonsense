@@ -72,10 +72,13 @@ Please check [requirements.txt](requirements.txt). You can run the following com
   ### To run the commonsense validation pipeline:
   So far, we have trained a baseline relationship classification model as an ablation study. 
   The commonsense validation pipeline will involve three steps: 
-  1. prepare_cs, which collects commonsense-aligned and violated sets from the large language model, OpenAI GPT3.5-turbo-instruct. Please add a ```openai_key.txt``` file to your top directory, follow [OpenAI instructions](https://platform.openai.com/docs/quickstart?context=python) to set up your OpenAI API, 
+  1. ```prepare_cs```, which collects commonsense-aligned and violated sets from the large language model, OpenAI GPT3.5-turbo-instruct. Please add a ```openai_key.txt``` file to your top directory, follow [OpenAI instructions](https://platform.openai.com/docs/quickstart?context=python) to set up your OpenAI API, 
 and copy and paste your [API key](https://platform.openai.com/api-keys) into your txt file.
-  2. train_cs, which re-trains the relationship classification model. 
-  3. eval_cs, which evaluates the re-trained relationship classification model, and you have the options to set --eval_mode as pc, sgc, or sgd.
+You can skip this step by leveraging the provided [triplets/commonsense_aligned_triplets.pt](triplets/commonsense_aligned_triplets.pt) and [triplets/commonsense_violated_triplets.pt](triplets/commonsense_violated_triplets.pt). 
+These two sets are collected based on our baseline relationship classification model trained on Visual Genome for three epochs. 
+We strongly suggest running the ```prepare_cs``` yourself if you are using a different model.
+  2. ```train_cs```, which re-trains the relationship classification model. 
+  3. ```eval_cs```, which evaluates the re-trained relationship classification model, and you have the options to set --eval_mode as pc, sgc, or sgd.
 
     python main.py --run_mode prepare_cs --eval_mode pc --hierar
     python main.py --run_mode train_cs --eval_mode pc --hierar
