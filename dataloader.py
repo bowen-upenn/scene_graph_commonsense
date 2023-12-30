@@ -321,3 +321,4 @@ class OpenImageV6Dataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.annotations)
+

@@ -774,3 +774,4 @@ class Evaluator_Top3:
         self.object_bbox_pred = None
         self.subject_bbox_target = None
         self.object_bbox_target = None
+

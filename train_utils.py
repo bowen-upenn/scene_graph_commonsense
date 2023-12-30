@@ -181,3 +181,4 @@ def evaluate_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat
                                    cat_sub, cat_obj, cat_sub, cat_obj, bbox_sub, bbox_obj, bbox_sub, bbox_obj, iou_mask)
 
     return num_not_connected, num_connected, num_connected_pred, connectivity_precision, connectivity_recall
+

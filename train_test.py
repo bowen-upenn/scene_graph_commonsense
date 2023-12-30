@@ -452,3 +452,4 @@ def testing(args, detr, relation_classifier, test_loader, test_record, epoch, ra
                 dist.monitored_barrier()
 
     print('FINISHED EVALUATING\n')
+

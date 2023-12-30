@@ -143,3 +143,4 @@ def _batch_query_openai_gpt_instruct(predicted_edges, verbose=False):
             responses[i] = -1
 
     return responses
+

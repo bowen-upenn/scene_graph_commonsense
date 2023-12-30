@@ -693,3 +693,4 @@ def eval_sgc(gpu, args, test_subset):
 
     dist.monitored_barrier()
     print('FINISHED TESTING SGC\n')
+

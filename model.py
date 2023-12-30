@@ -181,3 +181,4 @@ class BayesianRelationClassifier(nn.Module):
         relation_3 = F.log_softmax(relation_3 / self.T3, dim=1) + super_relation[:, 2].view(-1, 1)
 
         return relation_1, relation_2, relation_3, super_relation, connectivity, pred, pred_aug
+
