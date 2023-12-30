@@ -12,9 +12,10 @@ To summarize our contributions:
 4. We show that these techniques can also be used to enhance the performance of other existing scene graph generation algorithms.
 
 ## TODOs
-1. Clean up the codes for efficient single-image inference.
-2. Clean up the codes for integrating the Bayesian classification head into other scene graph generation algorithms, starting from a common [code framework](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
-3. Clean up the codes for running experiments on the OpenImage V6 dataset.
+1. Release pretrained model weights.
+2. Clean up the codes for efficient single-image inference.
+3. Clean up the codes for integrating the Bayesian classification head into other scene graph generation algorithms, starting from a common [code framework](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
+4. Clean up the codes for running experiments on the OpenImage V6 dataset.
 
 ## Dependencies
 Please check [requirements.txt](requirements.txt). You can run the following commands to create a virtual environment and install all the requirements:
@@ -35,8 +36,8 @@ Please check [requirements.txt](requirements.txt). You can run the following com
 
   - DETR-101 object detection module pretrained on Visual Genome: https://drive.google.com/file/d/1fnTP1VXhFzwPFLYqQAEtjuENg2nQUFJ_/view?usp=sharing
   - DETR-101 object detection module pretrained on OpenImage V6: https://drive.google.com/file/d/1WgssZUXkSU1SKXHRNuBG35iGd5I-00QB/view?usp=sharing
-  - Local prediction module trained on Visual Genome for three epoches: https://drive.google.com/file/d/1U5X3jn3iM8PM1oNcn5-PsCU9AqCCXB9J/view?usp=sharing
-  - Local prediction module trained on OpenImage V6 for one epoch: https://drive.google.com/file/d/1OxM97iE9hm4OWOIZPc8suW5hxkQSqWfg/view?usp=sharing
+  - Baseline relation classification model trained on Visual Genome for three epochs: 
+  - [Final] Retrained relation classification model on Visual Genome for three epochs after running the commonsense validation pipeline: 
 
 ## Quick Start
   All hyper-parameters are listed in the [config.yaml](config.yaml) file.
