@@ -69,8 +69,8 @@ class Evaluator:
         self.total_cache_queries = 0
         self.max_cache_size = max_cache_size
         self.cache = EdgeCache(max_cache_size)
-        self.commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt') if self.run_mode == 'train_cs' else None
-        self.commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt') if self.run_mode == 'train_cs' else None
+        self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if self.run_mode == 'train_cs' else None
+        self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if self.run_mode == 'train_cs' else None
         self.dict_relation_names = relation_by_super_class_int2str()
         self.dict_object_names = object_class_int2str()
 
@@ -142,8 +142,8 @@ class Evaluator:
 
                 if self.run_mode == 'train_cs':
                     triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
-                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
                     self.confidence[not_in_yes_dict] = -math.inf
                     self.confidence[is_in_no_dict] = -math.inf
 
@@ -182,8 +182,8 @@ class Evaluator:
 
                 if self.run_mode == 'train_cs':
                     triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
-                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
                     self.confidence[is_in_no_dict] = -math.inf
                     self.confidence[not_in_yes_dict] = -math.inf
 
@@ -213,8 +213,8 @@ class Evaluator:
 
                 if self.run_mode == 'train_cs':
                     triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
-                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
                     confidence[is_in_no_dict] = -math.inf
                     confidence[not_in_yes_dict] = -math.inf
 
@@ -254,8 +254,8 @@ class Evaluator:
 
                 if self.run_mode == 'train_cs':
                     triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
-                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_no_triplets for i in range(len(triplets))], device=self.confidence.device)
-                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_yes_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
+                    not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
                     confidence[is_in_no_dict] = -math.inf
                     confidence[not_in_yes_dict] = -math.inf
 
@@ -409,29 +409,26 @@ class Evaluator:
                     break
 
         if len(curr_image_graph) > 0:
-            if self.args['training']['common_sense']:
-                responses, cache_hits = batch_query_openai_gpt(curr_predictions, self.cache, cache_hits=self.cache_hits)
+            responses, cache_hits = batch_query_openai_gpt(curr_predictions, self.cache, cache_hits=self.cache_hits)
 
-                # calculate cache hit percentage
-                self.cache_hits = cache_hits
-                self.total_cache_queries += len(curr_predictions)
+            # calculate cache hit percentage
+            self.cache_hits = cache_hits
+            self.total_cache_queries += len(curr_predictions)
 
-                valid_curr_image_graph = []
-                invalid_curr_image_graph = []
-                for i, response in enumerate(responses):
-                    if response == 1:
-                        valid_curr_image_graph.append(curr_image_graph[i])
-                    else:
-                        invalid_curr_image_graph.append(curr_image_graph[i])
-            else:
-                valid_curr_image_graph = curr_image_graph
-                invalid_curr_image_graph = []
+            valid_curr_image_graph = []
+            invalid_curr_image_graph = []
+            for i, response in enumerate(responses):
+                if response == 1:
+                    valid_curr_image_graph.append(curr_image_graph[i])
+                else:
+                    invalid_curr_image_graph.append(curr_image_graph[i])
 
             annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
             annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k), annot_name)
-            torch.save(valid_curr_image_graph, annot_path)
+            # torch.save(valid_curr_image_graph, annot_path)
             annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k), annot_name)
-            torch.save(invalid_curr_image_graph, annot_path)
+            # torch.save(invalid_curr_image_graph, annot_path)
+            print("Saving annotations", annot_name)
 
         return curr_predictions, curr_image_graph
 

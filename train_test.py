@@ -124,8 +124,8 @@ def training(gpu, args, train_subset, test_subset):
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
-    commonsense_yes_triplets = torch.load('triplets/commonsense_yes_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
-    commonsense_no_triplets = torch.load('triplets/commonsense_no_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
+    commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
+    commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -208,7 +208,7 @@ def training(gpu, args, train_subset, test_subset):
                     curr_connectivity_precision, curr_connectivity_recall, hidden_cat_accumulated, hidden_cat_labels_accumulated = \
                         train_one_direction(relation_classifier, args, h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, bbox_graph, bbox_edge, h_graph_aug, h_edge_aug, iou_mask, rank, graph_iter, edge_iter,
                                             keep_in_batch, Recall, Recall_top3, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count,
-                                            hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_yes_triplets, commonsense_no_triplets, len(train_loader), first_direction=True)
+                                            hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_aligned_triplets, commonsense_violated_triplets, len(train_loader), first_direction=True)
 
                     loss_relationship += curr_loss_relationship
                     loss_connectivity += curr_loss_connectivity
@@ -233,7 +233,7 @@ def training(gpu, args, train_subset, test_subset):
                     curr_connectivity_precision, curr_connectivity_recall, hidden_cat_accumulated, hidden_cat_labels_accumulated = \
                         train_one_direction(relation_classifier, args, h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, bbox_edge, bbox_graph, h_edge_aug, h_graph_aug, iou_mask, rank, graph_iter, edge_iter,
                                             keep_in_batch, Recall, Recall_top3, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count,
-                                            hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_yes_triplets, commonsense_no_triplets, len(train_loader), first_direction=False)
+                                            hidden_cat_accumulated, hidden_cat_labels_accumulated, commonsense_aligned_triplets, commonsense_violated_triplets, len(train_loader), first_direction=False)
 
                     loss_relationship += curr_loss_relationship
                     loss_connectivity += curr_loss_connectivity

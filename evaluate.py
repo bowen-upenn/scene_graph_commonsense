@@ -38,8 +38,8 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
     setup(rank, world_size)
     print('rank', rank, 'torch.distributed.is_initialized', torch.distributed.is_initialized())
 
-    if self.args['training']['run_mode'] == 'prepare_cs':
-        dataset.train_cs_step = prepare_cs_step
+    if args['training']['run_mode'] == 'prepare_cs':
+        curr_dataset.train_cs_step = prepare_cs_step
 
     test_sampler = torch.utils.data.distributed.DistributedSampler(test_subset, num_replicas=world_size, rank=rank)
     test_loader = torch.utils.data.DataLoader(test_subset, batch_size=args['training']['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=0, drop_last=True, sampler=test_sampler)
@@ -64,10 +64,10 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
@@ -87,16 +87,17 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
             PREPARE INPUT DATA
             """
             try:
-                if args['training']['save_vis_results'] and self.args['training']['eval_mode'] == 'pc':
+                if args['training']['save_vis_results'] and args['training']['eval_mode'] == 'pc':
                     images, images_raw, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_path, heights, widths, triplets, bbox_raw = data
-                    Recall.load_annotation_paths(annot_path)
                 else:
-                    images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, _ = data
+                    images, _, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_path = data
             except:
                 continue
 
             if prepare_cs_step != 2:
-                # we need to run model inference unless we are in the running mode 'prepare_cs' and at step 2
+                # we need to run model inference unless we are in the running mode 'prepare_cs' and at step 2 when we have finished accumulating all triplets and need to save them
+                Recall.load_annotation_paths(annot_path)
+
                 image_feature = process_image_features(args, images, detr, rank)
 
                 categories = [category.to(rank) for category in categories]  # [batch_size][curr_num_obj, 1]
@@ -182,7 +183,7 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
                 EVALUATE AND PRINT CURRENT RESULTS
                 """
                 if (batch_count % args['training']['eval_freq_test'] == 0) or (batch_count + 1 == len(test_loader)):
-                    if args['training']['save_vis_results'] and self.args['training']['eval_mode'] == 'pc':
+                    if args['training']['save_vis_results'] and args['training']['eval_mode'] == 'pc':
                         Recall.save_visualization_results(annot_path, triplets, heights, widths, images_raw, image_depth, bbox, categories, batch_count, top_k=15)
 
                     if args['dataset']['dataset'] == 'vg':
@@ -213,7 +214,7 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
                     Recall.clear_data()
 
         # on the second step of prepare_cs, we accumulate all the commonsense-aligned and commonsense-violated sets from all images in the training dataset and save them as two .pt files
-        if self.args['training']['run_mode'] == 'prepare_cs' and prepare_cs_step == 2:
+        if args['training']['run_mode'] == 'prepare_cs' and prepare_cs_step == 2:
             curr_dataset.save_all_triplets()
 
         dist.monitored_barrier(timeout=datetime.timedelta(seconds=3600))
@@ -265,10 +266,10 @@ def eval_sgd(gpu, args, test_subset):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
@@ -497,10 +498,10 @@ def eval_sgc(gpu, args, test_subset):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)

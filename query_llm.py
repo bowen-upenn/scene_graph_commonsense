@@ -77,7 +77,7 @@ def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=4, cache_hits
     return all_responses, cache_hits
 
 
-def _batch_query_openai_gpt_instruct(predicted_edges):
+def _batch_query_openai_gpt_instruct(predicted_edges, verbose=False):
     openai.api_key_path = 'openai_key_bw.txt'
     responses = torch.ones(len(predicted_edges)) * -1
 
@@ -114,7 +114,8 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
         no_votes = 0
         for j in range(len(prompt_variations)):
             completion_text = completions.choices[i * len(prompt_variations) + j].text
-            print(completion_text)
+            if verbose:
+                print(completion_text)
             # completion_text = completions.choices[i * len(prompt_variations) + j].message
 
             if j > 2:  # For the last two questions, we reverse the logic
@@ -133,10 +134,12 @@ def _batch_query_openai_gpt_instruct(predicted_edges):
                     no_votes += 1
 
         if yes_votes > no_votes:
-            # print(f'predicted_edge {edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
+            if verbose:
+                print(f'predicted_edge {edge} [MAJORITY YES] {yes_votes} Yes votes vs {no_votes} No votes')
             responses[i] = 1
         else:
-            # print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
+            if verbose:
+                print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
             responses[i] = -1
 
     return responses

@@ -20,7 +20,7 @@ def process_image_features(args, images, detr, rank):
 
 def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, bbox_sub, bbox_obj, h_sub_aug, h_obj_aug, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
                         Recall, Recall_top3, criterion_relationship, criterion_connectivity, relations_target, direction_target, batch_count, hidden_cat_accumulated, hidden_cat_labels_accumulated,
-                        commonsense_yes_triplets, commonsense_no_triplets, len_train_loader, first_direction=True):
+                        commonsense_aligned_triplets, commonsense_violated_triplets, len_train_loader, first_direction=True):
 
     if args['models']['hierarchical_pred']:
         relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug \
@@ -45,8 +45,8 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
 
     if args['training']['run_mode'] == 'train_cs':
         # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
-        not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_yes_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-        is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_no_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+        not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_aligned_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
+        is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_violated_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
         loss_commonsense = (not_in_yes_dict + is_in_no_dict).mean()
     else:
         loss_commonsense = 0.0
