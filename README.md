@@ -16,6 +16,7 @@ To summarize our contributions:
 2. Clean up the codes for efficient single-image inference.
 3. Clean up the codes for integrating the Bayesian classification head into other scene graph generation algorithms, starting from a common [code framework](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
 4. Clean up the codes for running experiments on the OpenImage V6 dataset.
+5. Refine all function headers and comments for better readability.
 
 ## Dependencies
 Please check [requirements.txt](requirements.txt). You can run the following commands to create a virtual environment and install all the requirements:
