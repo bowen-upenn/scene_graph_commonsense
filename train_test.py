@@ -83,10 +83,10 @@ def training(gpu, args, train_subset, test_subset):
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
-            load_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
+            load_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
             load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
         else:
-            load_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
+            load_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
             load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
         if rank == 0:
             print('Loading pretrained model from %s...' % load_model_name)
@@ -303,10 +303,10 @@ def training(gpu, args, train_subset, test_subset):
                 connectivity_precision, num_connected, num_not_connected = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         if args['models']['hierarchical_pred']:
-            save_model_name = 'HierMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
+            save_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'train_cs' else 'HierMotif_Baseline'
             save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
         else:
-            save_model_name = 'FlatMotif_CS' if args['dataset']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
+            save_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'train_cs' else 'FlatMotif_Baseline'
             save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
         if rank == 0:
             print('Saving model to %s...' % save_model_name)
