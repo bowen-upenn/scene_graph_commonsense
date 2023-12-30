@@ -76,7 +76,7 @@ Please check [requirements.txt](requirements.txt). You can run the following com
 and copy and paste your [API key](https://platform.openai.com/api-keys) into your txt file.
 You can skip this step by leveraging the provided [triplets/commonsense_aligned_triplets.pt](triplets/commonsense_aligned_triplets.pt) and [triplets/commonsense_violated_triplets.pt](triplets/commonsense_violated_triplets.pt). 
 These two sets are collected based on our baseline relationship classification model trained on Visual Genome for three epochs. 
-We strongly suggest running the ```prepare_cs``` yourself if you are using a different model.
+We strongly suggest running the ```prepare_cs``` step yourself if you are using a different model.
   2. ```train_cs```, which re-trains the relationship classification model. 
   3. ```eval_cs```, which evaluates the re-trained relationship classification model, and you have the options to set --eval_mode as pc, sgc, or sgd.
 
