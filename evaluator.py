@@ -425,10 +425,10 @@ class Evaluator:
 
             annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
             annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k), annot_name)
-            # torch.save(valid_curr_image_graph, annot_path)
+            torch.save(valid_curr_image_graph, annot_path)
             annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k), annot_name)
-            # torch.save(invalid_curr_image_graph, annot_path)
-            print("Saving annotations", annot_name)
+            torch.save(invalid_curr_image_graph, annot_path)
+            # print("Saving annotations", annot_name)
 
         return curr_predictions, curr_image_graph
 
