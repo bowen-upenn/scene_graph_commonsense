@@ -5,11 +5,11 @@ A presentation slide can be accessed [here](https://docs.google.com/presentation
 Abstract: This work presents an enhanced approach to generating scene graphs by incorporating a relationship hierarchy and commonsense knowledge. Specifically, we propose a Bayesian classification head that exploits an informative hierarchical structure. It jointly predicts the super-category or type of relationship between the two objects, along with the detailed relationship under each super-category. We design a commonsense validation pipeline that uses a large language model to critique the results from the scene graph prediction system and then use that feedback to enhance the model performance. The system requires no external large language model assistance at test time, making it more convenient for practical applications. Experiments on the Visual Genome and the OpenImage V6 datasets demonstrate that harnessing hierarchical relationships enhances the model performance by a large margin. The proposed Bayesian head can also be incorporated as a portable module in existing scene graph generation algorithms to improve their results. In addition, the commonsense validation enables the model to generate an extensive set of reasonable predictions beyond dataset annotations.
 
 To summarize our contributions:
-1. We observe that a scene graph model can achieve superior performance by leveraging relationship hierarchies, and therefore, propose a Bayesian classification head to replace flat classification.
-   to jointly predicts relationship super-category probabilities and detailed relationships within each super-category.
+1. We observe that a scene graph model can achieve superior performance by leveraging relationship hierarchies and, therefore, propose a Bayesian classification head to replace flat classification.
+   to jointly predict relationship super-category probabilities and detailed relationships within each super-category.
 2. Dataset annotations like those in Visual Genome are sparse, but we can generate extensive predictions beyond the sparse annotations, with strong zero-shot performance and generalization abilities.
-3. We design a commonsense validation pipeline that bakes commonsense knowledge from large language models into our model during training, while eliminating the necessity to access large language models at testing time.
-4. We show that these techniques can also be used to enhance the performance of other existing scene graph generation algorithms.
+3. We design a commonsense validation pipeline that bakes commonsense knowledge from large language models into our model during training. This eliminates the necessity to access any large language models at testing time, making the algorithm more efficient for practical use.
+4. We show that these techniques can also be integrated into other existing scene graph generation algorithms as a portable module, further enhancing their state-of-the-art performance.
 
 ## TODOs
 1. Release pretrained model weights.
