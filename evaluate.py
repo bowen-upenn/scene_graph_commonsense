@@ -64,10 +64,10 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierRelationModel_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = 'FlatRelationModel_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatRelationModel_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
@@ -266,10 +266,10 @@ def eval_sgd(gpu, args, test_subset):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierRelationModel_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = 'FlatRelationModel_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatRelationModel_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)
@@ -498,10 +498,10 @@ def eval_sgc(gpu, args, test_subset):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = 'HierMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierMotif_Baseline'
+        load_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'HierRelationModel_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:
-        load_model_name = 'FlatMotif_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatMotif_Baseline'
+        load_model_name = 'FlatRelationModel_CS' if args['training']['run_mode'] == 'prepare_cs' or args['training']['run_mode'] == 'eval_cs' else 'FlatRelationModel_Baseline'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     if rank == 0:
         print('Loading pretrained model from %s...' % load_model_name)

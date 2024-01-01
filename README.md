@@ -35,10 +35,15 @@ Please check [requirements.txt](requirements.txt). You can run the following com
 ## Pretrained Models
   We provide the pretrained models in our paper. Please download and put them under the [checkpoints/](checkpoints/) directory.
 
+Object detection backbones: 
   - DETR-101 object detection module pretrained on Visual Genome: https://drive.google.com/file/d/1fnTP1VXhFzwPFLYqQAEtjuENg2nQUFJ_/view?usp=sharing
   - DETR-101 object detection module pretrained on OpenImage V6: https://drive.google.com/file/d/1WgssZUXkSU1SKXHRNuBG35iGd5I-00QB/view?usp=sharing
-  - Baseline relation classification model trained on Visual Genome for three epochs: 
-  - [Final] Retrained relation classification model on Visual Genome for three epochs after running the commonsense validation pipeline: 
+
+All the following models are trained on Visual Genome for three epochs:
+  - [Ablation] Flat relation classification model without commonsense validation:
+  - [Ablation] Flat relation classification model retrained with commonsense validation:
+  - [Ablation] Hierarchical relation classification model without commonsense validation: https://drive.google.com/file/d/1ilguUyMlAf4_q-nNUpXOf3cEUQyA5k5d/view?usp=sharing
+  - [Final] Hierarchical relation classification model retrained with commonsense validation: 
 
 ## Quick Start
   All hyper-parameters are listed in the [config.yaml](config.yaml) file.
