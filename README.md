@@ -43,7 +43,7 @@ All the following models are trained on Visual Genome for three epochs:
   - [Ablation] Flat relation classification model without commonsense validation:
   - [Ablation] Flat relation classification model retrained with commonsense validation:
   - [Ablation] Hierarchical relation classification model without commonsense validation: https://drive.google.com/file/d/1ilguUyMlAf4_q-nNUpXOf3cEUQyA5k5d/view?usp=sharing
-  - [Final] Hierarchical relation classification model retrained with commonsense validation: 
+  - [Final] Hierarchical relation classification model retrained with commonsense validation: https://drive.google.com/file/d/10TwmFLjWxDab1UR5e-oB5DkVC2groqwX/view?usp=sharing
 
 ## Quick Start
   All hyper-parameters are listed in the [config.yaml](config.yaml) file.
