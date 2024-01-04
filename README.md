@@ -12,11 +12,30 @@ To summarize our contributions:
 4. We show that these techniques can also be integrated into other existing scene graph generation algorithms as a portable module, further enhancing their state-of-the-art performance.
 
 ## TODOs
-1. Release pretrained model weights.
+1. Release all pretrained model weights.
 2. Clean up the codes for efficient single-image inference.
 3. Clean up the codes for integrating the Bayesian classification head into other scene graph generation algorithms, starting from a common [code framework](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
 4. Clean up the codes for running experiments on the OpenImage V6 dataset.
 5. Refine all function headers and comments for better readability.
+
+## Citation
+Please cite our works if you believe they have inspired your research. Thank you!
+
+    @article{jiang2023enhancing,
+      title={Enhancing Scene Graph Generation with Hierarchical Relationships and Commonsense Knowledge},
+      author={Jiang, Bowen and Zhuang, Zhijun and Taylor, Camillo Jose},
+      journal={arXiv preprint arXiv:2311.12889},
+      year={2023}
+    }
+
+    @inproceedings{
+      jiang2023hierarchical,
+      title={Hierarchical Relationships: A New Perspective to Enhance Scene Graph Generation},
+      author={Bowen Jiang and Camillo Taylor},
+      booktitle={NeurIPS 2023 Workshop: New Frontiers in Graph Learning},
+      year={2023},
+      url={https://openreview.net/forum?id=T40bRpEd6P}
+    }
 
 ## Dependencies
 Please check [requirements.txt](requirements.txt). You can run the following commands to create a virtual environment and install all the requirements:
