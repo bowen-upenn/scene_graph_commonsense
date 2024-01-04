@@ -62,7 +62,7 @@ training:
     lambda_contrast: 1
     lambda_connectivity: 0.1
     lambda_not_connected: 1
-    lambda_commonsense: 0.01
+    lambda_commonsense: 0.1
     lambda_cs_weak: 0.1
     lambda_cs_strong: 10
     print_freq: 50

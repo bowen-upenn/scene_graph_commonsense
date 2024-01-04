@@ -25,29 +25,46 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
     if args['models']['hierarchical_pred']:
         relation_1, relation_2, relation_3, super_relation, connectivity, hidden, hidden_aug \
             = relation_classifier(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank, h_sub_aug, h_obj_aug)
-        relation = [relation_1, relation_2, relation_3]
+        relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
-
-        # match with the commonsense filtering pool
-        relation_pred = torch.hstack((torch.argmax(relation_1, dim=1),
-                                      torch.argmax(relation_2, dim=1) + args['models']['num_geometric'],
-                                      torch.argmax(relation_3, dim=1) + args['models']['num_geometric'] + args['models']['num_possessive']))
-        triplets = torch.hstack((cat_sub.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.repeat(3).unsqueeze(1)))
 
     else:
         relation, connectivity, hidden, hidden_aug = relation_classifier(h_sub, h_obj, cat_sub, cat_obj, spcat_sub, spcat_obj, rank, h_sub_aug, h_obj_aug)
         hidden_cat = torch.cat((hidden.unsqueeze(1), hidden_aug.unsqueeze(1)), dim=1)
         super_relation = None
 
-        # match with the commonsense filtering pool
-        relation_pred = torch.argmax(relation, dim=1)
-        triplets = torch.hstack((cat_sub.unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.unsqueeze(1)))
-
     if args['training']['run_mode'] == 'train_cs':
+        if args['models']['hierarchical_pred']:
+            relation_probs = torch.hstack((torch.max(F.softmax(relation_1, dim=1), dim=1)[0],
+                                           torch.max(F.softmax(relation_2, dim=1), dim=1)[0],
+                                           torch.max(F.softmax(relation_3, dim=1), dim=1)[0]))
+
+            relation_pred = torch.hstack((torch.argmax(relation_1, dim=1),
+                                          torch.argmax(relation_2, dim=1) + args['models']['num_geometric'],
+                                          torch.argmax(relation_3, dim=1) + args['models']['num_geometric'] + args['models']['num_possessive']))
+            triplets = torch.hstack((cat_sub.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.repeat(3).unsqueeze(1)))
+
+            # print('relation', relation.requires_grad, 'relation_1', relation_1.requires_grad, 'relation_probs', relation_probs.requires_grad, 'triplets', triplets.requires_grad)
+        else:
+            relation_probs = torch.max(relation, dim=1)
+            relation_pred = torch.argmax(relation, dim=1)
+            triplets = torch.hstack((cat_sub.unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.unsqueeze(1)))
+
         # evaluate on the commonsense for all predictions, regardless of whether they match with the ground truth or not
-        not_in_yes_dict = args['training']['lambda_cs_weak'] * torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_aligned_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-        is_in_no_dict = args['training']['lambda_cs_strong'] * torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_violated_triplets for i in range(len(triplets))], dtype=torch.float).to(rank)
-        loss_commonsense = (not_in_yes_dict + is_in_no_dict).mean()
+        not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in commonsense_aligned_triplets for i in range(len(triplets))], dtype=torch.bool).to(rank)
+        is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in commonsense_violated_triplets for i in range(len(triplets))], dtype=torch.bool).to(rank)
+
+        loss_commonsense = 0.0
+        if relation_probs[not_in_yes_dict].numel() > 0:
+            loss_commonsense += args['training']['lambda_cs_weak'] * relation_probs[not_in_yes_dict].mean()
+        if relation_probs[is_in_no_dict].numel() > 0:
+            loss_commonsense += args['training']['lambda_cs_strong'] * relation_probs[is_in_no_dict].mean()
+        # print('loss_commonsense', loss_commonsense.requires_grad, loss_commonsense)
+
+        # not_in_yes_dict = args['training']['lambda_cs_weak'] * not_in_yes_dict.float().to(rank)
+        # is_in_no_dict = args['training']['lambda_cs_strong'] * is_in_no_dict.float().to(rank)
+        # loss_commonsense = (not_in_yes_dict + is_in_no_dict).mean()
+        # print('not_in_yes_dict', not_in_yes_dict.requires_grad, 'loss_commonsense', loss_commonsense.requires_grad)
     else:
         loss_commonsense = 0.0
 
@@ -94,8 +111,7 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
 
     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len_train_loader):
         if args['models']['hierarchical_pred']:
-            relation = torch.cat((relation_1, relation_2, relation_3), dim=1)
-        Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+            Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                           cat_sub, cat_obj, cat_sub, cat_obj, bbox_sub, bbox_obj, bbox_sub, bbox_obj, iou_mask)
         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
             Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
@@ -115,6 +131,11 @@ def calculate_losses_on_relationships(args, relation, super_relation, connected,
 
     # Compute super category losses if hierarchical_pred is enabled
     if is_hierarchical_pred:
+        relation_1 = relation[:, :args['models']['num_geometric']]
+        relation_2 = relation[:, args['models']['num_geometric']:args['models']['num_geometric'] + args['models']['num_possessive']]
+        relation_3 = relation[:, args['models']['num_geometric'] + args['models']['num_possessive']:]
+        relation = [relation_1, relation_2, relation_3]
+
         criterion_relationship_1, criterion_relationship_2, criterion_relationship_3, criterion_super_relationship = criterion_relationship
         super_relation_target = super_relation_processing(args, connected, curr_relations_target)
 
