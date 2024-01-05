@@ -119,6 +119,11 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
     python main.py --run_mode train --eval_mode pc
     python main.py --run_mode eval --eval_mode pc
 
+## Extension to existing work
+
+Our Bayesian classification module can also server as a portable module and boost the performance of other SOTA works. 
+Ablation study details of this part can be found under the scenegraph_benchmark folder, which is based on the scenegraph_benchmark framework proposed in [Unbiased Scene Graph Generation from Biased Training](https://arxiv.org/abs/2002.11949).
+
 <p align="center">
 <img src=figures/plot_new.png />
 </p>
