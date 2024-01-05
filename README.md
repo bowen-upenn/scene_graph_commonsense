@@ -11,6 +11,10 @@ To summarize our contributions:
 3. We design a commonsense validation pipeline that bakes commonsense knowledge from large language models into our model during training. This eliminates the necessity to access any large language models at testing time, making the algorithm more efficient for practical use.
 4. We show that these techniques can also be integrated into other existing scene graph generation algorithms as a portable module, further enhancing their state-of-the-art performance.
 
+<p align="center">
+<img src=figures/flow_new.png />
+</p>
+
 ## TODOs
 1. Release all pretrained model weights.
 2. Clean up the codes for efficient single-image inference.
