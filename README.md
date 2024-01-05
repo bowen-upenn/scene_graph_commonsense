@@ -119,6 +119,11 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
     python main.py --run_mode train --eval_mode pc
     python main.py --run_mode eval --eval_mode pc
 
-
+<p align="center">
+<img src=figures/plot_new.png />
+</p>
+<p align="center">
+<img src=figures/response.png />
+</p>
 
 
