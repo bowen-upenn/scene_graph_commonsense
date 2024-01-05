@@ -49,11 +49,11 @@ training:
     learning_rate: 0.00001 #0.00001
     weight_decay: 0.0001
     batch_size: 12
-    num_epoch: 3
+    num_epoch: 4
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
-    continue_train: False
-    start_epoch: 0
+    continue_train: True
+    start_epoch: 3
     scheduler_param1: 2
     scheduler_param2: 5
     test_epoch: 2

@@ -129,7 +129,7 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
                 """
                 num_graph_iter = torch.as_tensor([len(mask) for mask in masks])
                 for graph_iter in range(max(num_graph_iter)):
-                    keep_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1)
+                    keep_in_batch = torch.nonzero(num_graph_iter > graph_iter).view(-1).to(rank)
 
                     curr_graph_masks = torch.stack([torch.unsqueeze(masks[i][graph_iter], dim=0) for i in keep_in_batch])
                     h_graph = torch.cat((image_feature[keep_in_batch] * curr_graph_masks, image_depth[keep_in_batch] * curr_graph_masks), dim=1)  # (bs, 256, 64, 64), (bs, 1, 64, 64)
@@ -152,13 +152,14 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
                         iou_mask = joint_iou > 0
                         if torch.sum(iou_mask) == 0:
                             continue
+                        # iou_mask = torch.ones(len(keep_in_batch), dtype=torch.bool).to(rank)
 
                         """
                         FIRST DIRECTION
                         """
                         curr_num_not_connected, curr_num_connected, curr_num_connected_pred, curr_connectivity_precision, curr_connectivity_recall = \
                             evaluate_one_direction(relation_classifier, args, h_graph, h_edge, cat_graph, cat_edge, spcat_graph, spcat_edge, bbox_graph, bbox_edge, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
-                                                   Recall, Recall_top3, relations_target, direction_target, batch_count, len(test_loader))
+                                                   Recall, Recall_top3, relations_target, direction_target, batch_count, len(test_loader), first_direction=True)
 
                         num_not_connected += curr_num_not_connected
                         num_connected += curr_num_connected
@@ -171,7 +172,7 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
                         """
                         curr_num_not_connected, curr_num_connected, curr_num_connected_pred, curr_connectivity_precision, curr_connectivity_recall = \
                             evaluate_one_direction(relation_classifier, args, h_edge, h_graph, cat_edge, cat_graph, spcat_edge, spcat_graph, bbox_edge, bbox_graph, iou_mask, rank, graph_iter, edge_iter, keep_in_batch,
-                                                   Recall, Recall_top3, relations_target, direction_target, batch_count, len(test_loader))
+                                                   Recall, Recall_top3, relations_target, direction_target, batch_count, len(test_loader), first_direction=False)
 
                         num_not_connected += curr_num_not_connected
                         num_connected += curr_num_connected

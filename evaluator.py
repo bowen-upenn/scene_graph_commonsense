@@ -144,7 +144,7 @@ class Evaluator:
                     triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
-                    self.confidence[not_in_yes_dict] = -math.inf
+                    # self.confidence[not_in_yes_dict] = -math.inf
                     self.confidence[is_in_no_dict] = -math.inf
 
             else:
@@ -185,7 +185,7 @@ class Evaluator:
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
                     self.confidence[is_in_no_dict] = -math.inf
-                    self.confidence[not_in_yes_dict] = -math.inf
+                    # self.confidence[not_in_yes_dict] = -math.inf
 
         else:
             if not self.hierar:     # flat relationship prediction
@@ -216,7 +216,7 @@ class Evaluator:
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
                     confidence[is_in_no_dict] = -math.inf
-                    confidence[not_in_yes_dict] = -math.inf
+                    # confidence[not_in_yes_dict] = -math.inf
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity))
@@ -257,7 +257,7 @@ class Evaluator:
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
                     confidence[is_in_no_dict] = -math.inf
-                    confidence[not_in_yes_dict] = -math.inf
+                    # confidence[not_in_yes_dict] = -math.inf
 
                 self.confidence = torch.hstack((self.confidence, confidence))
                 self.connectivity = torch.hstack((self.connectivity, connectivity.repeat(3)))

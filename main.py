@@ -27,7 +27,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Command line arguments')
     parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_cs, train_cs, eval_cs)')
     parser.add_argument('--eval_mode', type=str, default=None, help='Override eval_mode (pc, sgc, sgd)')
-    parser.add_argument('--continue_train', dest='continue_train', action='store_true', help='Set continue_train to True')
+    # parser.add_argument('--continue_train', dest='continue_train', action='store_true', help='Set continue_train to True')
     parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
     parser.add_argument('--hierar', dest='hierar', action='store_true', help='Set hierarchical_pred to True')
     cmd_args = parser.parse_args()
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     # Override args from config.yaml with command-line arguments if provided
     args['training']['run_mode'] = cmd_args.run_mode if cmd_args.run_mode is not None else args['training']['run_mode']
     args['training']['eval_mode'] = cmd_args.eval_mode if cmd_args.eval_mode is not None else args['training']['eval_mode']
-    args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
+    # args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
     args['training']['start_epoch'] = cmd_args.start_epoch if cmd_args.start_epoch is not None else args['training']['start_epoch']
     args['models']['hierarchical_pred'] = cmd_args.hierar if cmd_args.hierar is not None else args['models']['hierarchical_pred']
 

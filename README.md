@@ -91,7 +91,7 @@ All the following models are trained on Visual Genome for three epochs:
 
     python main.py --run_mode eval --eval_mode sgc --hierar
 
-  ### To evaluate the model on scene graph classification:
+  ### To evaluate the model on scene graph detection:
 
     python main.py --run_mode eval --eval_mode sgd --hierar
 
