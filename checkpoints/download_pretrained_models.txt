@@ -1,6 +1,1 @@
-- DETR-101 object detection module pretrained on Visual Genome: https://drive.google.com/file/d/1fnTP1VXhFzwPFLYqQAEtjuENg2nQUFJ_/view?usp=sharing
-- DETR-101 object detection module pretrained on OpenImage V6: https://drive.google.com/file/d/1WgssZUXkSU1SKXHRNuBG35iGd5I-00QB/view?usp=sharing
-- Local prediction module trained on Visual Genome for three epoches: https://drive.google.com/file/d/1z9XNCPCZgCIkPFy54oEWsG-saYnLny-J/view?usp=sharing
-- Local prediction module trained on OpenImage V6 for one epoch: https://drive.google.com/file/d/1OxM97iE9hm4OWOIZPc8suW5hxkQSqWfg/view?usp=sharing
-- Optional transformer encoder trained on Visual Genome for two more epoches: https://drive.google.com/file/d/1GK1zV9TODI44rSqk1MRLYODlfGp4rnSA/view?usp=sharing
-- Prediction head trained on Visual Genome for two more epoches if the optional transformer encoder is used: https://drive.google.com/file/d/1MNcaD7UlRpzQ3ad4gL9qpO43yBGurHqP/view?usp=sharing
+Please put pretrained model weights here.
