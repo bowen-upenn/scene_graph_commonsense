@@ -44,7 +44,6 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
                                           torch.argmax(relation_3, dim=1) + args['models']['num_geometric'] + args['models']['num_possessive']))
             triplets = torch.hstack((cat_sub.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.repeat(3).unsqueeze(1)))
 
-            # print('relation', relation.requires_grad, 'relation_1', relation_1.requires_grad, 'relation_probs', relation_probs.requires_grad, 'triplets', triplets.requires_grad)
         else:
             relation_probs = torch.max(relation, dim=1)
             relation_pred = torch.argmax(relation, dim=1)
@@ -59,12 +58,6 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
             loss_commonsense += args['training']['lambda_cs_weak'] * relation_probs[not_in_yes_dict].mean()
         if relation_probs[is_in_no_dict].numel() > 0:
             loss_commonsense += args['training']['lambda_cs_strong'] * relation_probs[is_in_no_dict].mean()
-        # print('loss_commonsense', loss_commonsense.requires_grad, loss_commonsense)
-
-        # not_in_yes_dict = args['training']['lambda_cs_weak'] * not_in_yes_dict.float().to(rank)
-        # is_in_no_dict = args['training']['lambda_cs_strong'] * is_in_no_dict.float().to(rank)
-        # loss_commonsense = (not_in_yes_dict + is_in_no_dict).mean()
-        # print('not_in_yes_dict', not_in_yes_dict.requires_grad, 'loss_commonsense', loss_commonsense.requires_grad)
     else:
         loss_commonsense = 0.0
 
