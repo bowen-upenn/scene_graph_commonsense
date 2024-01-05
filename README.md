@@ -122,12 +122,14 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
 <p align="center">
 <img src=figures/plot_new.png />
 </p>
-Illustration of generated scene graphs on predicate classification. All examples are from the testing dataset of Visual Genome. The first row displays images and objects, while the second row displays the final scene graphs. The third row shows an ablation without commonsense validation. For each image, we display the top 10 most confident predictions, and each edge is annotated with its relation label and relation super-category. It is possible for an edge to have multiple predicted relationships, but they must come from disjoint super-categories. Blue edges represent incorrect edges based on our observations. Pink edges are true positives in the dataset. Interestingly, all black edges are reasonable predictions we believe but not annotated, which should not be regarded as false positives.
-
+<p>
+    <em>Illustration of generated scene graphs on predicate classification. All examples are from the testing dataset of Visual Genome. The first row displays images and objects, while the second row displays the final scene graphs. The third row shows an ablation without commonsense validation. For each image, we display the top 10 most confident predictions, and each edge is annotated with its relation label and relation super-category. It is possible for an edge to have multiple predicted relationships, but they must come from disjoint super-categories. Blue edges represent incorrect edges based on our observations. Pink edges are true positives in the dataset. Interestingly, all black edges are reasonable predictions we believe but not annotated, which should not be regarded as false positives.</em>
+</p>
 
 <p align="center">
 <img src=figures/response.png />
 </p>
-Example responses with reasoning from the large language model in the commonsense validation process. (a) shows a successful case. (b) shows an unexpected response but the reasoning provided by the model shows that it sometimes considers irrelevant and misleading contexts. (c) and (d) shows how asking for the reasoning behind the answers could help us develop a better prompt engineering.
-
+<p>
+    <em>Example responses with reasoning from the large language model in the commonsense validation process. (a) shows a successful case. (b) shows an unexpected response but the reasoning provided by the model shows that it sometimes considers irrelevant and misleading contexts. (c) and (d) shows how asking for the reasoning behind the answers could help us develop better prompt engineering.</em>
+</p>
 
