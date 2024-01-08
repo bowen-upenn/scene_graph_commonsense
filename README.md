@@ -81,38 +81,43 @@ All the following models are trained on Visual Genome for three epochs:
   set ```dataset: 'vg'``` in [config.yaml](config.yaml) to run experiments on the [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) dataset (recommended),  
   or set ```dataset: 'oiv6'``` in [config.yaml](config.yaml) to choose the [OpenImage V6](https://storage.googleapis.com/openimages/web/download.html) dataset (limited supports).
 
-  ### To train the model on Visual Genome:
+  ### To train the baseline model on Visual Genome:
 
     python main.py --run_mode train --eval_mode pc --hierar
 
-  ### To evaluate the model on predicate classification:
+  ### To evaluate the baseline model on predicate classification:
 
     python main.py --run_mode eval --eval_mode pc --hierar
 
-  ### To evaluate the model on scene graph classification:
+  ### To evaluate the baseline model on scene graph classification:
 
     python main.py --run_mode eval --eval_mode sgc --hierar
 
-  ### To evaluate the model on scene graph detection:
+  ### To evaluate the baseline model on scene graph detection:
 
     python main.py --run_mode eval --eval_mode sgd --hierar
 
   ### To run the commonsense validation pipeline:
   So far, we have trained a baseline relationship classification model as an ablation study. 
-  The commonsense validation pipeline will involve three steps: 
+  The training process with the commonsense validation pipeline involves two steps: 
   1. ```prepare_cs```, which collects commonsense-aligned and violated sets from the large language model, OpenAI GPT3.5-turbo-instruct. Please add a ```openai_key.txt``` file to your top directory, follow [OpenAI instructions](https://platform.openai.com/docs/quickstart?context=python) to set up your OpenAI API, 
 and copy and paste your [API key](https://platform.openai.com/api-keys) into your txt file.
 You can skip this step by leveraging the provided [triplets/commonsense_aligned_triplets.pt](triplets/commonsense_aligned_triplets.pt) and [triplets/commonsense_violated_triplets.pt](triplets/commonsense_violated_triplets.pt). 
 These two sets are collected based on our baseline relationship classification model trained on Visual Genome for three epochs. 
 We strongly suggest running the ```prepare_cs``` step yourself if you are using a different model.
   2. ```train_cs```, which re-trains the relationship classification model. 
-  3. ```eval_cs```, which evaluates the re-trained relationship classification model, and you have the options to set --eval_mode as pc, sgc, or sgd.
 
     python main.py --run_mode prepare_cs --eval_mode pc --hierar
     python main.py --run_mode train_cs --eval_mode pc --hierar
-    python main.py --run_mode eval_cs --eval_mode pc --hierar
 
-  ### Ablation: To train and evaluate the model on Visual Genome without the Bayesian classification head, but a flat one:
+  ### To evaluate the final model after the commonsense validation:
+  Similar to the baseline model, you can evaluate the final model on predicate classification, scene graph classification, or scene graph detection by running one of the following commands.
+
+     python main.py --run_mode eval_cs --eval_mode pc --hierar
+     python main.py --run_mode eval_cs --eval_mode sgc --hierar
+     python main.py --run_mode eval_cs --eval_mode sgd --hierar
+
+  ### Ablation: To train and evaluate the baseline model without the Bayesian classification head, but a flat one:
 
     python main.py --run_mode train --eval_mode pc
     python main.py --run_mode eval --eval_mode pc
