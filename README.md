@@ -131,7 +131,8 @@ Implementations based on the popular code framework [Scene-Graph-Benchmark](http
 <img src=figures/extension.png />
 </p>
 <p style="font-size: x-small;"> 
-   <em>This image is altered from its original version by Tang, Kaihua, Hanwang Zhang, Baoyuan Wu, Wenhan Luo, and Wei Liu. "Learning to compose dynamic tree structures for visual contexts." In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp. 6619-6628. 2019.</p>
+   <em>This image is altered from its original version by Tang, Kaihua, Hanwang Zhang, Baoyuan Wu, Wenhan Luo, and Wei Liu. "Learning to compose dynamic tree structures for visual contexts." In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp. 6619-6628. 2019.</em>
+</p>
 
 ## Visual results
 <p align="center">
