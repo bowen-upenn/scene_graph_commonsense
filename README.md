@@ -122,7 +122,7 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
     python main.py --run_mode train --eval_mode pc
     python main.py --run_mode eval --eval_mode pc
 
-## Extension to existing work
+## Extension to existing works as a portable module
 
 Our Bayesian classification head can also serve as a portable module to furthermore improve the performance of other existing SOTA works. 
 Implementations based on the popular code framework [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) can be found under the [scenegraph_benchmark](scenegraph_benchmark/) folder.
