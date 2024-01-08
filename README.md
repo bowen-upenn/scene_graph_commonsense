@@ -18,10 +18,8 @@ To summarize our contributions:
 ## TODOs
 1. Release all pretrained model weights.
 2. Clean up the codes for efficient single-image inference.
-3. Clean up the codes for integrating the Bayesian classification head into other scene graph generation algorithms, starting from the common 
-[Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) code framework.
-4. Clean up the codes for running experiments on the OpenImage V6 dataset.
-5. Refine all function headers and comments for better readability.
+3. Clean up the codes for running experiments on the OpenImage V6 dataset.
+4. Refine all function headers and comments for better readability.
 
 ## Citation
 Please cite our works if you believe they have inspired your research. Thank you!
@@ -121,9 +119,10 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
 
 ## Extension to existing work
 
-Our Bayesian classification module can also server as a portable module and boost the performance of other SOTA works. 
-Ablation study details of this part can be found under the scenegraph_benchmark folder, which is based on the scenegraph_benchmark framework proposed in [Unbiased Scene Graph Generation from Biased Training](https://arxiv.org/abs/2002.11949).
+Our Bayesian classification head can also serve as a portable module to furthermore improve the performance of other existing SOTA works. 
+Ablation study details of this part can be found under the [scenegraph_benchmark](scenegraph_benchmark/) folder, which is based on the popular code framework [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
 
+## Visual results
 <p align="center">
 <img src=figures/plot_new.png />
 </p>
