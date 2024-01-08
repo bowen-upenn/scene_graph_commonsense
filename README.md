@@ -120,7 +120,7 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
 ## Extension to existing work
 
 Our Bayesian classification head can also serve as a portable module to furthermore improve the performance of other existing SOTA works. 
-Ablation study details of this part can be found under the [scenegraph_benchmark](scenegraph_benchmark/) folder, which is based on the popular code framework [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
+Implementations based on the popular code framework [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) can be found under the [scenegraph_benchmark](scenegraph_benchmark/) folder.
 
 ## Visual results
 <p align="center">
