@@ -127,6 +127,12 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
 Our Bayesian classification head can also serve as a portable module to furthermore improve the performance of other existing SOTA works. 
 Implementations based on the popular code framework [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) can be found under the [scenegraph_benchmark](scenegraph_benchmark/) folder.
 
+<p align="center">
+<img src=figures/extension.png />
+</p>
+<p style="font-size: x-small;"> 
+   <em>This image is altered from its original version by Tang, Kaihua, Hanwang Zhang, Baoyuan Wu, Wenhan Luo, and Wei Liu. "Learning to compose dynamic tree structures for visual contexts." In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp. 6619-6628. 2019.</p>
+
 ## Visual results
 <p align="center">
 <img src=figures/plot_new.png />
