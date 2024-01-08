@@ -49,11 +49,11 @@ training:
     learning_rate: 0.00001 #0.00001
     weight_decay: 0.0001
     batch_size: 12
-    num_epoch: 4
+    num_epoch: 3
     checkpoint_path: 'checkpoints/'
     result_path: 'results/'
-    continue_train: True
-    start_epoch: 3
+    continue_train: False
+    start_epoch: 0
     scheduler_param1: 2
     scheduler_param2: 5
     test_epoch: 2
@@ -62,8 +62,8 @@ training:
     lambda_contrast: 1
     lambda_connectivity: 0.1
     lambda_not_connected: 1
-    lambda_commonsense: 0.1
-    lambda_cs_weak: 0.1
+    lambda_commonsense: 1
+    lambda_cs_weak: 1
     lambda_cs_strong: 10
     print_freq: 50
     eval_freq: 50
