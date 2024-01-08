@@ -303,7 +303,7 @@ def training(gpu, args, train_subset, test_subset):
 
         if rank == 0:
             if args['models']['hierarchical_pred']:
-                save_model_name = 'HierRelationModel_CS_2' if args['training']['run_mode'] == 'train_cs' else 'HierRelationModel_Baseline'
+                save_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'HierRelationModel_Baseline'
                 save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
             else:
                 save_model_name = 'FlatRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'FlatRelationModel_Baseline'

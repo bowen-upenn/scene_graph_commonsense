@@ -415,11 +415,8 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
 
     if args['dataset']['dataset'] == 'vg':
         if args['models']['hierarchical_pred']:
-            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), mR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), '
-                  'zsR@k: %.4f, %.4f, %.4f (%.4f, %.4f, %.4f), loss: %.4f, %.4f, %.4f, %.4f.'
-                  % (rank, epoch, batch_count, lr, recall_top3[0], recall_top3[1], recall_top3[2], recall[0], recall[1], recall[2],
-                     mean_recall_top3[0], mean_recall_top3[1], mean_recall_top3[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                     recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[1],
+            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, loss: %.4f, %.4f, %.4f, %.4f.'
+                  % (rank, epoch, batch_count, lr, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
                      running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
                      running_loss_contrast / (args['training']['print_freq'] * args['training']['batch_size']),
                      running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
@@ -434,10 +431,8 @@ def record_train_results(args, record, rank, epoch, batch_count, lr, recall_top3
                            'mean_zero_shot_recall': [mean_recall_zs[0].item(), mean_recall_zs[1].item(), mean_recall_zs[2].item()],
                            'relationship_loss': running_loss_relationship.item() / (args['training']['print_freq'] * args['training']['batch_size'])})
         else:
-            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, '
-                  'zsR@k: %.4f, %.4f, %.4f, zs-mR@k: %.4f, %.4f, %.4f,loss: %.4f, %.4f, conn: %.4f, %.4f.'
+            print('TRAIN, rank %d, epoch %d, batch %d, lr: %.7f, R@k: %.4f, %.4f, %.4f, mR@k: %.4f, %.4f, %.4f, loss: %.4f, %.4f, conn: %.4f, %.4f.'
                   % (rank, epoch, batch_count, lr, recall[0], recall[1], recall[2], mean_recall[0], mean_recall[1], mean_recall[2],
-                     recall_zs[0], recall_zs[1], recall_zs[2], mean_recall_zs[0], mean_recall_zs[1], mean_recall_zs[2],
                      running_loss_relationship / (args['training']['print_freq'] * args['training']['batch_size']),
                      running_loss_connectivity / (args['training']['print_freq'] * args['training']['batch_size']),
                      connectivity_recall / (num_connected + 1e-5), connectivity_precision / (num_connected_pred + 1e-5)))
