@@ -63,7 +63,7 @@ Object detection backbones:
 
 All the following models are trained on Visual Genome for three epochs:
   - [Ablation] Flat relation classification model without commonsense validation:
-  - [Ablation] Flat relation classification model retrained with commonsense validation:
+  - [Ablation] Flat relation classification model retrained with commonsense validation: https://drive.google.com/file/d/1nwN8ToqfcRfabtf5PcJLAzd0J-Ky-6s3/view?usp=sharing
   - [Ablation] Hierarchical relation classification model without commonsense validation: https://drive.google.com/file/d/1ilguUyMlAf4_q-nNUpXOf3cEUQyA5k5d/view?usp=sharing
   - [Final] Hierarchical relation classification model retrained with commonsense validation: https://drive.google.com/file/d/1gBRD4VOU530WXhbyf4XFy_cYGhwLPnXS/view?usp=sharing
 
