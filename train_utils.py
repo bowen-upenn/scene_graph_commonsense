@@ -45,7 +45,7 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
             triplets = torch.hstack((cat_sub.repeat(3).unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.repeat(3).unsqueeze(1)))
 
         else:
-            relation_probs = torch.max(relation, dim=1)
+            relation_probs = torch.max(F.softmax(relation, dim=1), dim=1)[0]
             relation_pred = torch.argmax(relation, dim=1)
             triplets = torch.hstack((cat_sub.unsqueeze(1), relation_pred.unsqueeze(1), cat_obj.unsqueeze(1)))
 
@@ -103,8 +103,7 @@ def train_one_direction(relation_classifier, args, h_sub, h_obj, cat_sub, cat_ob
     relations_target_directed[not_connected] = -1
 
     if (batch_count % args['training']['eval_freq'] == 0) or (batch_count + 1 == len_train_loader):
-        if args['models']['hierarchical_pred']:
-            Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
+        Recall.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
                           cat_sub, cat_obj, cat_sub, cat_obj, bbox_sub, bbox_obj, bbox_sub, bbox_obj, iou_mask)
         if args['dataset']['dataset'] == 'vg' and args['models']['hierarchical_pred']:
             Recall_top3.accumulate(keep_in_batch, relation, relations_target_directed, super_relation, torch.log(torch.sigmoid(connectivity[:, 0])),
