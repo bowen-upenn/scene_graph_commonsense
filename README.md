@@ -72,14 +72,13 @@ All the following models are trained on Visual Genome for three epochs:
   We train our code using four NVIDIA V100 GPUs with 32GB memory: ```export CUDA_VISIBLE_DEVICES=0,1,2,3```.
   Training and evaluation results will be automatically recorded and saved in the [results/](results/) directory.
   
-  Please modify ```dataset```, ```num_epoch```, ```start_epoch```, and ```test_epoch``` in [config.py](config.py) based on your own experiment. We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome. We also support the PredCLS for OpenImage V6.
+  Please modify ```dataset```, ```num_epoch```, ```start_epoch```, and ```test_epoch``` in [config.py](config.py) based on your own experiment. We currently support training and evaluation on Predicate Classification (PredCLS), Scene Graph Classification (SGCLS), and Scene Graph Detection (SGDET) tasks for Visual Genome.
   
   We allow command-line argparser for the following arguments: ```run_mode```: train, eval, prepare_cs, train_cs, eval_cs. ```eval_mode```: pc, sgc, sgd. ```continue_train```: set continue_train to True, which allows you to stop and resume the training process.
   ```start_epoch```: specify the start epoch if continue_train is True. ```hierar```: set hierarchical_pred to True to apply our Bayesian head in the relationship classification model. Its default value is False, which is an ablation study of using a flat classification head instead.
 
   ### To set the dataset:
-  set ```dataset: 'vg'``` in [config.yaml](config.yaml) to run experiments on the [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) dataset (recommended),  
-  or set ```dataset: 'oiv6'``` in [config.yaml](config.yaml) to choose the [OpenImage V6](https://storage.googleapis.com/openimages/web/download.html) dataset (limited supports).
+  set ```dataset: 'vg'``` in [config.yaml](config.yaml) to run experiments on the [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) dataset.
 
   ### To train the baseline model on Visual Genome:
 
