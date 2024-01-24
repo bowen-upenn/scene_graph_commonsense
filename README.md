@@ -17,7 +17,7 @@ To summarize our contributions:
 
 ## TODOs
 - [x] 1. Clean up the codes for integrating hierarchical classification as a portable module to other existing SOTA works in [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch)
-- [ ] 2. Release all pretrained model weights.
+- [ ] 2. Release all pretrained model weights. (Most of them have been released.)
 - [ ] 3. Add unsupervised relation super-category clustering from pretrained GPT2, BERT, and CLIP token embeddings, eliminating the need for humans to classify relation labels.
 - [ ] 4. Address long-tailed class distribution problem using the [TDE](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
 - [ ] 5. Add energy-based learning [EBM](https://github.com/mods333/energy-based-scene-graph).
