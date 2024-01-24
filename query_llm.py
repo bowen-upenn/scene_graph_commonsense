@@ -210,7 +210,8 @@ def _query_openai_gpt_4v(predicted_edges, annot_name, sub_bbox, obj_bbox, image_
         # Load and process image and annotations if they exist
         if os.path.exists(image_path):
             image_path = os.path.join(image_dir, annot_name[:-16] + '.jpg')
-            print('annot_name', annot_name, 'image_path', image_path)
+            if verbose:
+                print('annot_name', annot_name, 'image_path', image_path)
 
             sub_bbox *= image_cache.feature_size
             obj_bbox *= image_cache.feature_size
@@ -225,7 +226,7 @@ def _query_openai_gpt_4v(predicted_edges, annot_name, sub_bbox, obj_bbox, image_
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "Does the image contain a relation '{}'? Let us think about it step by step.".format(edge)},
+                            {"type": "text", "text": "Does the image contain a relation '{}'? State Yes or No in your answer, and let us think about it step by step.".format(edge)},
                             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                         ]
                     }
