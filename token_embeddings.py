@@ -51,13 +51,17 @@ clip_embeddings = get_embeddings(clip_model, clip_tokenizer, list(relation_class
 # Function for clustering and index mapping
 def cluster_and_map(embeddings, relation_names, n_clusters):
     # Perform k-means clustering
-    kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(embeddings)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=5).fit(embeddings)
     # Create a dictionary to map original index to cluster
     cluster_assignment = {i: cluster for i, cluster in enumerate(kmeans.labels_)}
 
     # Sort relation classes by cluster and create a new index map
-    sorted_relations = sorted(relation_names, key=lambda x: cluster_assignment[relation_names.index(x)])
-    new_index_map = {i: relation for i, relation in enumerate(sorted_relations)}
+    sorted_relations = sorted(enumerate(relation_names), key=lambda x: cluster_assignment[x[0]])
+
+    # Create a new index map (as a tensor) that maps original index to new sorted index
+    new_index_map = torch.zeros(len(relation_names), dtype=torch.long)
+    for new_idx, (original_idx, _) in enumerate(sorted_relations):
+        new_index_map[original_idx] = new_idx
 
     # Map each relation name to its cluster center
     cluster_map = {i: [relation_classes[key] for key in relation_classes.keys() if cluster_assignment[key] == i] for i in range(n_clusters)}
@@ -71,6 +75,6 @@ n_clusters = 3
 gpt2_cluster_map, gpt2_index_map = cluster_and_map(gpt2_embeddings, relation_names, n_clusters)
 bert_cluster_map, bert_index_map = cluster_and_map(bert_embeddings, relation_names, n_clusters)
 clip_cluster_map, clip_index_map = cluster_and_map(clip_embeddings, relation_names, n_clusters)
-print('gpt2_cluster_map', gpt2_cluster_map, '\ngpt2_index_map', gpt2_index_map, '\n\n',
-      'bert_cluster_map', bert_cluster_map, '\nbert_index_map', bert_index_map, '\n\n',
-      'clip_cluster_map', clip_cluster_map, '\nclip_index_map', clip_index_map)
+print('gpt2_cluster_map', [len(gpt2_cluster_map[key]) for key in gpt2_cluster_map.keys()], gpt2_cluster_map, '\ngpt2_index_map', gpt2_index_map, '\n\n',
+      'bert_cluster_map', [len(bert_cluster_map[key]) for key in bert_cluster_map.keys()], bert_cluster_map, '\nbert_index_map', bert_index_map, '\n\n',
+      'clip_cluster_map', [len(clip_cluster_map[key]) for key in clip_cluster_map.keys()], clip_cluster_map, '\nclip_index_map', clip_index_map)

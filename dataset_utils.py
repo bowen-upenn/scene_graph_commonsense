@@ -728,3 +728,33 @@ def oiv6_reorder_by_super():
             10:13, 11:14, 12:15, 13:2, 14:16, 15:17, 16:4, 17:18, 18:19, 19:20,
             20:21, 21:3, 22:22, 23:23, 24:24, 25:25, 26:26, 27:27, 28:28, 29:29}
 
+# Here are what we obtained from the token_embeddings.py
+def gpt2_cluster_map():
+    return {0: ['standing on', 'walking on', 'painted on', 'looking at', 'mounted on', 'flying in', 'lying on', 'growing on', 'walking in'],
+            1: ['on', 'has', 'in', 'of', 'near', 'with', 'above', 'holding', 'behind', 'under', 'wears', 'in front of', 'attached to', 'at', 'over', 'for', 'riding', 'eating', 'playing', 'covering', 'along', 'watching', 'and', 'between', 'belonging to', 'against', 'from', 'to', 'says', 'across', 'using', 'on back of'],
+            2: ['wearing', 'sitting on', 'hanging from', 'carrying', 'laying on', 'parked on', 'made of', 'covered in', 'part of']} # [9, 32, 9]
+def gpt2_index_map():
+    return torch.tensor([ 9, 10, 11, 12, 41, 13, 14, 15, 16, 17, 18, 42, 19,  0, 20, 21, 22, 43,
+                         23, 24, 25, 44, 26,  1, 27, 28, 45, 29, 30, 31, 32, 33,  2, 34,  3, 35,
+                         46, 36, 47, 48,  4, 37, 49, 38,  5, 39, 40,  6,  7,  8])
+# {0: 'standing on', 1: 'walking on', 2: 'painted on', 3: 'looking at', 4: 'mounted on', 5: 'flying in', 6: 'lying on', 7: 'growing on', 8: 'walking in', 9: 'on', 10: 'has', 11: 'in', 12: 'of', 13: 'near', 14: 'with', 15: 'above', 16: 'holding', 17: 'behind', 18: 'under', 19: 'wears', 20: 'in front of', 21: 'attached to', 22: 'at', 23: 'over', 24: 'for', 25: 'riding', 26: 'eating', 27: 'playing', 28: 'covering', 29: 'along', 30: 'watching', 31: 'and', 32: 'between', 33: 'belonging to', 34: 'against', 35: 'from', 36: 'to', 37: 'says', 38: 'across', 39: 'using', 40: 'on back of', 41: 'wearing', 42: 'sitting on', 43: 'hanging from', 44: 'carrying', 45: 'laying on', 46: 'parked on', 47: 'made of', 48: 'covered in', 49: 'part of'}
+
+def bert_cluster_map():
+    return {0: ['behind', 'in front of', 'attached to', 'hanging from', 'painted on', 'parked on', 'made of', 'covered in', 'mounted on', 'part of', 'across', 'on back of'],
+            1: ['on', 'has', 'in', 'of', 'wearing', 'near', 'with', 'above', 'under', 'wears', 'at', 'over', 'for', 'riding', 'carrying', 'playing', 'covering', 'along', 'and', 'between', 'against', 'from', 'to', 'says', 'using'],
+            2: ['holding', 'sitting on', 'standing on', 'eating', 'walking on', 'laying on', 'watching', 'belonging to', 'looking at', 'flying in', 'lying on', 'growing on', 'walking in']}  # [12, 25, 13]
+def bert_index_map():
+    return torch.tensor([12, 13, 14, 15, 16, 17, 18, 19, 37,  0, 20, 38, 21, 39,  1,  2, 22,  3,
+                         23, 24, 25, 26, 40, 41, 27, 28, 42, 29, 43, 30, 31, 44,  4, 32, 45, 33,
+                          5, 34,  6,  7,  8, 35,  9, 10, 46, 36, 11, 47, 48, 49])
+    # {0: 'behind', 1: 'in front of', 2: 'attached to', 3: 'hanging from', 4: 'painted on', 5: 'parked on', 6: 'made of', 7: 'covered in', 8: 'mounted on', 9: 'part of', 10: 'across', 11: 'on back of', 12: 'on', 13: 'has', 14: 'in', 15: 'of', 16: 'wearing', 17: 'near', 18: 'with', 19: 'above', 20: 'under', 21: 'wears', 22: 'at', 23: 'over', 24: 'for', 25: 'riding', 26: 'carrying', 27: 'playing', 28: 'covering', 29: 'along', 30: 'and', 31: 'between', 32: 'against', 33: 'from', 34: 'to', 35: 'says', 36: 'using', 37: 'holding', 38: 'sitting on', 39: 'standing on', 40: 'eating', 41: 'walking on', 42: 'laying on', 43: 'watching', 44: 'belonging to', 45: 'looking at', 46: 'flying in', 47: 'lying on', 48: 'growing on', 49: 'walking in'}
+
+def clip_cluster_map():
+    return {0: ['wearing', 'near', 'with', 'above', 'holding', 'behind', 'under', 'wears', 'over', 'riding', 'carrying', 'eating', 'walking on', 'playing', 'covering', 'along', 'watching', 'between', 'against', 'from', 'made of', 'says', 'part of', 'across', 'using', 'growing on', 'walking in'],
+            1: ['sitting on', 'standing on', 'in front of', 'attached to', 'hanging from', 'laying on', 'belonging to', 'painted on', 'looking at', 'parked on', 'covered in', 'mounted on', 'flying in', 'on back of', 'lying on'],
+            2: ['on', 'has', 'in', 'of', 'at', 'for', 'and', 'to']}  # [27, 15, 8]
+def clip_index_map():
+    return torch.tensor([42, 43, 44, 45,  0,  1,  2,  3,  4,  5,  6, 27,  7, 28, 29, 30, 46, 31,
+                          8, 47,  9, 10, 11, 12, 13, 14, 32, 15, 16, 48, 17, 33, 34, 18, 35, 19,
+                         36, 49, 20, 37, 38, 21, 22, 23, 39, 24, 40, 41, 25, 26])
+    # {0: 'wearing', 1: 'near', 2: 'with', 3: 'above', 4: 'holding', 5: 'behind', 6: 'under', 7: 'wears', 8: 'over', 9: 'riding', 10: 'carrying', 11: 'eating', 12: 'walking on', 13: 'playing', 14: 'covering', 15: 'along', 16: 'watching', 17: 'between', 18: 'against', 19: 'from', 20: 'made of', 21: 'says', 22: 'part of', 23: 'across', 24: 'using', 25: 'growing on', 26: 'walking in', 27: 'sitting on', 28: 'standing on', 29: 'in front of', 30: 'attached to', 31: 'hanging from', 32: 'laying on', 33: 'belonging to', 34: 'painted on', 35: 'looking at', 36: 'parked on', 37: 'covered in', 38: 'mounted on', 39: 'flying in', 40: 'on back of', 41: 'lying on', 42: 'on', 43: 'has', 44: 'in', 45: 'of', 46: 'at', 47: 'for', 48: 'and', 49: 'to'}

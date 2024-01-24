@@ -27,16 +27,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Command line arguments')
     parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_cs, train_cs, eval_cs)')
     parser.add_argument('--eval_mode', type=str, default=None, help='Override eval_mode (pc, sgc, sgd)')
-    # parser.add_argument('--continue_train', dest='continue_train', action='store_true', help='Set continue_train to True')
-    parser.add_argument('--start_epoch', type=int, default=None, help='Override start_epoch value')
+    parser.add_argument('--cluster', type=str, default=None, help='Override supcat_clustering (motif, gpt2, bert, clip)')
     parser.add_argument('--hierar', dest='hierar', action='store_true', help='Set hierarchical_pred to True')
     cmd_args = parser.parse_args()
 
     # Override args from config.yaml with command-line arguments if provided
     args['training']['run_mode'] = cmd_args.run_mode if cmd_args.run_mode is not None else args['training']['run_mode']
     args['training']['eval_mode'] = cmd_args.eval_mode if cmd_args.eval_mode is not None else args['training']['eval_mode']
-    # args['training']['continue_train'] = cmd_args.continue_train if cmd_args.continue_train is not None else args['training']['continue_train']
-    args['training']['start_epoch'] = cmd_args.start_epoch if cmd_args.start_epoch is not None else args['training']['start_epoch']
+    args['dataset']['supcat_clustering'] = cmd_args.cluster if cmd_args.cluster is not None else args['dataset']['supcat_clustering']
     args['models']['hierarchical_pred'] = cmd_args.hierar if cmd_args.hierar is not None else args['models']['hierarchical_pred']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -51,9 +49,26 @@ if __name__ == "__main__":
         args['models']['num_classes'] = 150
         args['models']['num_relations'] = 50
         args['models']['num_super_classes'] = 17
-        args['models']['num_geometric'] = 15
-        args['models']['num_possessive'] = 11
-        args['models']['num_semantic'] = 24
+
+        # we still use the name num_geometric, num_possessive, num_semantic for name consistency in this code repo
+        # but they are actually the number of clusters for each super category in the GPT-2, BERT, or CLIP clustering
+        if args['dataset']['supcat_clustering'] == 'gpt2':
+            args['models']['num_geometric'] = 9
+            args['models']['num_possessive'] = 32
+            args['models']['num_semantic'] = 9
+        elif args['dataset']['supcat_clustering'] == 'bert':
+            args['models']['num_geometric'] = 12
+            args['models']['num_possessive'] = 25
+            args['models']['num_semantic'] = 13
+        elif args['dataset']['supcat_clustering'] == 'clip':
+            args['models']['num_geometric'] = 27
+            args['models']['num_possessive'] = 15
+            args['models']['num_semantic'] = 8
+        else:   # if 'supcat_clustering' is 'motif', we follow the super-category definitions in the paper Neural Motifs
+            args['models']['num_geometric'] = 15
+            args['models']['num_possessive'] = 11
+            args['models']['num_semantic'] = 24
+
         args['models']['detr101_pretrained'] = 'checkpoints/detr101_vg_ckpt.pth'
 
         print("Loading the datasets...")

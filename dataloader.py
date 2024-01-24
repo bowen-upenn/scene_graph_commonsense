@@ -128,8 +128,17 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         subj_or_obj = curr_annot['subj_or_obj']
         relationships = curr_annot['relationships']
+
         relationships_reordered = []
-        rel_reorder_dict = relation_class_freq2scat()
+        if self.args['dataset']['supcat_clustering'] == 'gpt2':
+            rel_reorder_dict = gpt2_index_map()
+        elif self.args['dataset']['supcat_clustering'] == 'bert':
+            rel_reorder_dict = bert_index_map()
+        elif self.args['dataset']['supcat_clustering'] == 'clip':
+            rel_reorder_dict = clip_index_map()
+        else: # motif
+            rel_reorder_dict = relation_class_freq2scat()
+
         for rel in relationships:
             rel[rel == 12] = 4      # wearing <- wears
             relationships_reordered.append(rel_reorder_dict[rel])
@@ -224,8 +233,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
         print('len(self.triplets_train_gt), len(self.commonsense_violated_triplets), len(self.commonsense_aligned_triplets)',
               len(self.triplets_train_gt), len(self.commonsense_violated_triplets), len(self.commonsense_aligned_triplets))
         print('Saving triplets/commonsense_violated_triplets.pt and triplets/commonsense_aligned_triplets.pt')
-        # torch.save(self.commonsense_violated_triplets, 'triplets/commonsense_violated_triplets.pt')
-        # torch.save(self.commonsense_aligned_triplets, 'triplets/commonsense_aligned_triplets.pt')
+        torch.save(self.commonsense_violated_triplets, 'triplets/commonsense_violated_triplets.pt')
+        torch.save(self.commonsense_aligned_triplets, 'triplets/commonsense_aligned_triplets.pt')
 
 
     def __len__(self):

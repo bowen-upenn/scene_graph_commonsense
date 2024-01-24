@@ -84,9 +84,11 @@ def training(gpu, args, train_subset, test_subset):
     if args['training']['continue_train']:
         if args['models']['hierarchical_pred']:
             load_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'HierRelationModel_Baseline'
+            load_model_name += '_' + args['dataset']['supcat_clustering'] + '_'
             load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
         else:
             load_model_name = 'FlatRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'FlatRelationModel_Baseline'
+            load_model_name += '_' + args['dataset']['supcat_clustering'] + '_'
             load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['start_epoch'] - 1) + '_0' + '.pth'
         print('Loading pretrained model from %s...' % load_model_name)
         relation_classifier.load_state_dict(torch.load(load_model_name, map_location=map_location))
@@ -304,9 +306,11 @@ def training(gpu, args, train_subset, test_subset):
         if rank == 0:
             if args['models']['hierarchical_pred']:
                 save_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'HierRelationModel_Baseline'
+                save_model_name += '_' + args['dataset']['supcat_clustering'] + '_'
                 save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
             else:
                 save_model_name = 'FlatRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'FlatRelationModel_Baseline'
+                save_model_name += '_' + args['dataset']['supcat_clustering'] + '_'
                 save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
 
             print('Saving model to %s...' % save_model_name)
