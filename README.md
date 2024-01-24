@@ -16,10 +16,15 @@ To summarize our contributions:
 </p>
 
 ## TODOs
-1. Release all pretrained model weights.
-2. Clean up the codes for efficient single-image inference.
-3. Clean up the codes for running experiments on the OpenImage V6 dataset.
-4. Refine all function headers and comments for better readability.
+- [x] 1. Clean up the codes for integrating hierarchical classification as a portable module to other existing SOTA works in [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch)
+- [ ] 2. Release all pretrained model weights.
+- [ ] 3. Add unsupervised relation super-category clustering from pretrained GPT2, BERT, and CLIP token embeddings.
+- [ ] 4. Reduce class imbalance problem from long-tailed class distribution using the [TDE](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
+- [ ] 5. Add energy-based learning [EBM](https://github.com/mods333/energy-based-scene-graph).
+- [ ] 6. Clean up the codes for efficient single-image inference.
+- [ ] 7. Clean up the codes for running experiments on the OpenImage V6 dataset.
+- [ ] 8. Refine all function headers and comments for better readability.
+- [ ] 9. We are currently working on an LVM-for-SGG algorithm and expect to release a preliminary manuscript within the next few months. 
 
 ## Citation
 Please cite our works if you believe they have inspired your research. Thank you!
