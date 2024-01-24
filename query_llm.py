@@ -212,8 +212,9 @@ def _query_openai_gpt_4v(predicted_edges, annot_name, sub_bbox, obj_bbox, image_
             image_path = os.path.join(image_dir, annot_name[:-16] + '.jpg')
             print('annot_name', annot_name, 'image_path', image_path)
 
+            sub_bbox *= image_cache.feature_size
+            obj_bbox *= image_cache.feature_size
             union_bbox = get_union_bbox(sub_bbox, obj_bbox)
-            union_bbox *= image_cache.feature_size
             base64_image = image_cache.get_image(image_path, bbox=union_bbox)
 
             # Form the prompt including the image.
