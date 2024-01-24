@@ -14,10 +14,10 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 1 #0.001
-    percent_test: 1 #0.002
+    percent_train: 0.001
+    percent_test: 0.002
     dataset: 'vg' # vg, oiv6
-    supcat_clustering: 'gpt2' # motif, gpt2, bert, clip
+    supcat_clustering: 'motif' # motif, gpt2, bert, clip
     return_annot: True
 models:
     detr101_key_before: 'datasets/vg_scene_graph_annot/detr101_key_before.txt'
@@ -43,6 +43,7 @@ models:
     num_possessive: 11
     num_semantic: 24
     num_negatives: 49
+    llm_model: 'gpt4v'  # gpt3.5, gpt4v
 training:
     run_mode: 'train'      # train, eval, prepare_cs, train_cs, eval_cs
     eval_mode: 'pc'        # pc sgc or sgd
@@ -66,7 +67,7 @@ training:
     lambda_commonsense: 1
     lambda_cs_weak: 1
     lambda_cs_strong: 10
-    print_freq: 50
-    eval_freq: 50
-    print_freq_test: 50
+    print_freq: 200
+    eval_freq: 200
+    print_freq_test: 100
     eval_freq_test: 1

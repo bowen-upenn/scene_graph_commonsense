@@ -68,7 +68,8 @@ class Evaluator:
         self.cache_hits = 0
         self.total_cache_queries = 0
         self.max_cache_size = max_cache_size
-        self.cache = EdgeCache(max_cache_size)
+        self.cache = EdgeCache(max_cache_size=max_cache_size)
+        self.image_cache = ImageCache(image_size=self.args['models']['image_size'], feature_size=self.args['models']['feature_size'])
         self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if self.run_mode == 'train_cs' else None
         self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if self.run_mode == 'train_cs' else None
         self.dict_relation_names = relation_by_super_class_int2str()
@@ -409,7 +410,11 @@ class Evaluator:
                     break
 
         if len(curr_image_graph) > 0:
-            responses, cache_hits = batch_query_openai_gpt(curr_predictions, self.cache, cache_hits=self.cache_hits)
+            if self.args['models']['llm_model'] == 'gpt4v':
+                responses, cache_hits = batch_query_openai_gpt(curr_predictions, self.cache, cache_hits=self.cache_hits, annot_name=self.annotation_paths[image],
+                                                               sub_bbox=self.subject_bbox_pred[curr_image], obj_bbox=self.object_bbox_pred[curr_image], image_cache=self.image_cache, image_dir=self.args['dataset']['image_dir'])
+            else:  # gpt3.5
+                responses, cache_hits = batch_query_openai_gpt(curr_predictions, self.cache, cache_hits=self.cache_hits)
 
             # calculate cache hit percentage
             self.cache_hits = cache_hits
@@ -424,11 +429,15 @@ class Evaluator:
                     invalid_curr_image_graph.append(curr_image_graph[i])
 
             annot_name = self.annotation_paths[image][:-16] + '_pseudo_annotations.pkl'
-            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k), annot_name)
-            torch.save(valid_curr_image_graph, annot_path)
-            annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k), annot_name)
-            torch.save(invalid_curr_image_graph, annot_path)
-            # print("Saving annotations", annot_name)
+            if self.args['models']['llm_model'] == 'gpt4v':
+                valid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k) + '_gpt4v', annot_name)
+                invalid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k) + '_gpt4v', annot_name)
+            else:
+                valid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k), annot_name)
+                invalid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k), annot_name)
+            torch.save(valid_curr_image_graph, valid_annot_path)
+            torch.save(invalid_curr_image_graph, invalid_annot_path)
+            print("Saving annotations", annot_name)
 
         return curr_predictions, curr_image_graph
 

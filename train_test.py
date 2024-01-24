@@ -24,7 +24,7 @@ from sup_contrast.losses import SupConLoss, SupConLossHierar
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = '12354'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -139,10 +139,11 @@ def training(gpu, args, train_subset, test_subset):
             PREPARE INPUT DATA
             """
             try:
-                images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, _ = data
+                images, images_aug, image_depth, categories, super_categories, bbox, relationships, subj_or_obj, annot_path = data
             except:
                 continue
             batch_size = len(images)
+            Recall.load_annotation_paths(annot_path)
 
             with torch.no_grad():
                 image_feature = process_image_features(args, images, detr, rank)
@@ -307,10 +308,14 @@ def training(gpu, args, train_subset, test_subset):
             if args['models']['hierarchical_pred']:
                 save_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'HierRelationModel_Baseline'
                 save_model_name += '_' + args['dataset']['supcat_clustering'] + '_'
+                if args['models']['llm_model'] == 'gpt4v':
+                    save_model_name += 'gpt4v_'
                 save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
             else:
                 save_model_name = 'FlatRelationModel_CS' if args['training']['run_mode'] == 'train_cs' else 'FlatRelationModel_Baseline'
                 save_model_name += '_' + args['dataset']['supcat_clustering'] + '_'
+                if args['models']['llm_model'] == 'gpt4v':
+                    save_model_name += 'gpt4v_'
                 save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
 
             print('Saving model to %s...' % save_model_name)
@@ -339,6 +344,8 @@ def testing(args, detr, relation_classifier, test_loader, test_record, epoch, ra
     print('Start Testing PC...')
     with torch.no_grad():
         for batch_count, data in enumerate(tqdm(test_loader), 0):
+            if epoch < 2 and batch_count > 100:
+                break
             """
             PREPARE INPUT DATA
             """

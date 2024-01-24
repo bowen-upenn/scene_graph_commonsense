@@ -15,6 +15,9 @@ import math
 from collections import Counter, OrderedDict
 import re
 import random
+import cv2
+import base64
+import requests
 
 
 class EdgeCache:
@@ -51,7 +54,13 @@ class EdgeCache:
         return len(self.cache), self.max_cache_size
 
 
-def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=4, cache_hits=0):
+def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=4, cache_hits=0,
+                           annot_name=None, sub_bbox=None, obj_bbox=None, image_cache=None, image_dir=None):
+    # input arguments annot_name, sub_bbox, obj_bbox, image_cache, and image_dir are only required if using GPT-4V as the commonsense validator
+    use_vision = annot_name is not None
+    if use_vision:
+        batch_size = 1
+
     total_edges = len(predicted_edges)
     all_responses = []
 
@@ -60,24 +69,32 @@ def batch_query_openai_gpt(predicted_edges, edge_cache, batch_size=4, cache_hits
         batched_edges_to_query = []
 
         for edge in batched_edges:
-            cached_response = edge_cache.get(edge)
-            if cached_response is not None and random.random() < 0.9:
-                all_responses.append(cached_response)
-                cache_hits += 1
-                edge_cache.put(edge, cached_response)  # Update cache access frequency
-            else:
+            if use_vision:  # do not use edge cache
                 batched_edges_to_query.append(edge)
+            else:
+                cached_response = edge_cache.get(edge)
+                if cached_response is not None and random.random() < 0.9:
+                    all_responses.append(cached_response)
+                    cache_hits += 1
+                    edge_cache.put(edge, cached_response)  # Update cache access frequency
+                else:
+                    batched_edges_to_query.append(edge)
 
         if batched_edges_to_query:
-            responses = _batch_query_openai_gpt_instruct(batched_edges_to_query)
+            if use_vision:
+                responses = _query_openai_gpt_4v(batched_edges_to_query, annot_name, sub_bbox[i], obj_bbox[i], image_cache, image_dir)
+            else:
+                responses = _batch_query_openai_gpt_3p5_instruct(batched_edges_to_query)
+
             for edge, response in zip(batched_edges_to_query, responses):
-                edge_cache.put(edge, response)
+                if not use_vision:
+                    edge_cache.put(edge, response)
                 all_responses.append(response)
 
     return all_responses, cache_hits
 
 
-def _batch_query_openai_gpt_instruct(predicted_edges, verbose=False):
+def _batch_query_openai_gpt_3p5_instruct(predicted_edges, verbose=False):
     openai.api_key_path = 'openai_key.txt'
     responses = torch.ones(len(predicted_edges)) * -1
 
@@ -141,6 +158,103 @@ def _batch_query_openai_gpt_instruct(predicted_edges, verbose=False):
             if verbose:
                 print(f'predicted_edge {edge} [MAJORITY NO] {no_votes} No votes vs {yes_votes} Yes votes')
             responses[i] = -1
+
+    return responses
+
+
+class ImageCache:
+    def __init__(self, image_size, feature_size):
+        self.cache = {}
+        self.image_size = image_size
+        self.feature_size = feature_size
+
+    def get_image(self, image_path, bbox=None):
+        if image_path not in self.cache:
+            image = cv2.imread(image_path)
+            image = cv2.resize(image, dsize=(self.image_size, self.image_size))
+
+            if bbox is not None:
+                x1, x2, y1, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
+                image = image[y1:y2, x1:x2]
+
+            # Convert image to bytes for base64 encoding
+            _, buffer = cv2.imencode('.jpg', image)
+            image_bytes = np.array(buffer).tobytes()
+
+            self.cache[image_path] = base64.b64encode(image_bytes).decode('utf-8')
+        return self.cache[image_path]
+
+
+def get_union_bbox(sub_bbox, obj_bbox):
+    # Calculate the smallest bounding box that contains both subject and object
+    x1 = min(sub_bbox[0], obj_bbox[0])
+    y1 = min(sub_bbox[1], obj_bbox[1])
+    x2 = max(sub_bbox[2], obj_bbox[2])
+    y2 = max(sub_bbox[3], obj_bbox[3])
+    return [x1, y1, x2, y2]
+
+
+def _query_openai_gpt_4v(predicted_edges, annot_name, sub_bbox, obj_bbox, image_cache, image_dir, verbose=True):
+    with open("openai_key.txt", "r") as api_key_file:
+        api_key = api_key_file.read()
+
+    responses = torch.ones(len(predicted_edges)) * -1
+
+    # GPT-4V does not support batch inference at this moment, but we keep the same structure as in _batch_query_openai_gpt_instruct for code simplicity
+    assert len(predicted_edges) == 1
+
+    for i, edge in enumerate(predicted_edges):
+        # Construct the path to the image and annotations
+        image_path = os.path.join(image_dir, annot_name[:-16] + '.jpg')
+
+        # Load and process image and annotations if they exist
+        if os.path.exists(image_path):
+            image_path = os.path.join(image_dir, annot_name[:-16] + '.jpg')
+            print('annot_name', annot_name, 'image_path', image_path)
+
+            union_bbox = get_union_bbox(sub_bbox, obj_bbox)
+            union_bbox *= image_cache.feature_size
+            base64_image = image_cache.get_image(image_path, bbox=union_bbox)
+
+            # Form the prompt including the image.
+            # Due to the strong performance of the vision model, we omit multiple queries and majority vote to reduce costs
+            prompt = {
+                "model": "gpt-4-vision-preview",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Does the image contain a relation '{}'? Let us think about it step by step.".format(edge)},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]
+                    }
+                ],
+                "max_tokens": 300
+            }
+
+            # Send request to OpenAI API
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=prompt)
+            response_json = response.json()
+
+            # Process the response
+            # Check if the response is valid and contains the expected data
+            if 'choices' in response_json and len(response_json['choices']) > 0:
+                completion_text = response_json['choices'][0].get('message', {}).get('content', '')
+
+                # Parse the response for 'Yes' or 'No'
+                if re.search(r'\bYes\b', completion_text, re.IGNORECASE):
+                    responses[i] = 1
+                else:
+                    responses[i] = -1  # 'No' or default to -1 if neither 'Yes' nor 'No' is found
+
+                if verbose:
+                    print(f'Edge: {edge}, Response: {completion_text}, Vote: {responses[i]}')
+        else:
+            responses[i] = -1  # or any other indicator for missing data
 
     return responses
 
