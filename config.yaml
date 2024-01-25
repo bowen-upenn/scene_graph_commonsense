@@ -14,8 +14,8 @@ dataset:
     zero_shot_triplets: 'datasets/vg_scene_graph_annot/zero_shot_triplets.pt'
     area_frac_thresh: 0.002
     train_test_split: 0.7
-    percent_train: 0.001
-    percent_test: 0.002
+    percent_train: 1 #0.001
+    percent_test: 0.1 #0.002
     dataset: 'vg' # vg, oiv6
     supcat_clustering: 'motif' # motif, gpt2, bert, clip
     return_annot: True
@@ -69,5 +69,5 @@ training:
     lambda_cs_strong: 10
     print_freq: 200
     eval_freq: 200
-    print_freq_test: 100
+    print_freq_test: 50
     eval_freq_test: 1

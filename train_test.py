@@ -125,8 +125,12 @@ def training(gpu, args, train_subset, test_subset):
     if args['dataset']['dataset'] == 'vg':
         Recall_top3 = Evaluator_Top3(args=args, num_classes=args['models']['num_relations'], iou_thresh=0.5, top_k=[20, 50, 100])
 
-    commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
-    commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
+    if args['models']['llm_model'] == 'gpt4v':
+        commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
+        commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
+    else:
+        commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt3p5.pt') if args['training']['run_mode'] == 'train_cs' else None
+        commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt3p5.pt') if args['training']['run_mode'] == 'train_cs' else None
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):

@@ -194,7 +194,7 @@ def get_union_bbox(sub_bbox, obj_bbox):
     return [x1, y1, x2, y2]
 
 
-def _query_openai_gpt_4v(predicted_edges, annot_name, sub_bbox, obj_bbox, image_cache, image_dir, verbose=True):
+def _query_openai_gpt_4v(predicted_edges, annot_name, sub_bbox, obj_bbox, image_cache, image_dir, verbose=False):
     with open("openai_key.txt", "r") as api_key_file:
         api_key = api_key_file.read()
 
