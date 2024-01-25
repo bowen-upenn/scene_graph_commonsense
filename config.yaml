@@ -15,7 +15,7 @@ dataset:
     area_frac_thresh: 0.002
     train_test_split: 0.7
     percent_train: 1 #0.001
-    percent_test: 0.1 #0.002
+    percent_test: 1 #0.002
     dataset: 'vg' # vg, oiv6
     supcat_clustering: 'motif' # motif, gpt2, bert, clip
     return_annot: True
@@ -43,7 +43,7 @@ models:
     num_possessive: 11
     num_semantic: 24
     num_negatives: 49
-    llm_model: 'gpt4v'  # gpt3.5, gpt4v
+    llm_model: 'gpt3.5'  # gpt3.5, gpt4v
 training:
     run_mode: 'train'      # train, eval, prepare_cs, train_cs, eval_cs
     eval_mode: 'pc'        # pc sgc or sgd
