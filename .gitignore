@@ -9,3 +9,6 @@ progress/
 myenv/
 *.png
 openai_api_key.txt
+*.o
+*/apex
+*/cocoapi
