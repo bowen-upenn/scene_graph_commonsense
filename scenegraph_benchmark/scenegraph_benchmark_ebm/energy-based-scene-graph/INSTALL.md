@@ -63,6 +63,14 @@ cd $INSTALL_DIR
 git clone git@github.com:mods333/energy-based-scene-graph.git
 cd energy-based-scene-graph
 
+# add the following lines at the top of these two files since AT_CHECK is deprecated
+# maskrcnn_benchmark/csrc/cuda/deform_conv_cuda.cu
+# maskrcnn_benchmark/csrc/cuda/deform_pool_cuda.cu
+
+#ifndef AT_CHECK
+#define AT_CHECK TORCH_CHECK 
+#endif
+
 # the following will install the lib with symbolic links, so that you can modify
 # the files if you want and won't need to re-build it
 # but you have to rebuilt it if you rename the directories in the path
