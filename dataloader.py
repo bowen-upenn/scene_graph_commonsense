@@ -77,14 +77,14 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
 
         if self.args['training']['run_mode'] == 'prepare_cs' and self.train_cs_step == 2:
             # load saved commonsense-aligned and violated triplets for each current image
-            annot_name_yes = 'cs_aligned_top10_gpt4v/' if self.args['models']['llm_model'] == 'gpt4v' else 'cs_aligned_top10_gpt3p5/'
+            annot_name_yes = 'cs_aligned_top10_gpt4v/' if self.args['models']['llm_model'] == 'gpt4v' else 'cs_aligned_top10_gpt3p5_temp/'
             annot_name_yes += self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
             annot_name_yes = os.path.join(self.annot_dir, annot_name_yes)
             if os.path.exists(annot_name_yes):
                 curr_annot_yes = torch.load(annot_name_yes)
             else:
                 return None
-            annot_name_no = 'cs_violated_top10_gpt4v/' if self.args['models']['llm_model'] == 'gpt4v' else 'cs_violated_top10_gpt3p5/'
+            annot_name_no = 'cs_violated_top10_gpt4v/' if self.args['models']['llm_model'] == 'gpt4v' else 'cs_violated_top10_gpt3p5_temp/'
             annot_name_no += self.annotations['images'][idx]['file_name'][:-4] + '_pseudo_annotations.pkl'
             annot_name_no = os.path.join(self.annot_dir, annot_name_no)
             if os.path.exists(annot_name_no):
@@ -240,8 +240,8 @@ class VisualGenomeDataset(torch.utils.data.Dataset):
             torch.save(self.commonsense_violated_triplets, 'triplets/commonsense_violated_triplets_gpt4v.pt')
             torch.save(self.commonsense_aligned_triplets, 'triplets/commonsense_aligned_triplets_gpt4v.pt')
         else:
-            torch.save(self.commonsense_violated_triplets, 'triplets/commonsense_violated_triplets_gpt3p5.pt')
-            torch.save(self.commonsense_aligned_triplets, 'triplets/commonsense_aligned_triplets_gpt3p5.pt')
+            torch.save(self.commonsense_violated_triplets, 'triplets/commonsense_violated_triplets_gpt3p5_temp.pt')
+            torch.save(self.commonsense_aligned_triplets, 'triplets/commonsense_aligned_triplets_gpt3p5_temp.pt')
 
 
     def __len__(self):

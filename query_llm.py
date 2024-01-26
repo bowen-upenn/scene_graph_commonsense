@@ -102,7 +102,8 @@ def _batch_query_openai_gpt_3p5_instruct(predicted_edges, verbose=False):
 
     # Prepare multiple variations of each prompt
     prompt_variations = [
-        "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
+        "Is the relation {} impossible in real world? Answer 'Yes' or 'No' and explain your answer.",
+        # "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
         "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
         "Could there be either a {} or a {}s? Yes or No and justify your answer.",
         "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
@@ -135,7 +136,7 @@ def _batch_query_openai_gpt_3p5_instruct(predicted_edges, verbose=False):
                 print(completion_text)
             # completion_text = completions.choices[i * len(prompt_variations) + j].message
 
-            if j > 2:  # For the last two questions, we reverse the logic
+            if j == 0 or j > 2:  # For the last two questions, we reverse the logic
                 if re.search(r'Yes', completion_text):
                     no_votes += 1
                 elif re.search(r'No', completion_text):

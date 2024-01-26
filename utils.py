@@ -120,6 +120,35 @@ def build_detr101(args):
     return model
 
 
+def get_embeddings(model, tokenizer, sentences):
+    # Set padding token if not defined
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token if tokenizer.eos_token is not None else '[PAD]'
+
+    # Tokenize input
+    inputs = tokenizer(sentences, padding=True, truncation=True, return_tensors="pt")
+    # Get embeddings
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1)
+
+
+def process_super_class(s1, s2, num_super_classes, rank):
+    sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=num_super_classes)
+    for i in range(1, 4):  # at most 4 diff super class for each subclass instance
+        idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
+        if len(idx) > 0:
+            sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=num_super_classes)
+    sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=num_super_classes)
+    for i in range(1, 4):
+        idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
+        if len(idx) > 0:
+            sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=num_super_classes)
+
+    sc1, sc2 = sc1.to(rank), sc2.to(rank)
+    return sc1, sc2
+
+
 # https://github.com/yrcong/RelTR/blob/main/util/misc.py
 class NestedTensor(object):
     def __init__(self, tensors, mask: Optional[Tensor]):
@@ -183,22 +212,6 @@ def remove_ddp_module_in_weights(saved_state_dict):
         k = k.replace('module.', '')
         renamed_state_dict[k] = v
     return renamed_state_dict
-
-
-def process_super_class(s1, s2, num_super_classes, rank):
-    sc1 = F.one_hot(torch.tensor([s[0] for s in s1]), num_classes=num_super_classes)
-    for i in range(1, 4):  # at most 4 diff super class for each subclass instance
-        idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s1])).view(-1)
-        if len(idx) > 0:
-            sc1[idx] += F.one_hot(torch.tensor([s[i] for s in [s1[j] for j in idx]]), num_classes=num_super_classes)
-    sc2 = F.one_hot(torch.tensor([s[0] for s in s2]), num_classes=num_super_classes)
-    for i in range(1, 4):
-        idx = torch.nonzero(torch.tensor([len(s) == i + 1 for s in s2])).view(-1)
-        if len(idx) > 0:
-            sc2[idx] += F.one_hot(torch.tensor([s[i] for s in [s2[j] for j in idx]]), num_classes=num_super_classes)
-
-    sc1, sc2 = sc1.to(rank), sc2.to(rank)
-    return sc1, sc2
 
 
 def match_bbox(bbox_semi, bbox_raw, eval_mode):

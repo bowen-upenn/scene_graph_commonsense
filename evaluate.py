@@ -22,7 +22,7 @@ from dataset_utils import object_class_alp2fre
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12356'
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -64,7 +64,8 @@ def eval_pc(gpu, args, test_subset, curr_dataset=None, prepare_cs_step=-1):
 
     map_location = {'cuda:%d' % rank: 'cuda:%d' % 0}
     if args['models']['hierarchical_pred']:
-        load_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'eval_cs' else 'HierRelationModel_Baseline'
+        # load_model_name = 'HierRelationModel_CS' if args['training']['run_mode'] == 'eval_cs' else 'HierRelationModel_Baseline'
+        load_model_name = 'HierRelationModel_Baseline'
         load_model_name += '_' + args['dataset']['supcat_clustering'] + '_'
         load_model_name = args['training']['checkpoint_path'] + load_model_name + str(args['training']['test_epoch']) + '_0' + '.pth'
     else:

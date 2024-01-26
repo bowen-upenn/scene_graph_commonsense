@@ -8,6 +8,7 @@ import os
 import json
 import torch.multiprocessing as mp
 import argparse
+import pickle
 
 from dataloader import VisualGenomeDataset, OpenImageV6Dataset
 from train_test import training
@@ -22,6 +23,10 @@ if __name__ == "__main__":
             args = yaml.safe_load(file)
     except Exception as e:
         print('Error reading the config file')
+
+    # with open('ietrans-em_E.pk_0.7', 'rb') as file:
+    #     data = pickle.load(file)
+    # print(len(data), data[0])
 
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description='Command line arguments')
@@ -102,13 +107,13 @@ if __name__ == "__main__":
          mp.spawn(training, nprocs=world_size, args=(args, train_subset, test_subset))
 
     elif args['training']['run_mode'] == 'prepare_cs':
-        """ 
+        """
         we have to collect commonsense-aligned and violated triplets only from the training dataset to prevent data leakage
         the process is divided into two steps to avoid unexpected interrupts from OpenAI API connections
         the first step requires model inference, but the second step only requires calling the __getitem__ function in dataloader
         """
         # step 1: collect and save commonsense-aligned and violated triplets on the current baseline model for each image
-        mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 1))
+        # mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 1))
         # step 2: rerun it again but to accumulate all collected triplets from the two sets and save them into two .pt files
         mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 2))
 

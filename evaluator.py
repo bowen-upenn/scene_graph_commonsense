@@ -77,8 +77,8 @@ class Evaluator:
             self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
             self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
         else:
-            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt3p5.pt') if args['training']['run_mode'] == 'train_cs' else None
-            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt3p5.pt') if args['training']['run_mode'] == 'train_cs' else None
+            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt3p5_temp.pt') if args['training']['run_mode'] == 'train_cs' else None
+            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt3p5_temp.pt') if args['training']['run_mode'] == 'train_cs' else None
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -438,8 +438,8 @@ class Evaluator:
                 valid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k) + '_gpt4v', annot_name)
                 invalid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k) + '_gpt4v', annot_name)
             else:
-                valid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k)+ '_gpt3p5', annot_name)
-                invalid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k)+ '_gpt3p5', annot_name)
+                valid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_aligned_top' + str(top_k)+ '_gpt3p5_temp', annot_name)
+                invalid_annot_path = os.path.join(self.args['dataset']['annot_dir'], 'cs_violated_top' + str(top_k)+ '_gpt3p5_temp', annot_name)
             torch.save(valid_curr_image_graph, valid_annot_path)
             torch.save(invalid_curr_image_graph, invalid_annot_path)
             # print("Saving annotations", annot_name)
