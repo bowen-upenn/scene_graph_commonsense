@@ -1,3 +1,5 @@
+## This code is built from the repository https://github.com/waxnkw/IETrans-SGG.pytorch
+
 # Internal and External Data Transfer (IETrans) for Scene Graph Generation
 
 This is the code for **ECCV 2022 (Oral)** paper "[Fine-Grained Scene Graph Generation with Data Transfer](https://arxiv.org/abs/2203.11654)".
