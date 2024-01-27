@@ -16,3 +16,5 @@ runs/
 openai_key.txt
 openai_key*
 triplets/*
+**/openai*
+**/scenegraph_benchmark_ebm/
