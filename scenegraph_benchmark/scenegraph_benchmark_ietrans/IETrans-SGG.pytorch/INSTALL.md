@@ -43,6 +43,9 @@ conda install pytorch==1.7.0 torchvision==0.8.0 torchaudio==0.7.0 cudatoolkit=10
 # install cudatookit if apex can't find cuda_dir
 conda install -c "conda-forge/label/cf202003" cudatoolkit-dev
 
+# if you want to use commonsense validation
+pip install openai==0.28
+
 export INSTALL_DIR=$PWD
 
 # install pycocotools

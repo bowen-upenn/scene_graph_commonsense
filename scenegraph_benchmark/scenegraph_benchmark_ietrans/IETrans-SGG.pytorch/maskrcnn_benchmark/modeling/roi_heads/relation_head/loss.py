@@ -269,7 +269,6 @@ class WRelationLossComputation(object):
         """
         self.rel_loss = rel_loss
         self.obj_criterion_loss = nn.CrossEntropyLoss()
-        print(self.rel_loss)
         if self.rel_loss == 'bce':
             self.rel_criterion_loss = nn.BCEWithLogitsLoss()
         elif self.rel_loss == 'ce':

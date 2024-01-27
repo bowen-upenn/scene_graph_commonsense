@@ -1,18 +1,11 @@
 import torch
-import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 import os
 import json
-import torchmetrics
-import torch.nn as nn
-from torch import Tensor
-from typing import Optional, List
-import torchvision
 import openai
 # from openai import OpenAI
-import math
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 import re
 import random
 import cv2
@@ -102,8 +95,6 @@ def _batch_query_openai_gpt_3p5_instruct(predicted_edges, verbose=False):
 
     # Prepare multiple variations of each prompt
     prompt_variations = [
-        "Is the relation {} impossible in real world? Answer 'Yes' or 'No' and explain your answer.",
-        # "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
         "Is the relation '{}' generally make sense or a trivially true fact? Answer with 'Yes' or 'No' and justify your answer. A trivially true relation is still a 'Yes'.",
         "Could there be either a {} or a {}s? Yes or No and justify your answer.",
         "Regardless of whether it is basic or redundant, is the relation '{}' incorrect and is a mis-classification in scene graph generation? Show your reasoning and answer 'Yes' or 'No'.",
@@ -113,7 +104,7 @@ def _batch_query_openai_gpt_3p5_instruct(predicted_edges, verbose=False):
     # For each predicted edge, create multiple prompts
     for edge in predicted_edges:
         for i, variation in enumerate(prompt_variations):
-            if i == 2:
+            if i == 1:
                 prompts.append(variation.format(edge, edge))
             else:
                 prompts.append(variation.format(edge))
@@ -136,7 +127,7 @@ def _batch_query_openai_gpt_3p5_instruct(predicted_edges, verbose=False):
                 print(completion_text)
             # completion_text = completions.choices[i * len(prompt_variations) + j].message
 
-            if j == 0 or j > 2:  # For the last two questions, we reverse the logic
+            if j == 2 or j == 3:  # For the last two questions, we reverse the logic
                 if re.search(r'Yes', completion_text):
                     no_votes += 1
                 elif re.search(r'No', completion_text):
@@ -145,11 +136,15 @@ def _batch_query_openai_gpt_3p5_instruct(predicted_edges, verbose=False):
                     no_votes += 1
             else:
                 if re.search(r'Yes', completion_text):
-                    yes_votes += 1
-                elif re.search(r'No', completion_text):
-                    no_votes += 1
+                    if j == 0:
+                        yes_votes += 2
+                    else:
+                        yes_votes += 1
                 else:
-                    no_votes += 1
+                    if j == 0:
+                        no_votes += 2
+                    else:
+                        no_votes += 1
 
         if yes_votes > no_votes:
             if verbose:

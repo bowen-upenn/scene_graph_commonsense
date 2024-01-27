@@ -9,6 +9,10 @@ from maskrcnn_benchmark.structures.boxlist_ops import cat_boxlist
 from maskrcnn_benchmark.modeling.box_coder import BoxCoder
 from .utils_relation import obj_prediction_nms
 
+from .query_llm import CommonsenseValidator
+import math
+
+
 class PostProcessor(nn.Module):
     """
     From a set of classification scores, box regression and proposals,
@@ -32,6 +36,8 @@ class PostProcessor(nn.Module):
         self.use_gt_box = use_gt_box
         self.later_nms_pred_thres = later_nms_pred_thres
         self.rel_inference = rel_inference
+
+        self.llm = CommonsenseValidator()
 
     def forward(self, x, rel_pair_idxs, boxes):
         """
@@ -122,6 +128,18 @@ class PostProcessor(nn.Module):
             rel_class_prob = rel_class_prob[sorting_idx]
             rel_labels = rel_class[sorting_idx]
 
+            ############################################################
+            # query llm about top k triplets for commonsense validation
+            llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
+            rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
+
+            # resort the triplets
+            _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
+            rel_pair_idx = rel_pair_idx[sorting_idx]
+            rel_class_prob = rel_class_prob[sorting_idx]
+            rel_labels = rel_labels[sorting_idx]
+            ############################################################
+
             boxlist.add_field('rel_pair_idxs', rel_pair_idx) # (#rel, 2)
             boxlist.add_field('pred_rel_scores', rel_class_prob) # (#rel, #rel_class)
             boxlist.add_field('pred_rel_labels', rel_labels) # (#rel, )
@@ -174,6 +192,8 @@ class HierarchPostProcessor(nn.Module):
         self.label_semantic = {int(k): v for k, v in self.label_semantic.items()}
         self.obj_sementic = {"1": "airplane", "2": "animal", "3": "arm", "4": "bag", "5": "banana", "6": "basket", "7": "beach", "8": "bear", "9": "bed", "10": "bench", "11": "bike", "12": "bird", "13": "board", "14": "boat", "15": "book", "16": "boot", "17": "bottle", "18": "bowl", "19": "box", "20": "boy", "21": "branch", "22": "building", "23": "bus", "24": "cabinet", "25": "cap", "26": "car", "27": "cat", "28": "chair", "29": "child", "30": "clock", "31": "coat", "32": "counter", "33": "cow", "34": "cup", "35": "curtain", "36": "desk", "37": "dog", "38": "door", "39": "drawer", "40": "ear", "41": "elephant", "42": "engine", "43": "eye", "44": "face", "45": "fence", "46": "finger", "47": "flag", "48": "flower", "49": "food", "50": "fork", "51": "fruit", "52": "giraffe", "53": "girl", "54": "glass", "55": "glove", "56": "guy", "57": "hair", "58": "hand", "59": "handle", "60": "hat", "61": "head", "62": "helmet", "63": "hill", "64": "horse", "65": "house", "66": "jacket", "67": "jean", "68": "kid", "69": "kite", "70": "lady", "71": "lamp", "72": "laptop", "73": "leaf", "74": "leg", "75": "letter", "76": "light", "77": "logo", "78": "man", "79": "men", "80": "motorcycle", "81": "mountain", "82": "mouth", "83": "neck", "84": "nose", "85": "number", "86": "orange", "87": "pant", "88": "paper", "89": "paw", "90": "people", "91": "person", "92": "phone", "93": "pillow", "94": "pizza", "95": "plane", "96": "plant", "97": "plate", "98": "player", "99": "pole", "100": "post", "101": "pot", "102": "racket", "103": "railing", "104": "rock", "105": "roof", "106": "room", "107": "screen", "108": "seat", "109": "sheep", "110": "shelf", "111": "shirt", "112": "shoe", "113": "short", "114": "sidewalk", "115": "sign", "116": "sink", "117": "skateboard", "118": "ski", "119": "skier", "120": "sneaker", "121": "snow", "122": "sock", "123": "stand", "124": "street", "125": "surfboard", "126": "table", "127": "tail", "128": "tie", "129": "tile", "130": "tire", "131": "toilet", "132": "towel", "133": "tower", "134": "track", "135": "train", "136": "tree", "137": "truck", "138": "trunk", "139": "umbrella", "140": "vase", "141": "vegetable", "142": "vehicle", "143": "wave", "144": "wheel", "145": "window", "146": "windshield", "147": "wing", "148": "wire", "149": "woman", "150": "zebra"}
         self.obj_sementic = {int(k): v for k, v in self.obj_sementic.items()}
+
+        self.llm = CommonsenseValidator()
 
     def forward(self, x, rel_pair_idxs, boxes):
         """
@@ -274,6 +294,18 @@ class HierarchPostProcessor(nn.Module):
             rel_pair_idx = cat_rel_pair_idx[sorting_idx]
             rel_class_prob = cat_class_prob[sorting_idx]
             rel_labels = cat_labels[sorting_idx]
+
+            ############################################################
+            # query llm about top k triplets for commonsense validation
+            llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
+            rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
+
+            # resort the triplets
+            _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
+            rel_pair_idx = rel_pair_idx[sorting_idx]
+            rel_class_prob = rel_class_prob[sorting_idx]
+            rel_labels = rel_labels[sorting_idx]
+            ############################################################
 
             boxlist.add_field('rel_pair_idxs', rel_pair_idx)  # (#rel, 2)
             boxlist.add_field('pred_rel_scores',

@@ -24,10 +24,6 @@ if __name__ == "__main__":
     except Exception as e:
         print('Error reading the config file')
 
-    # with open('ietrans-em_E.pk_0.7', 'rb') as file:
-    #     data = pickle.load(file)
-    # print(len(data), data[0])
-
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description='Command line arguments')
     parser.add_argument('--run_mode', type=str, default=None, help='Override run_mode (train, eval, prepare_cs, train_cs, eval_cs)')
