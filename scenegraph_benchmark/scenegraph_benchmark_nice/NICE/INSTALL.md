@@ -19,8 +19,8 @@ Most of the requirements of this projects are exactly the same as [maskrcnn-benc
 # for that, check that `which conda`, `which pip` and `which python` points to the
 # right path. From a clean conda env, this is what you need to do
 
-conda create --name scene_graph_benchmark
-conda activate scene_graph_benchmark
+conda create --name sg_nice python=3.8
+conda activate sg_nice
 
 # this installs the right pip and dependencies for the fresh python
 conda install ipython
@@ -31,8 +31,12 @@ conda install h5py
 pip install ninja yacs cython matplotlib tqdm opencv-python overrides
 
 # follow PyTorch installation in https://pytorch.org/get-started/locally/
-# we give the instructions for CUDA 10.1
-conda install pytorch==1.4.0 torchvision==0.5.0 cudatoolkit=10.1 -c pytorch
+conda install pytorch==1.7.0 torchvision==0.8.0 torchaudio==0.7.0 cudatoolkit=10.1 -c pytorch
+# install cudatookit if apex can't find cuda_dir
+conda install -c "conda-forge/label/cf202003" cudatoolkit-dev
+
+# update pycocotools otherwise np.float in pycocotools will throw an error when using numpy>=1.24
+pip install --upgrade pycocotools
 
 export INSTALL_DIR=$PWD
 
@@ -44,8 +48,9 @@ python setup.py build_ext install
 
 # install apex
 cd $INSTALL_DIR
-git clone https://github.com/NVIDIA/apex.git
-cd apex
+git clone https://github.com/NVIDIA/apex.git 
+cd apex 
+git reset --hard 3fe10b5597ba14a748ebb271a6ab97c09c5701ac 
 python setup.py install --cuda_ext --cpp_ext
 
 # install PyTorch Detection
@@ -58,7 +63,6 @@ cd NICE
 # the files if you want and won't need to
 # re-build it
 python setup.py build develop
-
 
 unset INSTALL_DIR
 
