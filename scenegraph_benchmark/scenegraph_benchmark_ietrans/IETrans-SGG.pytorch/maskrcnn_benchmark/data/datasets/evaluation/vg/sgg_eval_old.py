@@ -15,17 +15,16 @@ from maskrcnn_benchmark.utils.miscellaneous import intersect_2d, argsort_desc, b
 
 from abc import ABC, abstractmethod
 
-
 class SceneGraphEvaluation(ABC):
     def __init__(self, result_dict):
         super().__init__()
         self.result_dict = result_dict
-
+ 
     @abstractmethod
     def register_container(self, mode):
         print("Register Result Container")
         pass
-
+    
     @abstractmethod
     def generate_print_string(self, mode):
         print("Generate Print String")
@@ -36,11 +35,10 @@ class SceneGraphEvaluation(ABC):
 Traditional Recall, implement based on:
 https://github.com/rowanz/neural-motifs
 """
-
-
 class SGRecall(SceneGraphEvaluation):
     def __init__(self, result_dict):
         super(SGRecall, self).__init__(result_dict)
+        
 
     def register_container(self, mode):
         self.result_dict[mode + '_recall'] = {20: [], 50: [], 100: []}
@@ -65,19 +63,15 @@ class SGRecall(SceneGraphEvaluation):
 
         iou_thres = global_container['iou_thres']
 
-        # Directly use the pred_rel_labels here, because we are predicting 3 edges for one pair.
-        # pred_scores = rel_scores[:,1:].max(1)
-        # pred_rels = np.column_stack((pred_rel_inds, 1+rel_scores[:,1:].argmax(1)))
-        pred_rel_labels = local_container['pred_rel_labels']
-        pred_rels = np.column_stack((pred_rel_inds, pred_rel_labels))
-        pred_scores = rel_scores[:, :].max(1)
+        pred_rels = np.column_stack((pred_rel_inds, 1+rel_scores[:,1:].argmax(1)))
+        pred_scores = rel_scores[:,1:].max(1)
 
         gt_triplets, gt_triplet_boxes, _ = _triplet(gt_rels, gt_classes, gt_boxes)
         local_container['gt_triplets'] = gt_triplets
         local_container['gt_triplet_boxes'] = gt_triplet_boxes
 
         pred_triplets, pred_triplet_boxes, pred_triplet_scores = _triplet(
-            pred_rels, pred_classes, pred_boxes, pred_scores, obj_scores)
+                pred_rels, pred_classes, pred_boxes, pred_scores, obj_scores)
 
         # Compute recall. It's most efficient to match once and then do recall after
         pred_to_gt = _compute_pred_matches(
@@ -86,7 +80,7 @@ class SGRecall(SceneGraphEvaluation):
             gt_triplet_boxes,
             pred_triplet_boxes,
             iou_thres,
-            phrdet=mode == 'phrdet',
+            phrdet=mode=='phrdet',
         )
         local_container['pred_to_gt'] = pred_to_gt
 
@@ -97,14 +91,10 @@ class SGRecall(SceneGraphEvaluation):
             self.result_dict[mode + '_recall'][k].append(rec_i)
 
         return local_container
-
-
 """
 No Graph Constraint Recall, implement based on:
 https://github.com/rowanz/neural-motifs
 """
-
-
 class SGNoGraphConstraintRecall(SceneGraphEvaluation):
     def __init__(self, result_dict):
         super(SGNoGraphConstraintRecall, self).__init__(result_dict)
@@ -129,14 +119,13 @@ class SGNoGraphConstraintRecall(SceneGraphEvaluation):
         gt_rels = local_container['gt_rels']
 
         obj_scores_per_rel = obj_scores[pred_rel_inds].prod(1)
-        nogc_overall_scores = obj_scores_per_rel[:, None] * rel_scores[:, 1:]
+        nogc_overall_scores = obj_scores_per_rel[:,None] * rel_scores[:,1:]
         nogc_score_inds = argsort_desc(nogc_overall_scores)[:100]
-
-        nogc_pred_rels = np.column_stack((pred_rel_inds[nogc_score_inds[:, 0]], nogc_score_inds[:, 1] + 1))
-        nogc_pred_scores = rel_scores[nogc_score_inds[:, 0], nogc_score_inds[:, 1] + 1]
+        nogc_pred_rels = np.column_stack((pred_rel_inds[nogc_score_inds[:,0]], nogc_score_inds[:,1]+1))
+        nogc_pred_scores = rel_scores[nogc_score_inds[:,0], nogc_score_inds[:,1]+1]
 
         nogc_pred_triplets, nogc_pred_triplet_boxes, _ = _triplet(
-            nogc_pred_rels, pred_classes, pred_boxes, nogc_pred_scores, obj_scores
+                nogc_pred_rels, pred_classes, pred_boxes, nogc_pred_scores, obj_scores
         )
 
         # No Graph Constraint
@@ -150,7 +139,7 @@ class SGNoGraphConstraintRecall(SceneGraphEvaluation):
             gt_triplet_boxes,
             nogc_pred_triplet_boxes,
             iou_thres,
-            phrdet=mode == 'phrdet',
+            phrdet=mode=='phrdet',
         )
 
         local_container['nogc_pred_to_gt'] = nogc_pred_to_gt
@@ -162,19 +151,16 @@ class SGNoGraphConstraintRecall(SceneGraphEvaluation):
 
         return local_container
 
-
 """
 Zero Shot Scene Graph
 Only calculate the triplet that not occurred in the training set
 """
-
-
 class SGZeroShotRecall(SceneGraphEvaluation):
     def __init__(self, result_dict):
         super(SGZeroShotRecall, self).__init__(result_dict)
 
     def register_container(self, mode):
-        self.result_dict[mode + '_zeroshot_recall'] = {20: [], 50: [], 100: []}
+        self.result_dict[mode + '_zeroshot_recall'] = {20: [], 50: [], 100: []} 
 
     def generate_print_string(self, mode):
         result_str = 'SGG eval: '
@@ -192,7 +178,7 @@ class SGZeroShotRecall(SceneGraphEvaluation):
         sub_id, ob_id, pred_label = gt_rels[:, 0], gt_rels[:, 1], gt_rels[:, 2]
         gt_triplets = np.column_stack((gt_classes[sub_id], gt_classes[ob_id], pred_label))  # num_rel, 3
 
-        self.zeroshot_idx = np.where(intersect_2d(gt_triplets, zeroshot_triplets).sum(-1) > 0)[0].tolist()
+        self.zeroshot_idx = np.where( intersect_2d(gt_triplets, zeroshot_triplets).sum(-1) > 0 )[0].tolist()
 
     def calculate_recall(self, global_container, local_container, mode):
         pred_to_gt = local_container['pred_to_gt']
@@ -213,14 +199,12 @@ class SGZeroShotRecall(SceneGraphEvaluation):
 """
 No Graph Constraint Mean Recall
 """
-
-
 class SGNGZeroShotRecall(SceneGraphEvaluation):
     def __init__(self, result_dict):
         super(SGNGZeroShotRecall, self).__init__(result_dict)
-
+    
     def register_container(self, mode):
-        self.result_dict[mode + '_ng_zeroshot_recall'] = {20: [], 50: [], 100: []}
+        self.result_dict[mode + '_ng_zeroshot_recall'] = {20: [], 50: [], 100: []} 
 
     def generate_print_string(self, mode):
         result_str = 'SGG eval: '
@@ -238,7 +222,7 @@ class SGNGZeroShotRecall(SceneGraphEvaluation):
         sub_id, ob_id, pred_label = gt_rels[:, 0], gt_rels[:, 1], gt_rels[:, 2]
         gt_triplets = np.column_stack((gt_classes[sub_id], gt_classes[ob_id], pred_label))  # num_rel, 3
 
-        self.zeroshot_idx = np.where(intersect_2d(gt_triplets, zeroshot_triplets).sum(-1) > 0)[0].tolist()
+        self.zeroshot_idx = np.where( intersect_2d(gt_triplets, zeroshot_triplets).sum(-1) > 0 )[0].tolist()
 
     def calculate_recall(self, global_container, local_container, mode):
         pred_to_gt = local_container['nogc_pred_to_gt']
@@ -261,8 +245,6 @@ Give Ground Truth Object-Subject Pairs
 Calculate Recall for SG-Cls and Pred-Cls
 Only used in https://github.com/NVIDIA/ContrastiveLosses4VRD for sgcls and predcls
 """
-
-
 class SGPairAccuracy(SceneGraphEvaluation):
     def __init__(self, result_dict):
         super(SGPairAccuracy, self).__init__(result_dict)
@@ -276,7 +258,7 @@ class SGPairAccuracy(SceneGraphEvaluation):
         for k, v in self.result_dict[mode + '_accuracy_hit'].items():
             a_hit = np.mean(v)
             a_count = np.mean(self.result_dict[mode + '_accuracy_count'][k])
-            result_str += '    A @ %d: %.4f; ' % (k, a_hit / a_count)
+            result_str += '    A @ %d: %.4f; ' % (k, a_hit/a_count)
         result_str += ' for mode=%s, type=TopK Accuracy.' % mode
         result_str += '\n'
         return result_str
@@ -292,7 +274,7 @@ class SGPairAccuracy(SceneGraphEvaluation):
 
         for k in self.result_dict[mode + '_accuracy_hit']:
             # to calculate accuracy, only consider those gt pairs
-            # This metric is used by "Graphical Contrastive Losses for Scene Graph Parsing"
+            # This metric is used by "Graphical Contrastive Losses for Scene Graph Parsing" 
             # for sgcls and predcls
             if mode != 'sgdet':
                 gt_pair_pred_to_gt = []
@@ -311,22 +293,18 @@ class SGPairAccuracy(SceneGraphEvaluation):
 Mean Recall: Proposed in:
 https://arxiv.org/pdf/1812.01880.pdf CVPR, 2019
 """
-
-
 class SGMeanRecall(SceneGraphEvaluation):
     def __init__(self, result_dict, num_rel, ind_to_predicates, print_detail=False):
         super(SGMeanRecall, self).__init__(result_dict)
         self.num_rel = num_rel
         self.print_detail = print_detail
-        self.rel_name_list = ind_to_predicates[1:]  # remove __background__
+        self.rel_name_list = ind_to_predicates[1:] # remove __background__
 
     def register_container(self, mode):
-        # self.result_dict[mode + '_recall_hit'] = {20: [0]*self.num_rel, 50: [0]*self.num_rel, 100: [0]*self.num_rel}
-        # self.result_dict[mode + '_recall_count'] = {20: [0]*self.num_rel, 50: [0]*self.num_rel, 100: [0]*self.num_rel}
+        #self.result_dict[mode + '_recall_hit'] = {20: [0]*self.num_rel, 50: [0]*self.num_rel, 100: [0]*self.num_rel}
+        #self.result_dict[mode + '_recall_count'] = {20: [0]*self.num_rel, 50: [0]*self.num_rel, 100: [0]*self.num_rel}
         self.result_dict[mode + '_mean_recall'] = {20: 0.0, 50: 0.0, 100: 0.0}
-        self.result_dict[mode + '_mean_recall_collect'] = {20: [[] for i in range(self.num_rel)],
-                                                           50: [[] for i in range(self.num_rel)],
-                                                           100: [[] for i in range(self.num_rel)]}
+        self.result_dict[mode + '_mean_recall_collect'] = {20: [[] for i in range(self.num_rel)], 50: [[] for i in range(self.num_rel)], 100: [[] for i in range(self.num_rel)]}
         self.result_dict[mode + '_mean_recall_list'] = {20: [], 50: [], 100: []}
 
     def generate_print_string(self, mode):
@@ -356,28 +334,29 @@ class SGMeanRecall(SceneGraphEvaluation):
             recall_hit = [0] * self.num_rel
             recall_count = [0] * self.num_rel
             for idx in range(gt_rels.shape[0]):
-                local_label = gt_rels[idx, 2]
+                local_label = gt_rels[idx,2]
                 recall_count[int(local_label)] += 1
                 recall_count[0] += 1
 
             for idx in range(len(match)):
-                local_label = gt_rels[int(match[idx]), 2]
+                local_label = gt_rels[int(match[idx]),2]
                 recall_hit[int(local_label)] += 1
                 recall_hit[0] += 1
-
+            
             for n in range(self.num_rel):
                 if recall_count[n] > 0:
                     self.result_dict[mode + '_mean_recall_collect'][k][n].append(float(recall_hit[n] / recall_count[n]))
+ 
 
     def calculate_mean_recall(self, mode):
         for k, v in self.result_dict[mode + '_mean_recall'].items():
             sum_recall = 0
             num_rel_no_bg = self.num_rel - 1
             for idx in range(num_rel_no_bg):
-                if len(self.result_dict[mode + '_mean_recall_collect'][k][idx + 1]) == 0:
+                if len(self.result_dict[mode + '_mean_recall_collect'][k][idx+1]) == 0:
                     tmp_recall = 0.0
                 else:
-                    tmp_recall = np.mean(self.result_dict[mode + '_mean_recall_collect'][k][idx + 1])
+                    tmp_recall = np.mean(self.result_dict[mode + '_mean_recall_collect'][k][idx+1])
                 self.result_dict[mode + '_mean_recall_list'][k].append(tmp_recall)
                 sum_recall += tmp_recall
 
@@ -388,20 +367,16 @@ class SGMeanRecall(SceneGraphEvaluation):
 """
 No Graph Constraint Mean Recall
 """
-
-
 class SGNGMeanRecall(SceneGraphEvaluation):
     def __init__(self, result_dict, num_rel, ind_to_predicates, print_detail=False):
         super(SGNGMeanRecall, self).__init__(result_dict)
         self.num_rel = num_rel
         self.print_detail = print_detail
-        self.rel_name_list = ind_to_predicates[1:]  # remove __background__
+        self.rel_name_list = ind_to_predicates[1:] # remove __background__
 
     def register_container(self, mode):
         self.result_dict[mode + '_ng_mean_recall'] = {20: 0.0, 50: 0.0, 100: 0.0}
-        self.result_dict[mode + '_ng_mean_recall_collect'] = {20: [[] for i in range(self.num_rel)],
-                                                              50: [[] for i in range(self.num_rel)],
-                                                              100: [[] for i in range(self.num_rel)]}
+        self.result_dict[mode + '_ng_mean_recall_collect'] = {20: [[] for i in range(self.num_rel)], 50: [[] for i in range(self.num_rel)], 100: [[] for i in range(self.num_rel)]}
         self.result_dict[mode + '_ng_mean_recall_list'] = {20: [], 50: [], 100: []}
 
     def generate_print_string(self, mode):
@@ -431,42 +406,39 @@ class SGNGMeanRecall(SceneGraphEvaluation):
             recall_hit = [0] * self.num_rel
             recall_count = [0] * self.num_rel
             for idx in range(gt_rels.shape[0]):
-                local_label = gt_rels[idx, 2]
+                local_label = gt_rels[idx,2]
                 recall_count[int(local_label)] += 1
                 recall_count[0] += 1
 
             for idx in range(len(match)):
-                local_label = gt_rels[int(match[idx]), 2]
+                local_label = gt_rels[int(match[idx]),2]
                 recall_hit[int(local_label)] += 1
                 recall_hit[0] += 1
-
+            
             for n in range(self.num_rel):
                 if recall_count[n] > 0:
-                    self.result_dict[mode + '_ng_mean_recall_collect'][k][n].append(
-                        float(recall_hit[n] / recall_count[n]))
+                    self.result_dict[mode + '_ng_mean_recall_collect'][k][n].append(float(recall_hit[n] / recall_count[n]))
+ 
 
     def calculate_mean_recall(self, mode):
         for k, v in self.result_dict[mode + '_ng_mean_recall'].items():
             sum_recall = 0
             num_rel_no_bg = self.num_rel - 1
             for idx in range(num_rel_no_bg):
-                if len(self.result_dict[mode + '_ng_mean_recall_collect'][k][idx + 1]) == 0:
+                if len(self.result_dict[mode + '_ng_mean_recall_collect'][k][idx+1]) == 0:
                     tmp_recall = 0.0
                 else:
-                    tmp_recall = np.mean(self.result_dict[mode + '_ng_mean_recall_collect'][k][idx + 1])
+                    tmp_recall = np.mean(self.result_dict[mode + '_ng_mean_recall_collect'][k][idx+1])
                 self.result_dict[mode + '_ng_mean_recall_list'][k].append(tmp_recall)
                 sum_recall += tmp_recall
 
             self.result_dict[mode + '_ng_mean_recall'][k] = sum_recall / float(num_rel_no_bg)
         return
 
-
 """
 Accumulate Recall:
 calculate recall on the whole dataset instead of each image
 """
-
-
 class SGAccumulateRecall(SceneGraphEvaluation):
     def __init__(self, result_dict):
         super(SGAccumulateRecall, self).__init__(result_dict)
@@ -484,11 +456,9 @@ class SGAccumulateRecall(SceneGraphEvaluation):
 
     def calculate_accumulate(self, mode):
         for k, v in self.result_dict[mode + '_accumulate_recall'].items():
-            self.result_dict[mode + '_accumulate_recall'][k] = float(
-                self.result_dict[mode + '_recall_hit'][k][0]) / float(
-                self.result_dict[mode + '_recall_count'][k][0] + 1e-10)
+            self.result_dict[mode + '_accumulate_recall'][k] = float(self.result_dict[mode + '_recall_hit'][k][0]) / float(self.result_dict[mode + '_recall_count'][k][0] + 1e-10)
 
-        return
+        return 
 
 
 def _triplet(relations, classes, boxes, predicate_scores=None, class_scores=None):
@@ -519,7 +489,7 @@ def _triplet(relations, classes, boxes, predicate_scores=None, class_scores=None
 
 
 def _compute_pred_matches(gt_triplets, pred_triplets,
-                          gt_boxes, pred_boxes, iou_thres, phrdet=False):
+                 gt_boxes, pred_boxes, iou_thres, phrdet=False):
     """
     Given a set of predicted triplets, return the list of matching GT's for each of the
     given predictions
@@ -543,13 +513,13 @@ def _compute_pred_matches(gt_triplets, pred_triplets,
             gt_box_union = np.concatenate((gt_box_union.min(0)[:2], gt_box_union.max(0)[2:]), 0)
 
             box_union = boxes.reshape((-1, 2, 4))
-            box_union = np.concatenate((box_union.min(1)[:, :2], box_union.max(1)[:, 2:]), 1)
+            box_union = np.concatenate((box_union.min(1)[:,:2], box_union.max(1)[:,2:]), 1)
 
             inds = bbox_overlaps(gt_box_union[None], box_union)[0] >= iou_thres
 
         else:
-            sub_iou = bbox_overlaps(gt_box[None, :4], boxes[:, :4])[0]
-            obj_iou = bbox_overlaps(gt_box[None, 4:], boxes[:, 4:])[0]
+            sub_iou = bbox_overlaps(gt_box[None,:4], boxes[:, :4])[0]
+            obj_iou = bbox_overlaps(gt_box[None,4:], boxes[:, 4:])[0]
 
             inds = (sub_iou >= iou_thres) & (obj_iou >= iou_thres)
 

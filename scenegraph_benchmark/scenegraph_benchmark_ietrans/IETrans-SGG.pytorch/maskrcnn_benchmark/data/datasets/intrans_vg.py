@@ -73,7 +73,7 @@ class InTransDataset(torch.utils.data.Dataset):
             self.reweighting_dic = self._get_reweighting_dic()
 
     def __getitem__(self, index):
-        img = Image.open(self.data[index]["img_path"]).convert("RGB")
+        img = Image.open('/tmp/' + self.data[index]["img_path"]).convert("RGB")
         target = self.get_groundtruth(index)
         if self.transforms is not None:
             img, target = self.transforms(img, target)

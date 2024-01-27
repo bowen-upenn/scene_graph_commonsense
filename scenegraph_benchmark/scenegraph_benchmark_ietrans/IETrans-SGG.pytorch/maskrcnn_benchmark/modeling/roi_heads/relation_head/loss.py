@@ -76,6 +76,7 @@ class RelationLossComputation(object):
         fg_labels = cat([proposal.get_field("labels") for proposal in proposals], dim=0)
         rel_labels = cat(rel_labels, dim=0)
 
+        rel_labels = torch.argmax(rel_labels, dim=1)  # convert one-hot vectors into integer labels
         loss_relation = self.criterion_loss(relation_logits, rel_labels.long())
         loss_refine_obj = self.criterion_loss(refine_obj_logits, fg_labels.long())
 
@@ -208,7 +209,8 @@ class RelationHierarchicalLossComputation(object):
         refine_obj_logits = cat(refine_logits, dim=0)
         loss_refine_obj = self.criterion_loss(refine_obj_logits, fg_labels.long())
 
-        rel_labels = cat(rel_labels, dim=0)  # (rel, 1)
+        rel_labels = cat(rel_labels, dim=0)  # (rel, 51)
+        rel_labels = torch.argmax(rel_labels, dim=1)  # (rel, 1)
         rel1_prob = cat(rel1_prob, dim=0)  # (rel, 15)
         rel2_prob = cat(rel2_prob, dim=0)  # (rel, 11)
         rel3_prob = cat(rel3_prob, dim=0)  # (rel, 24)

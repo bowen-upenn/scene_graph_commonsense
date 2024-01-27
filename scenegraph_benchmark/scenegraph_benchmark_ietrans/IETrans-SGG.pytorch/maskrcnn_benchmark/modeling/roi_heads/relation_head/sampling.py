@@ -57,21 +57,37 @@ class RelationSampling(object):
             num_prp = proposal.bbox.shape[0]
 
             assert proposal.bbox.shape[0] == target.bbox.shape[0]
-            tgt_rel_matrix = target.get_field("relation") # [tgt, tgt]
-            tgt_pair_idxs = torch.nonzero(tgt_rel_matrix > 0)
+            # tgt_rel_matrix = target.get_field("relation")  # [tgt, tgt]
+            # tgt_pair_idxs = torch.nonzero(tgt_rel_matrix > 0)
+            tgt_pair_idxs = target.get_field("relation_pair_idxs")
+            # tgt_soft_labels = None
+            # if target.has_field("relation_soft_labels"):
+            #     tgt_soft_labels = target.get_field("relation_soft_labels")
+            # print(tgt_pair_idxs.shape)
             assert tgt_pair_idxs.shape[1] == 2
             tgt_head_idxs = tgt_pair_idxs[:, 0].contiguous().view(-1)
             tgt_tail_idxs = tgt_pair_idxs[:, 1].contiguous().view(-1)
-            tgt_rel_labs = tgt_rel_matrix[tgt_head_idxs, tgt_tail_idxs].contiguous().view(-1)
+            tgt_rel_labs = target.get_field("relation_labels")
+
+            # assert proposal.bbox.shape[0] == target.bbox.shape[0]
+            # print('proposal.bbox.shape[0]', proposal.bbox.shape, 'list(target.fields())', list(target.fields()))
+            # tgt_rel_matrix = target.get_field("relation") # [tgt, tgt]
+            # # print('tgt_rel_matrix', tgt_rel_matrix.shape, target.get_field("labels").shape, target.get_field("relation_pair_idxs").shape)
+            # tgt_pair_idxs = torch.nonzero(tgt_rel_matrix > 0)
+            # assert tgt_pair_idxs.shape[1] == 2
+            # tgt_head_idxs = tgt_pair_idxs[:, 0].contiguous().view(-1)
+            # tgt_tail_idxs = tgt_pair_idxs[:, 1].contiguous().view(-1)
+            # print('tgt_rel_matrix', tgt_rel_matrix.shape, 'tgt_head_idxs', tgt_head_idxs, 'tgt_tail_idxs', tgt_tail_idxs)
+            # tgt_rel_labs = tgt_rel_matrix[tgt_head_idxs, tgt_tail_idxs].contiguous().view(-1)
 
             # sym_binary_rels
             binary_rel = torch.zeros((num_prp, num_prp), device=device).long()
             binary_rel[tgt_head_idxs, tgt_tail_idxs] = 1
-            binary_rel[tgt_tail_idxs, tgt_head_idxs] = 1
             rel_sym_binarys.append(binary_rel)
             
             rel_possibility = torch.ones((num_prp, num_prp), device=device).long() - torch.eye(num_prp, device=device).long()
             rel_possibility[tgt_head_idxs, tgt_tail_idxs] = 0
+            rel_possibility[tgt_tail_idxs, tgt_head_idxs] = 0
             tgt_bg_idxs = torch.nonzero(rel_possibility > 0)
 
             # generate fg bg rel_pairs
@@ -86,7 +102,10 @@ class RelationSampling(object):
             tgt_bg_idxs = tgt_bg_idxs[perm]
 
             img_rel_idxs = torch.cat((tgt_pair_idxs, tgt_bg_idxs), dim=0)
-            img_rel_labels = torch.cat((tgt_rel_labs.long(), torch.zeros(tgt_bg_idxs.shape[0], device=device).long()), dim=0).contiguous().view(-1)
+            bg_labels = torch.zeros((tgt_bg_idxs.shape[0], target.get_field("relation_labels").shape[1]), device=device, dtype=torch.float32)
+            bg_labels[:, 0] = 1.
+            img_rel_labels = torch.cat((tgt_rel_labs, bg_labels), dim=0)
+            # img_rel_labels = torch.cat((tgt_rel_labs.long(), torch.zeros(tgt_bg_idxs.shape[0], device=device).long()), dim=0).contiguous().view(-1)
 
             rel_idx_pairs.append(img_rel_idxs)
             rel_labels.append(img_rel_labels)
@@ -310,6 +329,7 @@ class WRelationSampling(object):
             rel_possibility = torch.ones((num_prp, num_prp), device=device).long() - torch.eye(num_prp,
                                                                                                device=device).long()
             rel_possibility[tgt_head_idxs, tgt_tail_idxs] = 0
+            rel_possibility[tgt_tail_idxs, tgt_head_idxs] = 0
             tmp=rel_possibility > 0
             tgt_bg_idxs = tmp.nonzero()
 

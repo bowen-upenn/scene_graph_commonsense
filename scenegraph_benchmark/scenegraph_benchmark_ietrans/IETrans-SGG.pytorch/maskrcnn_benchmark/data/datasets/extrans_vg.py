@@ -76,7 +76,7 @@ class ExTransDataset(torch.utils.data.Dataset):
             self.filenames, self.img_info = load_image_filenames(img_dir, image_file)  # length equals to split_mask
             self.filenames = [self.filenames[i] for i in np.where(self.split_mask)[0]]
             self.img_info = [self.img_info[i] for i in np.where(self.split_mask)[0]]
-        self.data = pickle.load(open(specified_data_file, "rb"))
+        self.data = pickle.load(open('/tmp/' + specified_data_file, "rb"))
 
         # check
         assert len(self.data) == len(self.img_info), "{}, {}".format(len(self.data), len(self.img_info))
@@ -86,6 +86,7 @@ class ExTransDataset(torch.utils.data.Dataset):
         self.filenames = [d for m, d in zip(mask, self.filenames) if m]
         self.gt_attributes = [d for m, d in zip(mask, self.gt_attributes) if m]
         for a, b in zip(self.data, self.filenames):
+            a['img_path'] = '/tmp/' + a['img_path']
             assert a['img_path'] == b
 
 

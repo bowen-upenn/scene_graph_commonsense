@@ -130,8 +130,9 @@ def train(cfg, local_rank, distributed, logger):
             logger.info("iters: {}, {}".format(iteration, len(dic)))
         for t, logits in zip(targets, relation_logits):
             cur_data = t.get_field("train_data")
+            print("!!!!!!!cur_data['relations']", len(cur_data['relations']), len(logits.get_field('pred_rel_scores')))
             assert np.all(cur_data["relations"][:, 2] == t.get_field("relation_labels").nonzero()[:, 1].cpu().numpy())
-            cur_data = modify_logits(cur_data, logits)
+            cur_data = modify_logits(cur_data, logits.get_field('pred_rel_scores'))
             img_path = cur_data['img_path']
             if img_path in dic:
                 end = True

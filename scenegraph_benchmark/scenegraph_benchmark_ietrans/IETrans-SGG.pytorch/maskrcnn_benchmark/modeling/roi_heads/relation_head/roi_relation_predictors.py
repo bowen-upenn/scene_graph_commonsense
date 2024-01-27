@@ -347,7 +347,11 @@ class MotifHierarchicalPredictor(nn.Module):
         assert in_channels is not None
         num_inputs = in_channels
         self.use_vision = config.MODEL.ROI_RELATION_HEAD.PREDICT_USE_VISION
-        self.use_bias = config.MODEL.ROI_RELATION_HEAD.PREDICT_USE_BIAS
+        # train_use_bias is to use bias in the training
+        self.train_use_bias = config.MODEL.ROI_RELATION_HEAD.TRAIN_USE_BIAS
+        # predict_use_bias is to use bias in the inference
+        self.predict_use_bias = config.MODEL.ROI_RELATION_HEAD.PREDICT_USE_BIAS
+        # self.use_bias = config.MODEL.ROI_RELATION_HEAD.PREDICT_USE_BIAS
 
         # load class dict
         statistics = get_dataset_statistics(config)
@@ -383,8 +387,10 @@ class MotifHierarchicalPredictor(nn.Module):
         else:
             self.union_single_not_match = False
 
-        if self.use_bias:
-            # convey statistics into FrequencyBias to avoid loading again
+        # if self.use_bias:
+        #     # convey statistics into FrequencyBias to avoid loading again
+        #     self.freq_bias = FrequencyBias(config, statistics)
+        if self.train_use_bias or self.predict_use_bias:
             self.freq_bias = FrequencyBias(config, statistics)
 
         self.geo_label = ['1', '2', '3', '4', '5', '6', '8', '10', '22', '23', '29', '31', '32', '33', '43']
@@ -441,7 +447,8 @@ class MotifHierarchicalPredictor(nn.Module):
                 prod_rep = prod_rep * union_features
 
         rel1_logits, rel2_logits, rel3_logits, super_logits = self.rel_compress(prod_rep)
-        if self.use_bias:
+        # if self.use_bias:
+        if (self.train_use_bias and self.training) or (self.predict_use_bias and not self.training):
             # bias dimension is 51, already include the background(0)
             bias = self.freq_bias.index_with_labels(pair_pred.long())  # (rel, 51)
             rel1_bias = bias[:, self.geo_label_tensor]  # (rel, 15)
@@ -464,7 +471,7 @@ class MotifHierarchicalPredictor(nn.Module):
             rel1_logits = rel1_logits + rel1_bias
             rel2_logits = rel2_logits + rel2_bias
             rel3_logits = rel3_logits + rel3_bias
-            super_logits = super_logits + super_bias
+            super_logits[:, 1:] = super_logits[:, 1:] + super_bias    # ignore the background class
 
         # SOFTMAX
         super_relation = F.log_softmax(super_logits, dim=1)

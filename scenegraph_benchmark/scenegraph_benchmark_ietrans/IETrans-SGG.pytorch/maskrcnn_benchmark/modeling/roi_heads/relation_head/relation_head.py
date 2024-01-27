@@ -9,7 +9,7 @@ from .roi_relation_feature_extractors import make_roi_relation_feature_extractor
 from .roi_relation_predictors import make_roi_relation_predictor
 from .inference import make_roi_relation_post_processor
 from .loss import make_roi_relation_loss_evaluator
-from .sampling import make_roi_relation_samp_processor
+from .sampling import make_roi_relation_samp_processor, make_weaksup_roi_relation_sample_processor
 
 
 class ROIRelationHead(torch.nn.Module):

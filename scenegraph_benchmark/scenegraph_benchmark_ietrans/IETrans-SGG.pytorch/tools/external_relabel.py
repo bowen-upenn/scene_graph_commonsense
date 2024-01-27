@@ -127,9 +127,10 @@ def train(cfg, local_rank, distributed, logger):
 
         if iteration % 200 == 0:
             logger.info("iters: {}, {}".format(iteration, len(dic)))
+
         for t, logits in zip(targets, relation_logits):
             cur_data = t.get_field("cur_data")
-            cur_data = modify_logits(cur_data, logits)
+            cur_data = modify_logits(cur_data, logits.get_field('pred_rel_scores'))
             img_path = cur_data['img_path']
             if img_path in dic:
                 end = True
@@ -148,6 +149,7 @@ def train(cfg, local_rank, distributed, logger):
 
 def modify_logits(cur_data, rel_logits):
     possible_rels = cur_data['possible_rels']
+    print('!!!!!!!!!!', 'possible_rels', len(possible_rels), possible_rels, 'rel_logits', rel_logits.size(0), rel_logits)
     assert len(possible_rels) == rel_logits.size(0)
     rst_rel_logits = []
     rst_possible_rels = []
