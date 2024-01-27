@@ -26,7 +26,7 @@ def do_vg_evaluation(
         iou_types,
 ):
     # get zeroshot triplet
-    zeroshot_triplet = torch.load("maskrcnn_benchmark/data/datasets/evaluation/vg/zeroshot_triplet.pytorch"+str(cfg.MODEL.ROI_RELATION_HEAD.NUM_CLASSES-1), map_location=torch.device("cpu")).long().numpy()
+    zeroshot_triplet = torch.load("maskrcnn_benchmark/data/datasets/evaluation/vg/zeroshot_triplet.pytorch", map_location=torch.device("cpu")).long().numpy()
 
 
     attribute_on = cfg.MODEL.ATTRIBUTE_ON
