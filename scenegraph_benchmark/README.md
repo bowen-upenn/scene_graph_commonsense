@@ -86,11 +86,12 @@ If you encounter an error of ``non-existent key``, add the line ``cfg.set_new_al
 `` tools/relation_train_net.py`` on the line before ``cfg.merge_from_file(args.config_file)``.
 
 ### Instructions for plugging in the commonsense validation
-We currently support querying GPT-3.5 for commonsense validation during inference. 
-To bake commonsense knowledge into your model without the need of any external LLM at inference time,
-refer to our standalone model code, where we query GPT-3.5 for commonsense validation during training,
-save the results as commonsense-aligned and violated triplets, and then use the saved results for model re-training from scratch.
-Please also refer to the standalone model code on how to use GPT-4V, where you need the access to each image and subject-object bounding boxes.
+We have added support for validating commonsense using GPT-3.5 during inference. 
+If you want to bake commonsense knowledge in your model without using any external LLM at inference time, 
+you can refer to our [standalone model codes](../train_test.py) with the flags ``--train_mode`` ``prepare_cs`` and ``train_cs``, which 
+query GPT-3.5 for commonsense validation during training, save the results as commonsense-aligned and violated triplets, and then use them for re-training the model from scratch. 
+Additionally, please refer to the standalone model code for instructions on how to use GPT-4V, 
+where you will need access to each image and subject-object bounding boxes.
 
 **Step 1**: copy our provided [query_llm.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/5544610cfed0be574f6d34aa8d15f063a637a806/maskrcnn_benchmark/modeling/roi_heads/relation_head/query_llm.py)
 to your repository under the path ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/``
