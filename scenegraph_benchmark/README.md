@@ -19,11 +19,11 @@ or modify the final classification layer of the relation head (not a flat classi
 These steps may appear difficult, but they are actually quite easy to implement compared to many other plug-and-play methods!
 And the results are worth it! You will notice a significant performance boost after applying our methods.
 
-In our provided repository, [scenegraph_benchmark/Scene-Graph-Benchmark.pytorch/](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/tree/5544610cfed0be574f6d34aa8d15f063a637a806)
+In our provided repository, [Scene-Graph-Benchmark.pytorch/](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/tree/5544610cfed0be574f6d34aa8d15f063a637a806)
 plugs our methods into [Neural Motifs](https://arxiv.org/abs/1711.06640), 
 [VTransE](https://arxiv.org/abs/1702.08319), and
-[VCTree](https://arxiv.org/abs/1812.01880). [scenegraph_benchmark/scenegraph_benchmark_ietrans/](scenegraph_benchmark/scenegraph_benchmark_ietrans/) plugs our methods into [IETrans](https://arxiv.org/abs/2203.11654),
-and [scenegraph_benchmark/scenegraph_benchmark_nice/](scenegraph_benchmark/scenegraph_benchmark_nice/) plugs our methods into [NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf).
+[VCTree](https://arxiv.org/abs/1812.01880). [scenegraph_benchmark_ietrans/](scenegraph_benchmark_ietrans/) plugs our methods into [IETrans](https://arxiv.org/abs/2203.11654),
+and [scenegraph_benchmark_nice/](scenegraph_benchmark_nice/) plugs our methods into [NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf).
 
 We take [Neural Motifs](https://arxiv.org/abs/1711.06640) on the Visual Genome dataset as an example for illustration.
 
