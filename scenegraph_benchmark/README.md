@@ -64,8 +64,12 @@ right above the class definition.
 follow our [relation_head.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/relation_head.py)
 to add the 
 
-    if self.cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
+    class ROIRelationHead(torch.nn.Module):
         ...
+        def forward(...):
+            ...
+            if self.cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
+                ...
 
 condition in the class ``ROIRelationHead``,
 so that we extend the original ``relation_logits`` variable to ``rel1_prob, rel2_prob, rel3_prob, super_rel_prob``.
@@ -74,15 +78,25 @@ so that we extend the original ``relation_logits`` variable to ``rel1_prob, rel2
 follow our [inference.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py)
 to add a new class named ``HierarchPostProcessor`` and then update the ``make_roi_relation_post_processor`` function to include the condition
 
-    if cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
+    class HierarchPostProcessor(nn.Module):
         ...
+
+    def make_roi_relation_post_processor(cfg):
+        ...
+        if cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
+            ...
 
 **Step 5**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/loss.py`` in your repository,
 follow our [loss.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/loss.py)
 to add a new class named ``RelationHierarchicalLossComputation`` and then update the ``make_roi_relation_loss_evaluator`` function to include the condition 
 
-    if cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
+    class RelationHierarchicalLossComputation(object):
         ...
+
+    def make_roi_relation_loss_evaluator(cfg):
+        ...
+        if cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
+            ...
 
 **Step 6**: in the file ``/maskrcnn_benchmark/config/paths_catalog.py``, update ``DATA_DIR`` in the class ``DatasetCatalog`` to your own VG data path.
 
