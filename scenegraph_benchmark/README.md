@@ -78,14 +78,12 @@ to add a new class named ``RelationHierarchicalLossComputation`` and then update
 to your repository under the path ``/maskrcnn_benchmark/data/datasets/evaluation/vg/``.
 You might need to modify the ``zeroshot_triplet`` path in ``vg_eval.py``.
 
-**Step 8**: if you encounter an error of ``non-existent key``, add the line ``cfg.set_new_allowed(True)`` to
-`` tools/relation_train_net.py`` on the line before ``cfg.merge_from_file(args.config_file)``.
-
-**Step 9**: In either the command line or bash script to train or evaluate the model,
+**Step 8**: In either the command line or bash script to train or evaluate the model,
 specify ``MODEL.ROI_RELATION_HEAD.PREDICTOR`` as ``MotifHierarchicalPredictor``,
 and update your ``GLOVE_DIR, PRETRAINED_DETECTOR_CKPT, OUTPUT_DIR`` to your own paths. 
 We also suggest reducing your learning rate ``SOLVER.BASE_LR`` for a more stable training, and we use ``SOLVER.BASE_LR = 0.001``or``0.0025`` in our experiments.
-
+If you encounter an error of ``non-existent key``, add the line ``cfg.set_new_allowed(True)`` to
+`` tools/relation_train_net.py`` on the line before ``cfg.merge_from_file(args.config_file)``.
 
 ### Instructions for plugging in the commonsense validation
 We currently support querying GPT-3.5 for commonsense validation during inference. 
