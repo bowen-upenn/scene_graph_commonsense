@@ -16,7 +16,7 @@ or modify the final classification layer of the relation head (not a flat classi
 
 ## Step-by-Step Instructions
 
-These steps may appear difficult, but they are actually quite easy to implement compared to many other plug-and-play methods!
+These steps may appear complicated, but they are actually quite easy to implement compared to many other plug-and-play methods!
 And the results are worth it! You will notice a significant performance boost after applying our methods.
 
 In our provided repository, [Scene-Graph-Benchmark.pytorch/](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/tree/5544610cfed0be574f6d34aa8d15f063a637a806)
