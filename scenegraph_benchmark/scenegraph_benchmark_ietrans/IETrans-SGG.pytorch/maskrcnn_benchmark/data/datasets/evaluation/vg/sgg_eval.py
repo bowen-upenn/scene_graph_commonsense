@@ -53,6 +53,7 @@ class SGRecall(SceneGraphEvaluation):
         result_str += '\n'
         return result_str
 
+
     def calculate_recall(self, global_container, local_container, mode):
         pred_rel_inds = local_container['pred_rel_inds']
         rel_scores = local_container['rel_scores']
@@ -69,7 +70,8 @@ class SGRecall(SceneGraphEvaluation):
         # pred_scores = rel_scores[:,1:].max(1)
         # pred_rels = np.column_stack((pred_rel_inds, 1+rel_scores[:,1:].argmax(1)))
         pred_rel_labels = local_container['pred_rel_labels']
-        pred_rels = np.column_stack((pred_rel_inds, pred_rel_labels))
+        # pred_rels = np.column_stack((pred_rel_inds, pred_rel_labels))
+        pred_rels = np.column_stack((pred_rel_inds, 1 + rel_scores[:, 1:].argmax(1)))
         pred_scores = rel_scores[:, :].max(1)
 
         gt_triplets, gt_triplet_boxes, _ = _triplet(gt_rels, gt_classes, gt_boxes)
@@ -284,7 +286,8 @@ class SGPairAccuracy(SceneGraphEvaluation):
     def prepare_gtpair(self, local_container):
         pred_pair_idx = local_container['pred_rel_inds'][:, 0] * 1024 + local_container['pred_rel_inds'][:, 1]
         gt_pair_idx = local_container['gt_rels'][:, 0] * 1024 + local_container['gt_rels'][:, 1]
-        self.pred_pair_in_gt = (pred_pair_idx[:, None] == gt_pair_idx[None, :]).sum(-1) > 0
+        self.pred_pair_in_gt = np.sum((pred_pair_idx[:, None] == gt_pair_idx[None, :]), axis=-1) > 0
+        # self.pred_pair_in_gt = (pred_pair_idx[:, None] == gt_pair_idx[None, :]).sum(-1) > 0
 
     def calculate_recall(self, global_container, local_container, mode):
         pred_to_gt = local_container['pred_to_gt']

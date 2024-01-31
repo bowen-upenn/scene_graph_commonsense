@@ -9,6 +9,9 @@ from maskrcnn_benchmark.structures.boxlist_ops import cat_boxlist
 from maskrcnn_benchmark.modeling.box_coder import BoxCoder
 from .utils_relation import obj_prediction_nms
 
+from .query_llm import CommonsenseValidator
+import math
+
 
 class PostProcessor(nn.Module):
     """
@@ -31,6 +34,8 @@ class PostProcessor(nn.Module):
         self.attribute_on = attribute_on
         self.use_gt_box = use_gt_box
         self.later_nms_pred_thres = later_nms_pred_thres
+
+        self.llm = CommonsenseValidator()
 
     def forward(self, x, rel_pair_idxs, boxes):
         """
@@ -112,6 +117,18 @@ class PostProcessor(nn.Module):
             rel_class_prob = rel_class_prob[sorting_idx]
             rel_labels = rel_class[sorting_idx]
 
+            #############################################################
+            # # query llm about top k triplets for commonsense validation
+            # llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
+            # rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
+            #
+            # # resort the triplets
+            # _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
+            # rel_pair_idx = rel_pair_idx[sorting_idx]
+            # rel_class_prob = rel_class_prob[sorting_idx]
+            # rel_labels = rel_labels[sorting_idx]
+            #############################################################
+
             boxlist.add_field('rel_pair_idxs', rel_pair_idx)  # (#rel, 2)
             boxlist.add_field('pred_rel_scores', rel_class_prob)  # (#rel, #rel_class)
             boxlist.add_field('pred_rel_labels', rel_labels)  # (#rel, )
@@ -145,6 +162,8 @@ class PostExtractFeatureProcessor(nn.Module):
         self.attribute_on = attribute_on
         self.use_gt_box = use_gt_box
         self.later_nms_pred_thres = later_nms_pred_thres
+
+        self.llm = CommonsenseValidator()
 
     def forward(self, x, rel_pair_idxs, boxes, prod_reps):
         """
@@ -231,6 +250,18 @@ class PostExtractFeatureProcessor(nn.Module):
             # rel_labels = rel_class[sorting_idx]
             # prod_reps = prod_reps[sorting_idx]
             # tgt_rel_label = tgt_rel_label[sorting_idx]
+
+            #############################################################
+            # # query llm about top k triplets for commonsense validation
+            # llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
+            # rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
+            #
+            # # resort the triplets
+            # _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
+            # rel_pair_idx = rel_pair_idx[sorting_idx]
+            # rel_class_prob = rel_class_prob[sorting_idx]
+            # rel_labels = rel_labels[sorting_idx]
+            #############################################################
 
             boxlist.add_field('rel_pair_idxs', rel_pair_idx.cpu())  # (#rel, 2)
             # boxlist.add_field('tgt_rel_labels', tgt_rel_label.cpu())

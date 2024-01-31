@@ -109,7 +109,7 @@ if __name__ == "__main__":
         the first step requires model inference, but the second step only requires calling the __getitem__ function in dataloader
         """
         # step 1: collect and save commonsense-aligned and violated triplets on the current baseline model for each image
-        # mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 1))
+        mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 1))
         # step 2: rerun it again but to accumulate all collected triplets from the two sets and save them into two .pt files
         mp.spawn(eval_pc, nprocs=world_size, args=(args, train_subset, train_dataset, 2))
 

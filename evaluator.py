@@ -77,8 +77,8 @@ class Evaluator:
             self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
             self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
         else:
-            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt3p5_temp.pt') if args['training']['run_mode'] == 'train_cs' else None
-            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt3p5_temp.pt') if args['training']['run_mode'] == 'train_cs' else None
+            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
+            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
 
 
     def iou(self, bbox_target, bbox_pred):

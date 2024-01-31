@@ -23,6 +23,7 @@ try:
 except ImportError:
     raise ImportError('Use APEX for mixed precision via apex.amp')
 
+from relation_train_net import run_val
 
 def main():
     parser = argparse.ArgumentParser(description="PyTorch Object Detection Inference")
@@ -92,12 +93,15 @@ def main():
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference", dataset_name)
             mkdir(output_folder)
             output_folders[idx] = output_folder
-    data_loaders_val = make_data_loader(cfg, mode="test", is_distributed=distributed)
-    for output_folder, dataset_name, data_loader_val in zip(output_folders, dataset_names, data_loaders_val):
+
+    data_loaders_test = make_data_loader(cfg, mode="test", is_distributed=distributed)
+    data_loaders_val = make_data_loader(cfg, mode='val', is_distributed=distributed)
+
+    for iteration, (output_folder, dataset_name, data_loader_test, data_loader_val) in enumerate(zip(output_folders, dataset_names, data_loaders_test, data_loaders_val)):
         inference(
             cfg,
             model,
-            data_loader_val,
+            data_loader_test,
             dataset_name=dataset_name,
             iou_types=iou_types,
             box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
@@ -106,6 +110,12 @@ def main():
             expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
             output_folder=output_folder,
         )
+
+        if iteration != 0 and iteration % 10 == 0:
+            logger.info("Start validating")
+            val_result = run_val(cfg, model, data_loader_val, distributed, logger)
+            logger.info("Validation Result: %.4f" % val_result)
+
         synchronize()
 
 

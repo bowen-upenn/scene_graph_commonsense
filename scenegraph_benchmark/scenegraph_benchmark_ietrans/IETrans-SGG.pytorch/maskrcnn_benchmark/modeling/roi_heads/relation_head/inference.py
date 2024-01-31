@@ -128,17 +128,17 @@ class PostProcessor(nn.Module):
             rel_class_prob = rel_class_prob[sorting_idx]
             rel_labels = rel_class[sorting_idx]
 
-            ############################################################
-            # query llm about top k triplets for commonsense validation
-            llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
-            rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
-
-            # resort the triplets
-            _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
-            rel_pair_idx = rel_pair_idx[sorting_idx]
-            rel_class_prob = rel_class_prob[sorting_idx]
-            rel_labels = rel_labels[sorting_idx]
-            ############################################################
+            #############################################################
+            # # query llm about top k triplets for commonsense validation
+            # llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
+            # rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
+            #
+            # # resort the triplets
+            # _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
+            # rel_pair_idx = rel_pair_idx[sorting_idx]
+            # rel_class_prob = rel_class_prob[sorting_idx]
+            # rel_labels = rel_labels[sorting_idx]
+            #############################################################
 
             boxlist.add_field('rel_pair_idxs', rel_pair_idx) # (#rel, 2)
             boxlist.add_field('pred_rel_scores', rel_class_prob) # (#rel, #rel_class)
@@ -295,17 +295,17 @@ class HierarchPostProcessor(nn.Module):
             rel_class_prob = cat_class_prob[sorting_idx]
             rel_labels = cat_labels[sorting_idx]
 
-            ############################################################
-            # query llm about top k triplets for commonsense validation
-            llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
-            rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
-
-            # resort the triplets
-            _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
-            rel_pair_idx = rel_pair_idx[sorting_idx]
-            rel_class_prob = rel_class_prob[sorting_idx]
-            rel_labels = rel_labels[sorting_idx]
-            ############################################################
+            #############################################################
+            # # query llm about top k triplets for commonsense validation
+            # llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
+            # rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
+            #
+            # # resort the triplets
+            # _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
+            # rel_pair_idx = rel_pair_idx[sorting_idx]
+            # rel_class_prob = rel_class_prob[sorting_idx]
+            # rel_labels = rel_labels[sorting_idx]
+            #############################################################
 
             boxlist.add_field('rel_pair_idxs', rel_pair_idx)  # (#rel, 2)
             boxlist.add_field('pred_rel_scores',

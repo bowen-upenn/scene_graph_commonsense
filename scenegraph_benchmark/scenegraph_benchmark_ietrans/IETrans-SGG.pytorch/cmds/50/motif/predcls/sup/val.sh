@@ -10,9 +10,9 @@ mkdir -p $OUTPATH
 #        MODEL.PRETRAINED_DETECTOR_CKPT $OUTPATH OUTPUT_DIR $OUTPATH
 
 #cd $SG
-CUDA_VISIBLE_DEVICES=3,4 python -m torch.distributed.launch --master_port 10070 --nproc_per_node=2 \
+CUDA_VISIBLE_DEVICES=3 python -m torch.distributed.launch --master_port 10071 --nproc_per_node=1 \
         tools/relation_test_net.py --config-file "configs/sup-50.yaml" \
         MODEL.ROI_RELATION_HEAD.USE_GT_BOX True MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL True \
         MODEL.ROI_RELATION_HEAD.PREDICTOR MotifHierarchicalPredictor \
-        TEST.IMS_PER_BATCH 2 DTYPE "float16" GLOVE_DIR $OUTPATH/glove \
+        TEST.IMS_PER_BATCH 1 DTYPE "float16" GLOVE_DIR $OUTPATH/glove \
         MODEL.PRETRAINED_DETECTOR_CKPT $OUTPATH/pretrained_faster_rcnn/model_final.pth OUTPUT_DIR $OUTPATH/motif-hierarch-ietrans

@@ -49,6 +49,7 @@ class CommonsenseValidator:
         self.top_k = top_k
         self.total_cache_queries = 0
         self.cache = EdgeCache(max_cache_size=max_cache_size)
+        self.cache.put("", -1)  # Update cache access frequency
 
         # read object and relation labels from the dataset
         data_path = '/raid0/docker-raid/bwjiang/datasets/vg/50/VG-SGG-dicts-with-attri.json'
@@ -70,8 +71,11 @@ class CommonsenseValidator:
         batched_edges = []
         batch_size = rel_pair_idx.shape[0]
         for i in range(batch_size):
-            edge = self.idx_to_object[str(rel_pair_idx[i][0].item()+1)] + ' ' + self.idx_to_predicate[str(rel_labels[i].item())] \
-                   + ' ' + self.idx_to_object[str(rel_pair_idx[i][1].item()+1)]
+            if rel_pair_idx[i][0].item() == 0 or rel_pair_idx[i][1].item() == 0:
+                edge = ""
+            else:
+                edge = self.idx_to_object[str(rel_pair_idx[i][0].item())] + ' ' + self.idx_to_predicate[str(rel_labels[i].item())] \
+                       + ' ' + self.idx_to_object[str(rel_pair_idx[i][1].item())]
             batched_edges.append(edge)
 
         # query

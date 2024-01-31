@@ -119,9 +119,9 @@ def train(cfg, local_rank, distributed, logger):
     debug_print(logger, 'end dataloader')
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
 
-    if cfg.SOLVER.PRE_VAL:
-        logger.info("Validate before training")
-        run_val(cfg, model, val_data_loaders, distributed, logger)
+    # if cfg.SOLVER.PRE_VAL:
+    #     logger.info("Validate before training")
+    #     run_val(cfg, model, val_data_loaders, distributed, logger)
 
     logger.info("Start training")
     meters = MetricLogger(delimiter="  ")

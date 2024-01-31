@@ -129,8 +129,8 @@ def training(gpu, args, train_subset, test_subset):
         commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
         commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
     else:
-        commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt3p5_temp.pt') if args['training']['run_mode'] == 'train_cs' else None
-        commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt3p5_temp.pt') if args['training']['run_mode'] == 'train_cs' else None
+        commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
+        commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
 
     lr_decay = 1
     for epoch in range(args['training']['start_epoch'], args['training']['num_epoch']):
@@ -318,7 +318,7 @@ def training(gpu, args, train_subset, test_subset):
                 save_model_name += '_' + args['dataset']['supcat_clustering']
                 save_model_name = args['training']['checkpoint_path'] + save_model_name + str(epoch) + '_' + str(rank) + '.pth'
 
-            # print('Saving model to %s...' % save_model_name)
+            print('Saving model to %s...' % save_model_name)
             torch.save(relation_classifier.state_dict(), save_model_name)
         dist.monitored_barrier()
 

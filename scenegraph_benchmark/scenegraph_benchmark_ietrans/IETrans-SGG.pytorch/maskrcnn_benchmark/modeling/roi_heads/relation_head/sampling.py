@@ -70,21 +70,19 @@ class RelationSampling(object):
             tgt_rel_labs = target.get_field("relation_labels")
 
             # assert proposal.bbox.shape[0] == target.bbox.shape[0]
-            # print('proposal.bbox.shape[0]', proposal.bbox.shape, 'list(target.fields())', list(target.fields()))
             # tgt_rel_matrix = target.get_field("relation") # [tgt, tgt]
             # # print('tgt_rel_matrix', tgt_rel_matrix.shape, target.get_field("labels").shape, target.get_field("relation_pair_idxs").shape)
             # tgt_pair_idxs = torch.nonzero(tgt_rel_matrix > 0)
             # assert tgt_pair_idxs.shape[1] == 2
             # tgt_head_idxs = tgt_pair_idxs[:, 0].contiguous().view(-1)
             # tgt_tail_idxs = tgt_pair_idxs[:, 1].contiguous().view(-1)
-            # print('tgt_rel_matrix', tgt_rel_matrix.shape, 'tgt_head_idxs', tgt_head_idxs, 'tgt_tail_idxs', tgt_tail_idxs)
             # tgt_rel_labs = tgt_rel_matrix[tgt_head_idxs, tgt_tail_idxs].contiguous().view(-1)
 
             # sym_binary_rels
             binary_rel = torch.zeros((num_prp, num_prp), device=device).long()
             binary_rel[tgt_head_idxs, tgt_tail_idxs] = 1
             rel_sym_binarys.append(binary_rel)
-            
+
             rel_possibility = torch.ones((num_prp, num_prp), device=device).long() - torch.eye(num_prp, device=device).long()
             rel_possibility[tgt_head_idxs, tgt_tail_idxs] = 0
             rel_possibility[tgt_tail_idxs, tgt_head_idxs] = 0
@@ -155,7 +153,7 @@ class RelationSampling(object):
             rel_sym_binarys.append(binary_rel)
 
         return proposals, rel_labels, rel_idx_pairs, rel_sym_binarys
-    
+
 
     def motif_rel_fg_bg_sampling(self, device, tgt_rel_matrix, ious, is_match, rel_possibility):
         """
@@ -218,7 +216,7 @@ class RelationSampling(object):
             fg_labels = torch.tensor([tgt_rel_lab]*prp_tail_idxs.shape[0], dtype=torch.int64, device=device).view(-1,1)
             fg_rel_i = cat((prp_head_idxs.view(-1,1), prp_tail_idxs.view(-1,1), fg_labels), dim=-1).to(torch.int64)
             # select if too many corresponding proposal pairs to one pair of gt relationship triplet
-            # NOTE that in original motif, the selection is based on a ious_score score 
+            # NOTE that in original motif, the selection is based on a ious_score score
             if fg_rel_i.shape[0] > self.num_sample_per_gt_rel:
                 ious_score = (ious[tgt_head_idx, prp_head_idxs] * ious[tgt_tail_idx, prp_tail_idxs]).view(-1).detach().cpu().numpy()
                 ious_score = ious_score / ious_score.sum()
@@ -226,7 +224,7 @@ class RelationSampling(object):
                 fg_rel_i = fg_rel_i[perm]
             if fg_rel_i.shape[0] > 0:
                 fg_rel_triplets.append(fg_rel_i)
-        
+
         # select fg relations
         if len(fg_rel_triplets) == 0:
             fg_rel_triplets = torch.zeros((0, 3), dtype=torch.int64, device=device)
@@ -553,7 +551,7 @@ def make_roi_relation_samp_processor(cfg):
         cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD,
         cfg.MODEL.ROI_RELATION_HEAD.REQUIRE_BOX_OVERLAP,
         cfg.MODEL.ROI_RELATION_HEAD.NUM_SAMPLE_PER_GT_REL,
-        cfg.MODEL.ROI_RELATION_HEAD.BATCH_SIZE_PER_IMAGE, 
+        cfg.MODEL.ROI_RELATION_HEAD.BATCH_SIZE_PER_IMAGE,
         cfg.MODEL.ROI_RELATION_HEAD.POSITIVE_FRACTION,
         cfg.MODEL.ROI_RELATION_HEAD.USE_GT_BOX,
         cfg.TEST.RELATION.REQUIRE_OVERLAP,
