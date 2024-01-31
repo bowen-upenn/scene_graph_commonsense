@@ -18,3 +18,7 @@ openai_key*
 triplets/*
 **/openai*
 scenegraph_benchmark/scenegraph_benchmark_ebm/
+**/sg_hml/
+**/scenegraph_benchmark_ebm_fork/
+**/PENET/
+**/*backup/
