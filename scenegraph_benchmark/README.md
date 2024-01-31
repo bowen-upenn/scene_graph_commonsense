@@ -1,4 +1,4 @@
-## Introduction
+## Plug-and-Play Introduction
 
 Our proposed relationship hierarchy and commonsense validation as plug-and-play methods could continue pushing existing SOTA works to new SOTA levels of performance by a large margin. 
 This documentation will guide you on how to integrate these two methods as plug-and-play modules into your work.
@@ -19,24 +19,25 @@ or modify the final classification layer of the relation head (not a flat classi
 ### Instructions for plugging in the relationship hierarchy
 We take [Neural Motifs](https://arxiv.org/abs/1711.06640) on the Visual Genome dataset as an example here.
 
-Step 1: copy our provided [model_motifs_hierarchical.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/model_motifs_hierarchical.py)
-and [utils_motifs_hierarchical.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/utils_motifs_hierarchical.py)
+**Step 1**: copy our provided [model_motifs_hierarchical.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/model_motifs_hierarchical.py)
+and [utils_motifs_hierarchical.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/utils_motifs_hierarchical.py)
 we provided to your repository under the path ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/``
+This step follows the [README.md](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch/blob/master/README.md) of the [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) repository to customize your own model.
 
-Step 2: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py`` in your repository,
+**Step 2**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py`` in your repository,
 add the line 
 
     from .model_motifs_hierarchical.py import BayesHead, BayesHeadProd
 
 at the file top,
-and then add a new class named ``MotifHierarchicalPredictor`` we provided in our [roi_relation_predictors.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py)
+and then add a new class named ``MotifHierarchicalPredictor`` we provided in our [roi_relation_predictors.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py)
 Make sure you have registered the new class by adding the line 
 
     @registry.ROI_RELATION_PREDICTOR.register("MotifHierarchicalPredictor")
 right above the class definition.
 
-Step 3: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/relation_head.py`` in your repository,
-follow our [relation_head.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/relation_head.py)
+**Step 3**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/relation_head.py`` in your repository,
+follow our [relation_head.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/relation_head.py)
 to add the 
 
     if self.cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
@@ -45,32 +46,31 @@ to add the
 condition in the class ``ROIRelationHead``,
 so that we extend the original ``relation_logits`` variable to ``rel1_prob, rel2_prob, rel3_prob, super_rel_prob``.
 
-Step 4: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py`` in your repository,
-follow our [inference.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py)
+**Step 4**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py`` in your repository,
+follow our [inference.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py)
 to add a new class named ``HierarchPostProcessor`` and then update the ``make_roi_relation_post_processor`` function to include the condition
 
     if cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
         ...
 
-
-Step 5: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/loss.py`` in your repository,
-follow our [loss.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/loss.py)
+**Step 5**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/loss.py`` in your repository,
+follow our [loss.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/loss.py)
 to add a new class named ``RelationHierarchicalLossComputation`` and then update the ``make_roi_relation_loss_evaluator`` function to include the condition 
 
     if cfg.MODEL.ROI_RELATION_HEAD.PREDICTOR == "MotifHierarchicalPredictor":
         ...
 
-Step 6: in the file ``/maskrcnn_benchmark/config/paths_catalog.py``, update ``DATA_DIR`` in the class ``DatasetCatalog`` to your own VG data path.
+**Step 6**: in the file ``/maskrcnn_benchmark/config/paths_catalog.py``, update ``DATA_DIR`` in the class ``DatasetCatalog`` to your own VG data path.
 
-Step 7: copy our provided [sgg_eval.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/data/datasets/evaluation/vg/sgg_eval.py) and 
-[vg_eval.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/data/datasets/evaluation/vg/vg_eval.py) 
+**Step 7**: copy our provided [sgg_eval.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/data/datasets/evaluation/vg/sgg_eval.py) and 
+[vg_eval.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/data/datasets/evaluation/vg/vg_eval.py) 
 to your repository under the path ``/maskrcnn_benchmark/data/datasets/evaluation/vg/``.
 You might need to modify the ``zeroshot_triplet`` path in ``vg_eval.py``.
 
-Step 8: if you encounter an error of ``non-existent key``, add the line ``cfg.set_new_allowed(True)`` to
+**Step 8**: if you encounter an error of ``non-existent key``, add the line ``cfg.set_new_allowed(True)`` to
 `` tools/relation_train_net.py`` on the line before ``cfg.merge_from_file(args.config_file)``.
 
-Step 9: In either the command line or bash script to train or evaluate the model,
+**Step 9**: In either the command line or bash script to train or evaluate the model,
 specify ``MODEL.ROI_RELATION_HEAD.PREDICTOR`` as ``MotifHierarchicalPredictor``,
 and update your ``GLOVE_DIR, PRETRAINED_DETECTOR_CKPT, OUTPUT_DIR`` to your own paths. 
 We also suggest reducing your learning rate ``SOLVER.BASE_LR`` for a more stable training, and we use ``SOLVER.BASE_LR = 0.001``or``0.0025`` in our experiments.
@@ -83,10 +83,10 @@ refer to our standalone model code, where we query GPT-3.5 for commonsense valid
 save the results as commonsense-aligned and violated triplets, and then use the saved results for model re-training from scratch.
 Please also refer to the standalone model code on how to use GPT-4V, where you need the access to each image and subject-object bounding boxes.
 
-Step 1: copy our provided [query_llm.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/query_llm.py)
+**Step 1**: copy our provided [query_llm.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/5544610cfed0be574f6d34aa8d15f063a637a806/maskrcnn_benchmark/modeling/roi_heads/relation_head/query_llm.py)
 to your repository under the path ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/``
 
-Step 2: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py`` in your repository,
+**Step 2**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py`` in your repository,
 add 
 
     from .query_llm import CommonsenseValidator
@@ -97,7 +97,7 @@ at the file top, add
     self.llm = CommonsenseValidator()
 
 in the class ``__init__`` function,
-and then follow our [inference.py](Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py)
+and then follow our [inference.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py)
 to add the code block
 
     # query llm about top k triplets for commonsense validation
@@ -111,4 +111,6 @@ to add the code block
     rel_labels = rel_labels[sorting_idx]
 
 to the ``forward`` function, usually above the line ``boxlist.add_field``.
+
+**Step 3**: run the inference script as usual.
 
