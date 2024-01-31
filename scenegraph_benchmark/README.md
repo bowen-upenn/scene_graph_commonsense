@@ -103,7 +103,7 @@ We have added support for validating commonsense using GPT-3.5 during inference.
 If you want to bake commonsense knowledge in your model without using any external LLM at inference time, 
 you can refer to our [standalone model codes](../train_test.py) with the flag ``--train_mode`` being ``prepare_cs`` or ``train_cs``, which 
 will query GPT-3.5 for commonsense validation during training, save the results as commonsense-aligned and violated triplets, and then use them for re-training the model from scratch. 
-Additionally, please refer to the standalone model code for instructions on how to use GPT-4V, 
+Additionally, please refer to the [standalone model code](../query_llm.py) for examples on how to use GPT-4V instead of GPT-3.5, 
 where you will need access to each image and subject-object bounding boxes.
 
 **Step 1**: copy our provided [query_llm.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/5544610cfed0be574f6d34aa8d15f063a637a806/maskrcnn_benchmark/modeling/roi_heads/relation_head/query_llm.py)
