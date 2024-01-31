@@ -14,11 +14,6 @@ Our methods are generalizable to many current SOTA works, including but not limi
 The current version does not support methods that modify loss function on the relation predictions,
 or modify the final classification layer of the relation head (not a flat classification layer) to plug in the relationship hierarchy, but the commonsense validation should work for all methods.
 
-## Step-by-Step Instructions
-
-These steps may appear complicated, but they are actually quite easy to implement compared to many other plug-and-play methods!
-And the results are worth it! You will notice a significant performance boost after applying our methods.
-
 In our provided repository here, [Scene-Graph-Benchmark.pytorch/](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/tree/5544610cfed0be574f6d34aa8d15f063a637a806)
 plugs our methods into [Neural Motifs](https://arxiv.org/abs/1711.06640), 
 [VTransE](https://arxiv.org/abs/1702.08319), and
@@ -27,7 +22,22 @@ Besides, [scenegraph_benchmark_ietrans/](scenegraph_benchmark_ietrans/) plugs ou
 and [scenegraph_benchmark_nice/](scenegraph_benchmark_nice/) plugs our methods into [NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf).
 We find in all these SOTA works, we can raise their mR@k scores to continue reducing long-tailed problems, while simultaneously achieving even higher R@k scores. 
 
-We take [Neural Motifs](https://arxiv.org/abs/1711.06640) on the Visual Genome dataset as an example for illustration.
+## Step-by-Step Instructions
+
+These steps may appear complicated at first glance, but they are actually quite easy to implement compared to many other plug-and-play methods!
+Basically, you need to modify [model_motifs_hierarchical.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/model_motifs_hierarchical.py),
+[utils_motifs_hierarchical.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/utils_motifs_hierarchical.py),
+[roi_relation_predictors.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py),
+[inference.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py),
+[loss.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/loss.py),
+[paths_catalog.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/5544610cfed0be574f6d34aa8d15f063a637a806/maskrcnn_benchmark/config/paths_catalog.py)
+[sgg_eval.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/data/datasets/evaluation/vg/sgg_eval.py),
+[vg_eval.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/data/datasets/evaluation/vg/vg_eval.py),
+and the command line or bash script to train or evaluate the model, most of which are under the paths ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/``
+or ``/maskrcnn_benchmark/data/datasets/evaluation/vg/``.
+The results are worth it! You will notice a significant performance boost after applying our methods.
+
+We take [Neural Motifs](https://arxiv.org/abs/1711.06640) on the [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) dataset as an example for illustration.
 
 ### Instructions for plugging in the relationship hierarchy
 **Step 1**: copy our provided [model_motifs_hierarchical.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/model_motifs_hierarchical.py)
@@ -41,10 +51,13 @@ add the line
     from .model_motifs_hierarchical.py import BayesHead, BayesHeadProd
 
 at the file top,
-and then add a new class named ``MotifHierarchicalPredictor`` we provided in our [roi_relation_predictors.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py)
+and then add a new class named ``MotifHierarchicalPredictor`` we provided in our [roi_relation_predictors.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py).
 Make sure you have registered the new class by adding the line 
 
     @registry.ROI_RELATION_PREDICTOR.register("MotifHierarchicalPredictor")
+    class MotifHierarchicalPredictor(nn.Module):
+        ...
+
 right above the class definition.
 
 **Step 3**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/relation_head.py`` in your repository,
