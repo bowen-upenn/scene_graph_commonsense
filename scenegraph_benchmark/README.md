@@ -88,8 +88,8 @@ If you encounter an error of ``non-existent key``, add the line ``cfg.set_new_al
 ### Instructions for plugging in the commonsense validation
 We have added support for validating commonsense using GPT-3.5 during inference. 
 If you want to bake commonsense knowledge in your model without using any external LLM at inference time, 
-you can refer to our [standalone model codes](../train_test.py) with the flags ``--train_mode`` ``prepare_cs`` and ``train_cs``, which 
-query GPT-3.5 for commonsense validation during training, save the results as commonsense-aligned and violated triplets, and then use them for re-training the model from scratch. 
+you can refer to our [standalone model codes](../train_test.py) with the flag ``--train_mode`` being ``prepare_cs`` or ``train_cs``, which 
+will query GPT-3.5 for commonsense validation during training, save the results as commonsense-aligned and violated triplets, and then use them for re-training the model from scratch. 
 Additionally, please refer to the standalone model code for instructions on how to use GPT-4V, 
 where you will need access to each image and subject-object bounding boxes.
 
