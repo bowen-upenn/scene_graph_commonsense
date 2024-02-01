@@ -7,9 +7,22 @@ Abstract: This work presents an enhanced approach to generating scene graphs by 
 To summarize our contributions:
 1. We observe that a scene graph model can achieve superior performance by leveraging relationship hierarchies and, therefore, propose a Bayesian classification head to replace flat classification.
    to jointly predict relationship super-category probabilities and detailed relationships within each super-category.
-2. Dataset annotations like those in Visual Genome are sparse, but we can generate extensive predictions beyond the sparse annotations, with strong zero-shot performance and generalization abilities.
+2. Dataset annotations like those in Visual Genome are highly sparse and biased, but we can generate extensive predictions beyond the sparse annotations, with strong zero-shot performance and generalization abilities.
 3. We design a commonsense validation pipeline that bakes commonsense knowledge from large language models into our model during training. This eliminates the necessity to access any large language models at testing time, making the algorithm more efficient for practical use.
-4. We show that these techniques can also be integrated into other existing scene graph generation algorithms as a portable module, further enhancing their state-of-the-art performance.
+4. We show that these techniques can also be used as plug-and-play modules to continue pushing other SOTA works to new SOTA levels of performance.
+
+## Repository Structure
+
+### This repository consists of two parts.
+- :purple_heart: ***Plug-and-play to existing SOTA works in [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) framework***: follow the [Plug-and-Play README](scenegraph_benchmark/README.md) for step-by-step instructions on how to integrate our methods (hierarchical relationships & commonsense validation) into your own work. We hope our methods can support your work in achieving even better performance :raised_hands:
+Our implementations on [Neural Motifs](https://arxiv.org/abs/1711.06640), 
+[VTransE](https://arxiv.org/abs/1702.08319), 
+[VCTree](https://arxiv.org/abs/1812.01880), 
+[TDE](https://arxiv.org/pdf/2002.11949.pdf), 
+[NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf), 
+[IETrans](https://arxiv.org/abs/2203.11654) can be found under our [scenegraph_benchmark/](scenegraph_benchmark/) directory.
+
+- :blue_heart: ***A light-weighted standalone framework***: please continue reading.
 
 <p align="center">
 <img src=figures/flow_new.png />
@@ -17,14 +30,12 @@ To summarize our contributions:
 
 ## TODOs
 - [x] 1. Clean up the codes for integrating hierarchical classification as a portable module to other existing SOTA works in [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch)
-- [ ] 2. Release all pretrained model weights. (Most of them have been released.)
-- [ ] 3. Add unsupervised relation super-category clustering from pretrained GPT2, BERT, and CLIP token embeddings, eliminating the need for humans to classify relation labels.
-- [ ] 4. Address long-tailed class distribution problem using the [TDE](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
-- [ ] 5. Add energy-based learning [EBM](https://github.com/mods333/energy-based-scene-graph).
-- [ ] 6. Clean up the codes for efficient single-image inference.
-- [ ] 7. Clean up the codes for running experiments on the OpenImage V6 dataset.
-- [ ] 8. Refine all function headers and comments for better readability.
-- [ ] 9. We are currently working on a zero-shot LVM-for-SGG algorithm for open-world scenarios. We expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates!
+- [x] 2. Release pretrained model weights.
+- [x] 3. Add unsupervised relation super-category clustering from pretrained GPT2, BERT, and CLIP token embeddings, eliminating the need for humans to classify relation labels.
+- [ ] 4. Clean up the codes for efficient single-image inference.
+- [ ] 5. Clean up the codes for running experiments on the OpenImage V6 dataset.
+- [ ] 6. Refine all function headers and comments for better readability.
+- [ ] 7. We are currently working on a zero-shot LVM-for-SGG algorithm for open-world scenarios. We expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates!
 
 ## Citation
 Please cite our works if you believe they have inspired your research. Thank you!
@@ -125,18 +136,6 @@ We strongly suggest running the ```prepare_cs``` step yourself if you are using 
 
     python main.py --run_mode train --eval_mode pc
     python main.py --run_mode eval --eval_mode pc
-
-## Extension to existing works as a portable module
-
-Our Bayesian classification head can also serve as a portable module to furthermore improve the performance of other existing SOTA works. 
-Implementations based on the popular code framework [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) can be found under the [scenegraph_benchmark](scenegraph_benchmark/) folder.
-
-<p align="center">
-<img src=figures/extension.png />
-</p>
-<p style="font-size: x-small;"> 
-   <em>This image is altered from its original version by Tang, Kaihua, Hanwang Zhang, Baoyuan Wu, Wenhan Luo, and Wei Liu. "Learning to compose dynamic tree structures for visual contexts." In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp. 6619-6628. 2019.</em>
-</p>
 
 ## Visual results
 <p align="center">
