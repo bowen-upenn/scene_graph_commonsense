@@ -22,6 +22,14 @@ Besides, [scenegraph_benchmark_ietrans/](scenegraph_benchmark_ietrans/) plugs ou
 and [scenegraph_benchmark_nice/](scenegraph_benchmark_nice/) plugs our methods into [NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf).
 We find in all these SOTA works, we can raise their mR@k scores to continue reducing long-tailed problems, while simultaneously achieving even higher R@k scores. 
 
+Here is an illustration of how to plug our hierarchical relationships into [VCTree](https://arxiv.org/abs/1812.01880). We hope it is straightforward but highly effective.
+<p align="center">
+<img src=../figures/extension.png />
+</p>
+<p style="font-size: x-small;"> 
+   <em>This image is altered from its original version by Tang, Kaihua, Hanwang Zhang, Baoyuan Wu, Wenhan Luo, and Wei Liu. "Learning to compose dynamic tree structures for visual contexts." In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp. 6619-6628. 2019.</em>
+</p>
+
 ## Step-by-Step Instructions
 
 These steps may appear complicated at first glance, but they are actually quite easy to implement compared to many other plug-and-play methods!
