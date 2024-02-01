@@ -2,14 +2,11 @@
 
 A presentation slide can be accessed [here](https://docs.google.com/presentation/d/14MvudT8IP5zATr3GYfPXrDRyDENsBl-xV6E17Ffhr7s/edit?usp=sharing). The work is developed from the preliminary work [Hierarchical Relationships: A New Perspective to Enhance Scene Graph Generation](https://arxiv.org/abs/2303.06842) accepted at NeurIPS 2023 New Frontiers in Graph Learning Workshop ([GLFrontiers](https://glfrontiers.github.io/)) and NeurIPS 2023 [Queer in AI](https://www.queerinai.com/neurips-2023), which shares the same GitHub repository.
 
-Abstract: This work presents an enhanced approach to generating scene graphs by incorporating a relationship hierarchy and commonsense knowledge. Specifically, we propose a Bayesian classification head that exploits an informative hierarchical structure. It jointly predicts the super-category or type of relationship between the two objects, along with the detailed relationship under each super-category. We design a commonsense validation pipeline that uses a large language model to critique the results from the scene graph prediction system and then use that feedback to enhance the model performance. The system requires no external large language model assistance at test time, making it more convenient for practical applications. Experiments on the Visual Genome and the OpenImage V6 datasets demonstrate that harnessing hierarchical relationships enhances the model performance by a large margin. The proposed Bayesian head can also be incorporated as a portable module in existing scene graph generation algorithms to improve their results. In addition, the commonsense validation enables the model to generate an extensive set of reasonable predictions beyond dataset annotations.
-
-To summarize our contributions:
-1. We observe that a scene graph model can achieve superior performance by leveraging relationship hierarchies and, therefore, propose a Bayesian classification head to replace flat classification.
-   to jointly predict relationship super-category probabilities and detailed relationships within each super-category.
-2. Dataset annotations like those in Visual Genome are highly sparse and biased, but we can generate extensive predictions beyond the sparse annotations, with strong zero-shot performance and generalization abilities.
-3. We design a commonsense validation pipeline that bakes commonsense knowledge from large language models into our model during training. This eliminates the necessity to access any large language models at testing time, making the algorithm more efficient for practical use.
-4. We show that these techniques can also be used as plug-and-play modules to continue pushing other SOTA works to new SOTA levels of performance.
+This work considers the scene graph generation problem, which represents each image as a graph, where each object instance is a node and each relation between a pair of nodes is a directed edge. Our main contributions are:
+1. We observe that a scene graph model can achieve superior performance by leveraging relationship hierarchies. Therefore, we propose a Bayesian classification head to replace flat classification, which jointly predicts relationship super-category probabilities and detailed relationships within each super-category.
+2. Dataset annotations in scene graph generation are highly sparse and biased, but we can generate extensive predictions beyond the sparse annotations, with strong zero-shot performance and generalization abilities.
+3. We design a commonsense validation pipeline that bakes commonsense knowledge from ***large language models*** into our model during training without the need to access any LLMs at test time, making the algorithm more efficient to deploy in practice.
+4. ***Our proposed methods can be used as plug-and-play modules into many other existing works, continuing to push these SOTA works to new SOTA levels of performance.***
 
 ## Repository Structure
 
