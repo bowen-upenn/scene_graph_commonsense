@@ -197,3 +197,4 @@ to the ``forward`` function, usually above the line ``boxlist.add_field``.
 | [Motifs](https://arxiv.org/abs/1711.06640)+[IETrans](https://arxiv.org/abs/2203.11654)                | -    | 48.6 | 50.5  | -     | 35.8  | 39.1   |
 | [Motifs](https://arxiv.org/abs/1711.06640)+[IETrans](https://arxiv.org/abs/2203.11654)+**Ours**       | **47.9** | **60.4** | **66.4** | **26.4** | **38.0** | **44.1** |
 
+[Motifs](https://arxiv.org/abs/1711.06640)+[IETrans](https://arxiv.org/abs/2203.11654)+**Ours** achieves the SOTA performance in terms of mR@k scores :rocket:
