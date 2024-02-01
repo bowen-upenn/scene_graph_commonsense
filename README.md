@@ -34,10 +34,10 @@ Our implementations on [Neural Motifs](https://arxiv.org/abs/1711.06640),
 - [ ] 4. Clean up the codes for efficient single-image inference.
 - [ ] 5. Clean up the codes for running experiments on the OpenImage V6 dataset.
 - [ ] 6. Refine all function headers and comments for better readability.
-- [ ] 7. We are currently working on a zero-shot LVM-for-SGG algorithm for open-world scenarios. We expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates!
+- [ ] 7. :rainbow: We are currently working on a zero-shot LVM-for-SGG algorithm for open-world scenarios. We expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates!
 
 ## Citation
-Please cite our works if you believe they have inspired your research. Thank you!
+If you believe our work has inspired your research, please kindly cite our work. Thank you!
 
     @article{jiang2023enhancing,
       title={Enhancing Scene Graph Generation with Hierarchical Relationships and Commonsense Knowledge},
