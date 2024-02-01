@@ -13,7 +13,7 @@ This work considers the scene graph generation problem. Different from object de
 ### This repository consists of two parts.
 - :purple_heart: ***Plug-and-play to existing SOTA works in [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) framework***:
 
-   follow the [Plug-and-Play README](scenegraph_benchmark/README.md) for step-by-step instructions on how to integrate our methods (hierarchical relationships & commonsense validation) into your own work. We hope our methods can support your work in achieving even better performance :raised_hands:
+   follow the ***[Plug-and-Play README](scenegraph_benchmark/README.md)*** for step-by-step instructions on how to integrate our methods (hierarchical relationships & commonsense validation) into your own work. We hope our methods can support your work in achieving even better performance :raised_hands:
 Our implementations on [Neural Motifs](https://arxiv.org/abs/1711.06640), 
 [VTransE](https://arxiv.org/abs/1702.08319), 
 [VCTree](https://arxiv.org/abs/1812.01880), 
