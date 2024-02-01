@@ -159,3 +159,41 @@ to the ``forward`` function, usually above the line ``boxlist.add_field``.
 
 **Step 3**: run the inference script as usual.
 
+
+## Experimental Results
+| Methods                       | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+| ----------------------------- | ---- | ---- | ----- | ----- | ----- | ------ |
+| [Neural Motifs](https://arxiv.org/abs/1711.06640)                        | **58.5** | 65.2 | 67.0  | 11.7  | 14.8  | 16.1   |
+| [Neural Motifs](https://arxiv.org/abs/1711.06640)+**Ours**               | 53.8 | **68.3** | **74.6** | **15.9**  | **24.3** | **29.9** |
+
+| Methods                       | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+| ----------------------------- | ---- | ---- | ----- | ----- | ----- | ------ |
+| [VTransE](https://arxiv.org/abs/1702.08319)                       | **59.1** | 65.6 | 67.3  | 12.8 | 16.3 | 17.6   |
+| [VTransE](https://arxiv.org/abs/1702.08319)+**Ours**              | 53.8  | **68.1** | **74.5**  | **18.1**  | **26.2** | **31.5**  |
+
+| Methods                       | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+| ----------------------------- | ---- | ---- | ----- | ----- | ----- | ------ |
+| [VCTree](https://arxiv.org/abs/1812.01880)                        | **59.0** | 65.4 | 67.2  | 13.1  |16.7  |18.2  |
+| [VCTree](https://arxiv.org/abs/1812.01880)+**Ours**               | 54.5  | **69.1**  | **75.4** | **16.7**  | **26.3** |**32.2** |
+
+| Methods                       | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+| ----------------------------- | ---- | ---- | ----- | ----- | ----- | ------ |
+| [Motifs](https://arxiv.org/abs/1711.06640)+[TDE](https://arxiv.org/pdf/2002.11949.pdf)                    | 33.6 | 46.2 | 51.4  | 18.5  | 25.5  | 29.1   |
+| [Motifs](https://arxiv.org/abs/1711.06640)+[TDE](https://arxiv.org/pdf/2002.11949.pdf)+**Ours**           | **39.7** | **56.9** | **66.7** | **20.1** | **28.8** | **34.9** |
+
+| Methods                       | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+| ----------------------------- | ---- | ---- | ----- | ----- | ----- | ------ |
+| [VCTree](https://arxiv.org/abs/1812.01880)+[TDE](https://arxiv.org/pdf/2002.11949.pdf)                    | 36.2 | 47.2 | 51.6  | 18.4  | 25.4  | 28.7   |
+| [VCTree](https://arxiv.org/abs/1812.01880)+[TDE](https://arxiv.org/pdf/2002.11949.pdf)+[EBM](https://arxiv.org/abs/2103.02221)                | **41.6** | 51.2 | 54.3  | **19.9** | 26.7  | 30.0   |
+| [VCTree](https://arxiv.org/abs/1812.01880)+[TDE](https://arxiv.org/pdf/2002.11949.pdf)+**Ours**           | 39.6 | **56.9** | **66.6** | 19.6  | **28.6** | **35.2** |
+
+| Methods                       | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+| ----------------------------- | ---- | ---- | ----- | ----- | ----- | ------ |
+| [Motifs](https://arxiv.org/abs/1711.06640)+[NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf)                   | -    | 55.1 | 57.2  | -     | 29.9  | 32.3   |
+| [Motifs](https://arxiv.org/abs/1711.06640)+[NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf)+**Ours**          | **43.1** | **58.2** | **65.4** | **22.6** | **33.1** | **39.8** |
+
+| Methods                       | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+| ----------------------------- | ---- | ---- | ----- | ----- | ----- | ------ |
+| [Motifs](https://arxiv.org/abs/1711.06640)+[IETrans](https://arxiv.org/abs/2203.11654)                | -    | 48.6 | 50.5  | -     | 35.8  | 39.1   |
+| [Motifs](https://arxiv.org/abs/1711.06640)+[IETrans](https://arxiv.org/abs/2203.11654)+**Ours**       | **47.9** | **60.4** | **66.4** | **26.4** | **38.0** | **44.1** |
+
