@@ -8,6 +8,8 @@ This work considers the scene graph generation problem. Different from object de
 3. We design a commonsense validation pipeline that bakes commonsense knowledge from ***large language models*** into our model during training without the need to access any LLMs at test time, making the algorithm more efficient to deploy in practice.
 4. ***Our proposed methods can be used as plug-and-play modules into many other existing works, continuing to push these SOTA works to new SOTA levels of performance.***
 
+We also refer to our methods as **HRCV**, an acronym for **H**ierarchical **R**elationships and **C**ommonsense **V**alidation.
+
 ## Repository Structure
 
 ### This repository consists of two parts.
