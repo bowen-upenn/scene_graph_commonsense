@@ -91,8 +91,7 @@ All the following models are trained on Visual Genome for three epochs:
   
   We allow command-line argparser for the following arguments: ```--run_mode```: ``train, eval, prepare_cs, train_cs, eval_cs``. ```--eval_mode```: ``pc, sgc, sgd``.
   ```--hierar```: set hierarchical_pred to True to apply our Bayesian head in the relationship classification model. Its default value is False, which is an ablation study of using a flat classification head instead.
-  ```--cluster```: ``motif, gpt2, bert, clip``, where ``motif`` uses manually defined relationship hierarchy in both our paper and [Neural Motifs](https://arxiv.org/abs/1711.06640), and ``clip`` achieves comparable performance if you prefer
-  unsupervised relation clustering without manual effort.
+  ```--cluster```: ``motif, gpt2, bert, clip``, where the default value ``motif`` uses manually defined relationship hierarchy in both our paper and [Neural Motifs](https://arxiv.org/abs/1711.06640) and ``clip`` achieves comparable performance if you prefer unsupervised relation clustering without manual effort.
 
   ### To set the dataset:
   set ```dataset: 'vg'``` in [config.yaml](config.yaml) to run experiments on the [Visual Genome](https://homes.cs.washington.edu/~ranjay/visualgenome/index.html) dataset.
