@@ -128,7 +128,7 @@ will query GPT-3.5 for commonsense validation during training, save the results 
 Additionally, please refer to the [standalone model code](../query_llm.py) for examples on how to use GPT-4V instead of GPT-3.5, 
 where you will need access to each image and subject-object bounding boxes.
 
-**Step 1**: copy our provided [query_llm.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/5544610cfed0be574f6d34aa8d15f063a637a806/maskrcnn_benchmark/modeling/roi_heads/relation_head/query_llm.py)
+**Step 1**: copy our provided [query_llm.py](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/query_llm.py)
 to your repository under the path ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/``
 
 **Step 2**: in the file ``/maskrcnn_benchmark/modeling/roi_heads/relation_head/inference.py`` in your repository,
