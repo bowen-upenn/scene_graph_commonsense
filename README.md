@@ -46,14 +46,14 @@ If you believe our work has inspired your research, please kindly cite our work.
      author={Jiang, Bowen and Zhuang, Zhijun and Taylor, Camillo Jose},
      journal={arXiv preprint arXiv:2311.12889},
      year={2023}
-   }
+    }
 
     @article{jiang2023scene,
      title={Scene graph generation from hierarchical relationship reasoning},
      author={Jiang, Bowen and Taylor, Camillo J},
      journal={arXiv preprint arXiv:2303.06842},
      year={2023}
-   }
+    }
 
 ## Dependencies
 Please check [requirements.txt](requirements.txt). You can run the following commands to create a virtual environment and install all the requirements:
