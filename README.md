@@ -42,20 +42,18 @@ Our implementations on [Neural Motifs](https://arxiv.org/abs/1711.06640),
 If you believe our work has inspired your research, please kindly cite our work. Thank you!
 
     @article{jiang2023enhancing,
-      title={Enhancing Scene Graph Generation with Hierarchical Relationships and Commonsense Knowledge},
-      author={Jiang, Bowen and Zhuang, Zhijun and Taylor, Camillo Jose},
-      journal={arXiv preprint arXiv:2311.12889},
-      year={2023}
-    }
+     title={Enhancing Scene Graph Generation with Hierarchical Relationships and Commonsense Knowledge},
+     author={Jiang, Bowen and Zhuang, Zhijun and Taylor, Camillo Jose},
+     journal={arXiv preprint arXiv:2311.12889},
+     year={2023}
+   }
 
-    @inproceedings{
-      jiang2023hierarchical,
-      title={Hierarchical Relationships: A New Perspective to Enhance Scene Graph Generation},
-      author={Bowen Jiang and Camillo Taylor},
-      booktitle={NeurIPS 2023 Workshop: New Frontiers in Graph Learning},
-      year={2023},
-      url={https://openreview.net/forum?id=T40bRpEd6P}
-    }
+    @article{jiang2023scene,
+     title={Scene graph generation from hierarchical relationship reasoning},
+     author={Jiang, Bowen and Taylor, Camillo J},
+     journal={arXiv preprint arXiv:2303.06842},
+     year={2023}
+   }
 
 ## Dependencies
 Please check [requirements.txt](requirements.txt). You can run the following commands to create a virtual environment and install all the requirements:
