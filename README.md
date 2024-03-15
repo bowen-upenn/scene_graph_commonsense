@@ -55,6 +55,8 @@ If you believe our work has inspired your research, please kindly cite our work.
      year={2023}
     }
 
+There is a subtle problem on Google Scholar if the authors change their paper title, so the second BibTeX actually refers to the preliminary work [Hierarchical Relationships: A New Perspective to Enhance Scene Graph Generation](https://arxiv.org/abs/2303.06842) accepted at NeurIPS 2023 Workshop.
+
 ## Dependencies
 Please check [requirements.txt](requirements.txt). You can run the following commands to create a virtual environment and install all the requirements:
     
