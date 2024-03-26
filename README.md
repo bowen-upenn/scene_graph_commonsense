@@ -36,7 +36,7 @@ Our implementations on [Neural Motifs](https://arxiv.org/abs/1711.06640),
 - [ ] 4. Clean up the codes for efficient single-image inference.
 - [ ] 5. Clean up the codes for running experiments on the OpenImage V6 dataset.
 - [ ] 6. Refine all function headers and comments for better readability.
-- [x] 7. :rainbow: We are currently working on a zero-shot Visual Question Answering in open-world scenarios, which is a commonly explored downstream task in the scene graph generation community, and we expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates! **[Update] It is now released and available at [Multi-Agent VQA](https://github.com/bowen-upenn/Multi-Agent-VQA)**.
+- [x] 7. :rainbow: We are currently working on a zero-shot Visual Question Answering in open-world scenarios. VQA is a commonly explored downstream task in the scene graph generation community, and we expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates! **[Update] It is now released and available at [Multi-Agent VQA](https://github.com/bowen-upenn/Multi-Agent-VQA)**.
 
 ## Citation
 If you believe our work has inspired your research, please kindly cite our work. Thank you!
