@@ -2,11 +2,11 @@
 
 The work is developed from the preliminary work [Hierarchical Relationships: A New Perspective to Enhance Scene Graph Generation](https://arxiv.org/abs/2303.06842) accepted at NeurIPS 2023 New Frontiers in Graph Learning Workshop ([GLFrontiers](https://glfrontiers.github.io/)) and NeurIPS 2023 [Queer in AI](https://www.queerinai.com/neurips-2023), which shares the same GitHub repository. A presentation slide can be accessed [here](https://docs.google.com/presentation/d/14MvudT8IP5zATr3GYfPXrDRyDENsBl-xV6E17Ffhr7s/edit?usp=sharing). 
 
-This work considers the scene graph generation problem. Different from object detection or segmentation, it represents each image as a graph, where each object instance is a node and each relation between a pair of nodes is a directed edge. Our main contributions are:
-1. We observe that a scene graph model can achieve superior performance by leveraging ***relationship hierarchies***. Therefore, we propose a Bayesian classification head to replace flat classification, which jointly predicts relationship super-category probabilities and detailed relationships within each super-category.
-2. Dataset annotations in scene graph generation are highly sparse and biased, but we can generate extensive predictions beyond the sparse annotations, with strong zero-shot performance and generalization abilities.
-3. We design a commonsense validation pipeline that bakes commonsense knowledge from ***large language models*** into our model during training without the need to access any LLMs at test time, making the algorithm more efficient to deploy in practice.
-4. ***Our proposed methods can be used as plug-and-play modules into many other existing works, continuing to push these SOTA works to new SOTA levels of performance.***
+This work considers the scene graph generation problem. Different from object detection or segmentation, it represents each image as a graph, where each object instance is a node and each relation between a pair of nodes is a directed edge. Our highlights are:
+1. **LLMs** can identify and filter out **commonsense-violated** predictions made by scene graph generation (SGG) models.
+2. LLMs can bake commonsense knowledge into baseline SGG models by imposing a loss penalty, eliminating the need for LLMs during testing whenever needed.
+3. **Hierarchical relationships work surprisingly well:** Replacing the flat relation classification head with a Bayesian head, which jointly predicts relationship super-category probabilities and detailed relationships within each super-category, can improve model performance by a large margin.
+4. Both of our proposed methods are **model-agnostic:** They can be easily used as **plug-and-play** modules into **existing SOTA** works, continuing pushing their SOTA performance to **new levels**.
 
 We also refer to our methods as **HRCV**, an acronym for **H**ierarchical **R**elationships and **C**ommonsense **V**alidation.
 
