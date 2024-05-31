@@ -17,14 +17,22 @@ from sklearn.manifold import TSNE
 
 
 # Get relation classes
-relation_classes = relation_class_by_freq()
+# Visual Genome
+# relation_classes = relation_class_by_freq()
+# 3D SSG
+with open('3DSSG/vlsat/data/3DSSG_subset/relationships.txt', 'r') as file:
+    relations = [line.strip() for line in file]
+relation_classes = {}
+for i, relation in enumerate(relations):
+    relation_classes[i] = relation
+print(relation_classes)
 
 # Initialize tokenizers and models for GPT-2, BERT, and CLIP
-gpt2_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-gpt2_model = GPT2Model.from_pretrained("gpt2")
-
-bert_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-bert_model = BertModel.from_pretrained("bert-base-uncased")
+# gpt2_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+# gpt2_model = GPT2Model.from_pretrained("gpt2")
+#
+# bert_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+# bert_model = BertModel.from_pretrained("bert-base-uncased")
 
 clip_tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -45,8 +53,8 @@ def get_embeddings(model, tokenizer, sentences):
 
 
 # Get embeddings for each model
-gpt2_embeddings = get_embeddings(gpt2_model, gpt2_tokenizer, list(relation_classes.values()))
-bert_embeddings = get_embeddings(bert_model, bert_tokenizer, list(relation_classes.values()))
+# gpt2_embeddings = get_embeddings(gpt2_model, gpt2_tokenizer, list(relation_classes.values()))
+# bert_embeddings = get_embeddings(bert_model, bert_tokenizer, list(relation_classes.values()))
 clip_embeddings = get_embeddings(clip_model, clip_tokenizer, list(relation_classes.values()))
 
 
@@ -74,12 +82,13 @@ def cluster_and_map(embeddings, relation_names, n_clusters):
 relation_names = list(relation_classes.values())
 n_clusters = 3
 
-gpt2_cluster_map, gpt2_index_map = cluster_and_map(gpt2_embeddings, relation_names, n_clusters)
-bert_cluster_map, bert_index_map = cluster_and_map(bert_embeddings, relation_names, n_clusters)
+# gpt2_cluster_map, gpt2_index_map = cluster_and_map(gpt2_embeddings, relation_names, n_clusters)
+# bert_cluster_map, bert_index_map = cluster_and_map(bert_embeddings, relation_names, n_clusters)
 clip_cluster_map, clip_index_map = cluster_and_map(clip_embeddings, relation_names, n_clusters)
-print('gpt2_cluster_map', [len(gpt2_cluster_map[key]) for key in gpt2_cluster_map.keys()], gpt2_cluster_map, '\ngpt2_index_map', gpt2_index_map, '\n\n',
-      'bert_cluster_map', [len(bert_cluster_map[key]) for key in bert_cluster_map.keys()], bert_cluster_map, '\nbert_index_map', bert_index_map, '\n\n',
-      'clip_cluster_map', [len(clip_cluster_map[key]) for key in clip_cluster_map.keys()], clip_cluster_map, '\nclip_index_map', clip_index_map)
+# print('gpt2_cluster_map', [len(gpt2_cluster_map[key]) for key in gpt2_cluster_map.keys()], gpt2_cluster_map, '\ngpt2_index_map', gpt2_index_map, '\n\n',
+#       'bert_cluster_map', [len(bert_cluster_map[key]) for key in bert_cluster_map.keys()], bert_cluster_map, '\nbert_index_map', bert_index_map, '\n\n',
+#       'clip_cluster_map', [len(clip_cluster_map[key]) for key in clip_cluster_map.keys()], clip_cluster_map, '\nclip_index_map', clip_index_map)
+print('clip_cluster_map', [len(clip_cluster_map[key]) for key in clip_cluster_map.keys()], clip_cluster_map, '\nclip_index_map', clip_index_map)
 
 
 # Function to plot t-SNE for given embeddings
@@ -120,4 +129,4 @@ def plot_tsne_embeddings(gpt2_emb, bert_emb, clip_emb, relation_classes):
     # Save the figure
     plt.savefig('tsne_embeddings.png')
 
-plot_tsne_embeddings(gpt2_embeddings, bert_embeddings, clip_embeddings, relation_classes)
+# plot_tsne_embeddings(gpt2_embeddings, bert_embeddings, clip_embeddings, relation_classes)

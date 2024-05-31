@@ -69,5 +69,5 @@ training:
     lambda_cs_strong: 10
     print_freq: 100
     eval_freq: 100
-    print_freq_test: 50
+    print_freq_test: 20
     eval_freq_test: 1

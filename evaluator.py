@@ -74,11 +74,11 @@ class Evaluator:
         self.dict_object_names = object_class_int2str()
 
         if self.args['models']['llm_model'] == 'gpt4v':
-            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
-            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' else None
+            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' or self.run_mode == 'eval_cs' else None
+            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets_gpt4v.pt') if args['training']['run_mode'] == 'train_cs' or self.run_mode == 'eval_cs' else None
         else:
-            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
-            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if args['training']['run_mode'] == 'train_cs' else None
+            self.commonsense_aligned_triplets = torch.load('triplets/commonsense_aligned_triplets.pt') if args['training']['run_mode'] == 'train_cs' or self.run_mode == 'eval_cs' else None
+            self.commonsense_violated_triplets = torch.load('triplets/commonsense_violated_triplets.pt') if args['training']['run_mode'] == 'train_cs' or self.run_mode == 'eval_cs' else None
 
 
     def iou(self, bbox_target, bbox_pred):
@@ -146,7 +146,7 @@ class Evaluator:
                     self.subject_bbox_target = subject_bbox_target
                     self.object_bbox_target = object_bbox_target
 
-                if self.run_mode == 'train_cs':
+                if self.run_mode == 'train_cs' or self.run_mode == 'eval_cs':
                     triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
@@ -186,7 +186,7 @@ class Evaluator:
                     self.subject_bbox_target = subject_bbox_target
                     self.object_bbox_target = object_bbox_target
 
-                if self.run_mode == 'train_cs':
+                if self.run_mode == 'train_cs' or self.run_mode == 'eval_cs':
                     triplets = torch.hstack((self.subject_cat_pred.unsqueeze(1), self.relation_pred.unsqueeze(1), self.object_cat_pred.unsqueeze(1)))
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
@@ -217,7 +217,7 @@ class Evaluator:
                     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                if self.run_mode == 'train_cs':
+                if self.run_mode == 'train_cs' or self.run_mode == 'eval_cs':
                     triplets = torch.hstack((subject_cat_pred.unsqueeze(1), relation_pred.unsqueeze(1), object_cat_pred.unsqueeze(1)))
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)
@@ -258,7 +258,7 @@ class Evaluator:
                     self.subject_bbox_target = torch.vstack((self.subject_bbox_target, subject_bbox_target))
                     self.object_bbox_target = torch.vstack((self.object_bbox_target, object_bbox_target))
 
-                if self.run_mode == 'train_cs':
+                if self.run_mode == 'train_cs' or self.run_mode == 'eval_cs':
                     triplets = torch.hstack((subject_cat_pred.repeat(3).unsqueeze(1), relation_pred_candid.unsqueeze(1), object_cat_pred.repeat(3).unsqueeze(1)))
                     is_in_no_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) in self.commonsense_violated_triplets for i in range(len(triplets))], device=self.confidence.device)
                     not_in_yes_dict = torch.tensor([tuple(triplets[i].cpu().tolist()) not in self.commonsense_aligned_triplets for i in range(len(triplets))], device=self.confidence.device)

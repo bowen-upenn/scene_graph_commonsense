@@ -758,3 +758,11 @@ def clip_index_map():
                           8, 47,  9, 10, 11, 12, 13, 14, 32, 15, 16, 48, 17, 33, 34, 18, 35, 19,
                          36, 49, 20, 37, 38, 21, 22, 23, 39, 24, 40, 41, 25, 26])
     # {0: 'wearing', 1: 'near', 2: 'with', 3: 'above', 4: 'holding', 5: 'behind', 6: 'under', 7: 'wears', 8: 'over', 9: 'riding', 10: 'carrying', 11: 'eating', 12: 'walking on', 13: 'playing', 14: 'covering', 15: 'along', 16: 'watching', 17: 'between', 18: 'against', 19: 'from', 20: 'made of', 21: 'says', 22: 'part of', 23: 'across', 24: 'using', 25: 'growing on', 26: 'walking in', 27: 'sitting on', 28: 'standing on', 29: 'in front of', 30: 'attached to', 31: 'hanging from', 32: 'laying on', 33: 'belonging to', 34: 'painted on', 35: 'looking at', 36: 'parked on', 37: 'covered in', 38: 'mounted on', 39: 'flying in', 40: 'on back of', 41: 'lying on', 42: 'on', 43: 'has', 44: 'in', 45: 'of', 46: 'at', 47: 'for', 48: 'and', 49: 'to'}
+
+def clip_cluster_map_3dssg():
+    return {0: ['lying on', 'hanging on', 'leaning against', 'lying in', 'hanging in'],
+            1: ['supported by', 'behind', 'close by', 'bigger than', 'smaller than', 'higher than', 'lower than', 'same symmetry as', 'attached to', 'standing on', 'connected to', 'part of', 'belonging to', 'build in', 'standing in'],
+            2: ['left', 'right', 'front', 'inside', 'same as', 'cover']}  # [5, 15, 6]
+def clip_index_map_3dssg():
+    return torch.tensor([0, 5, 20, 21, 22,  6,  7, 23,  8,  9, 10, 11, 12, 24, 13, 14,  0,  1,
+                         15,  2, 16, 17, 18, 19, 25,  3,  4])
