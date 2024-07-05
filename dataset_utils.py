@@ -10,6 +10,8 @@ from torchvision import transforms
 from collections import Counter
 from utils import *
 import cv2
+from tqdm import tqdm
+import json
 
 
 class TwoCropTransform:
@@ -543,6 +545,32 @@ def extract_object_token(raw_obj_data, num_tokens, obj_list=[], verbose=True):
         print(('Keeping %d / %d objects'
                   % (len(tokens), len(token_counter))))
     return tokens, token_counter_return
+
+
+def convert_all_gt_triplets_in_training():
+    data = torch.load('/tmp/datasets/vg_scene_graph_annot/test_triplets.pt')
+
+    # Get the relation and object mappings
+    relation_mapping = relation_by_super_class_int2str()
+    object_mapping = object_class_int2str()
+
+    # Create a new dictionary to store the converted data
+    converted_data = []
+
+    for key in tqdm(data.keys()):
+        # Parse the key
+        obj1, relation, obj2 = key.split('_')
+        obj1 = object_mapping[int(obj1)]
+        relation = relation_mapping[int(relation)]
+        obj2 = object_mapping[int(obj2)]
+
+        # Construct the description
+        description = f"{obj1} {relation} {obj2}"
+        converted_data.append(description)
+
+    # Save the converted data to a JSON file
+    with open('all_gt_triplets_in_training.json', 'w') as f:
+        json.dump(converted_data, f, indent=4)
 
 
 def object_super_class():
