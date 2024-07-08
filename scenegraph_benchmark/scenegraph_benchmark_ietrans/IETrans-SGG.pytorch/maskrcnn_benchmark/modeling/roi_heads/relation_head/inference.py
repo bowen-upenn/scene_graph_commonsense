@@ -38,8 +38,9 @@ class PostProcessor(nn.Module):
         self.rel_inference = rel_inference
 
         self.llm = CommonsenseValidator()
+        self.skip_top = 10
 
-    def forward(self, x, rel_pair_idxs, boxes):
+    def forward(self, x, rel_pair_idxs, boxes, images=None):
         """
         Arguments:
             x (tuple[tensor, tensor]): x contains the relation logits
@@ -130,14 +131,16 @@ class PostProcessor(nn.Module):
 
             #############################################################
             # # query llm about top k triplets for commonsense validation
-            # llm_responses = self.llm.query(rel_pair_idx[:self.llm.top_k, :], rel_labels[:self.llm.top_k])
-            # rel_class_prob[:self.llm.top_k, :][llm_responses == -1] = -math.inf
-            #
+            # subj = obj_class[rel_pair_idx[self.skip_top:self.skip_top + self.llm.top_k, 0]]
+            # obj = obj_class[rel_pair_idx[self.skip_top:self.skip_top + self.llm.top_k, 1]]
+            # combined_obj_label = torch.stack((subj, obj), dim=1)
+            # # print('combined_obj_label', combined_obj_label.shape, 'rel_labels', rel_labels.shape, rel_labels[self.skip_top:self.skip_top + self.llm.top_k].shape, 'images', len(images))
+            # llm_responses = self.llm.query(combined_obj_label, rel_labels[self.skip_top:self.skip_top + self.llm.top_k], images[i], boxlist)
+            # triple_scores[self.skip_top:self.skip_top + self.llm.top_k][llm_responses == -1] = -math.inf
             # # resort the triplets
-            # _, sorting_idx = torch.sort(rel_class_prob, dim=0, descending=True)
+            # _, sorting_idx = torch.sort(triple_scores.view(-1), dim=0, descending=True)
             # rel_pair_idx = rel_pair_idx[sorting_idx]
-            # rel_class_prob = rel_class_prob[sorting_idx]
-            # rel_labels = rel_labels[sorting_idx]
+            # el_labels = rel_labels[sorting_idx]
             #############################################################
 
             boxlist.add_field('rel_pair_idxs', rel_pair_idx) # (#rel, 2)

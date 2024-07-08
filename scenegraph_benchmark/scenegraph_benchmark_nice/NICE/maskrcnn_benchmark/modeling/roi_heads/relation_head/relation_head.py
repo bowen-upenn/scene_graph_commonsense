@@ -42,7 +42,7 @@ class ROIRelationHead(torch.nn.Module):
         # parameters
         self.use_union_box = self.cfg.MODEL.ROI_RELATION_HEAD.PREDICT_USE_VISION
 
-    def forward(self, features, proposals, targets=None, logger=None):
+    def forward(self, features, proposals, targets=None, logger=None, images=None):
         """
         Arguments:
             features (list[Tensor]): feature-maps from possibly several levels
@@ -100,7 +100,7 @@ class ROIRelationHead(torch.nn.Module):
             refine_logits, rel1_prob, rel2_prob, rel3_prob, super_rel_prob, add_losses = (
                 self.predictor(proposals, rel_pair_idxs, rel_labels, rel_binarys, roi_features, union_features, logger))
             if not self.training:
-                result = self.post_processor((rel1_prob, rel2_prob, rel3_prob, super_rel_prob, refine_logits), rel_pair_idxs, proposals)
+                result = self.post_processor((rel1_prob, rel2_prob, rel3_prob, super_rel_prob, refine_logits), rel_pair_idxs, proposals, images)
                 return roi_features, result, {}
 
             loss_relation, loss_refine = self.loss_evaluator(proposals, rel_labels, rel1_prob, rel2_prob, rel3_prob, super_rel_prob, refine_logits)
