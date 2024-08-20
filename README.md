@@ -60,7 +60,7 @@ There is a subtle problem on Google Scholar if the authors change their paper ti
 - [ ] 3. Release all pretrained model weights. (partially done)
 - [ ] 4. Clean up the codes for efficient single-image inference.
 - [ ] 5. Clean up the codes for running experiments on the OpenImage V6 dataset.
-- [ ] 6. VQA is a commonly explored downstream task in the scene graph generation community, and we expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates! **[Update] It is now released and available at [Multi-Agent VQA](https://github.com/bowen-upenn/Multi-Agent-VQA)**.
+- [ ] 6. VQA is a commonly explored downstream task in the scene graph generation community, and we expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates! **[Update] It is now released and available at [Multi-Agent VQA](https://github.com/bowen-upenn/Multi-Agent-VQA). This work has been accepted to CVPR 2024 [CVinW](https://computer-vision-in-the-wild.github.io/cvpr-2024/) Workshop as a Spotlight**.
 
 
 ## Visual results
