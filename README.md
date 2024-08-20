@@ -31,7 +31,7 @@ We have experimented with on [Neural Motifs](https://arxiv.org/abs/1711.06640),
   Follow the ***[Plug-and-Play README](README_BASEMODEL.md)*** to install dependencies, load datasets and pretrained weights, and start training and evaluation processes. Codes are organized under the top directory.
 
 <p align="center">
-<img src=figures/flow_new.png />
+<img src=figures/flow.png />
 </p>
 
 ## Citation
