@@ -63,10 +63,10 @@ There is a subtle problem on Google Scholar if the authors change their paper ti
 ## TODOs
 - [x] 1. Clean up the codes for integrating hierarchical classification and commonsense validation as portable modules to other existing SOTA works in [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch)
 - [x] 2. Add unsupervised relation super-category clustering from pretrained GPT2, BERT, and CLIP token embeddings, eliminating the need for humans to classify relation labels.\
-- [ ] 3. Release all pretrained model weights. (partially done)
+- [x] 3. Release all pretrained model weights. (partially done)
 - [ ] 4. Clean up the codes for efficient single-image inference.
 - [ ] 5. Clean up the codes for running experiments on the OpenImage V6 dataset.
-- [ ] 6. VQA is a commonly explored downstream task in the scene graph generation community, and we expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates! **[Update] It is now released and available at [Multi-Agent VQA](https://github.com/bowen-upenn/Multi-Agent-VQA). This work has been accepted to CVPR 2024 [CVinW](https://computer-vision-in-the-wild.github.io/cvpr-2024/) Workshop as a Spotlight**.
+- [x] 6. VQA is a commonly explored downstream task in the scene graph generation community, and we expect to release a preliminary manuscript and codes within the next few months, so please stay tuned for updates! **[Update] It is now released and available at [Multi-Agent VQA](https://github.com/bowen-upenn/Multi-Agent-VQA). This work has been accepted to CVPR 2024 [CVinW](https://computer-vision-in-the-wild.github.io/cvpr-2024/) Workshop as a Spotlight**.
 
 
 ## Visual results
