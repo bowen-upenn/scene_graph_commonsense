@@ -2,6 +2,7 @@
 
 [![Ranking on PaperWithCode](https://img.shields.io/badge/PaperWithCode-PredCLS_Visual_Genome_Ranking_1-5DD9DB)](https://paperswithcode.com/sota/predicate-classification-on-visual-genome)
 [![Ranking on PaperWithCode](https://img.shields.io/badge/PaperWithCode-SGCLS_Visual_Genome_Ranking_1-5DD9DB)](https://paperswithcode.com/sota/scene-graph-classification-on-visual-genome)
+[![Arxiv](https://img.shields.io/badge/ArXiv-Full_Paper-B31B1B)](https://arxiv.org/abs/2311.12889)
 
 The work is developed from the preliminary work [Hierarchical Relationships: A New Perspective to Enhance Scene Graph Generation](https://arxiv.org/abs/2303.06842) accepted at NeurIPS 2023 New Frontiers in Graph Learning Workshop ([GLFrontiers](https://glfrontiers.github.io/)) and NeurIPS 2023 [Queer in AI](https://www.queerinai.com/neurips-2023), which shares the same GitHub repository.
 
