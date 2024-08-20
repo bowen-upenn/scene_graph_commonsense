@@ -35,11 +35,11 @@ We have experimented with on [Neural Motifs](https://arxiv.org/abs/1711.06640),
 <img src=figures/framework.png />
 </p>
 
-</p>
 <p>
     <em>
-This diagram provides an overview of HIERCOM. The core components of HIERCOM are the hierarchical relation head and the commonsense validation pipeline, both of which are model-agnostic plug-and-play modules, suitable for integration with a variety of baseline scene graph generation models that have a conventional flat classification head. Specifically, the hierarchical relation head is designed to replace this flat layer, jointly estimating relation super-categories and more granular relations within each category. Additionally, the diagram depicts a baseline scene graph generation model: an RGB image is the input, supplemented by an estimated depth map. Using the DETR object detector, the model generates feature maps, object labels, and bounding boxes. Relationship estimation between each pair of instances occurs in two separate passes - to account for directional relationships - first assuming one instance as the subject and then the other. Subsequently, the commonsense validation pipeline leverages an LLM or VLM - which can have a small size - to filter out commonsense-violating predicates, thus refining the final scene graphs to include more predicates that align with the common sense.
+This diagram provides an overview of HIERCOM. The core components of HIERCOM are the hierarchical relation head and the commonsense validation pipeline, both of which are model-agnostic plug-and-play modules, suitable for integration with a variety of baseline scene graph generation models that have a conventional flat classification head. Specifically, the hierarchical relation head is designed to replace this flat layer, jointly estimating relation super-categories and more granular relations within each category. Additionally, the diagram depicts a baseline scene graph generation model: an RGB image is the input, supplemented by an estimated depth map. Using the DETR object detector, the model generates feature maps, object labels, and bounding boxes. Relationship estimation between each pair of instances occurs in two separate passes - to account for directional relationships - first assuming one instance as the subject and then the other. Subsequently, the commonsense validation pipeline leverages an LLM or VLM - which can have a small size - to filter out commonsense-violating predicates, thus refining the final scene graphs to include more predicates that align with the common sense.</em>
 </p>
+
 
 ## Citation
 If you believe our work has inspired your research, please kindly cite our work. Thank you!
