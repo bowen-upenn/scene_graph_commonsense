@@ -10,7 +10,7 @@ This work considers the scene graph generation problem. Different from object de
 3. **Hierarchical relationships work surprisingly well:** Replacing the flat relation classification head with a Bayesian head, which jointly predicts relationship super-category probabilities and detailed relationships within each super-category, can improve model performance by a large margin.
 4. Both of our proposed methods are **model-agnostic:** They can be easily used as **plug-and-play** modules into **existing SOTA** works, continuing pushing their SOTA performance to **new levels**.
 
-We also refer to our methods as **HIERCOM**, an acronym for **HIE**rarchical **R**elationships and **COM**monsense Validation.
+We dub our methods as **HIERCOM**, an acronym for **HIE**rarchical **R**elationships and **COM**monsense Validation.
 
 ## Repository Structure
 
