@@ -19,7 +19,7 @@ We dub our methods as **HIERCOM**, an acronym for **HIE**rarchical **R**elations
 ### This repository consists of two parts.
 - :purple_heart: **Plug-and-play to existing SOTA works in [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) framework**:
 
-   Visit the [scenegraph_benchmark/](scenegraph_benchmark/) directory and follow the ***[Plug-and-Play README](README_PLUGANDPLAY.md)*** for step-by-step instructions on how to integrate our methods (hierarchical relationships & commonsense validation) into your own work. 
+   Visit the [scenegraph_benchmark/](scenegraph_benchmark/) directory and follow the ***[README_PLUGANDPLAY](README_PLUGANDPLAY.md)*** for step-by-step instructions on how to integrate our methods (hierarchical relationships & commonsense validation) into your own work. 
 We have experimented with on [Neural Motifs](https://arxiv.org/abs/1711.06640), 
 [VTransE](https://arxiv.org/abs/1702.08319), 
 [VCTree](https://arxiv.org/abs/1812.01880), 
@@ -29,7 +29,7 @@ We have experimented with on [Neural Motifs](https://arxiv.org/abs/1711.06640),
 
 - :blue_heart: **A light-weighted standalone baseline model**:
 
-  Follow the ***[Plug-and-Play README](README_BASEMODEL.md)*** to install dependencies, load datasets and pretrained weights, and start training and evaluation processes. Codes are organized under the top directory.
+  Follow the ***[README_BASEMODEL](README_BASEMODEL.md)*** to install dependencies, load datasets and pretrained weights, and start training and evaluation processes. Codes are organized under the top directory.
 
 <p align="center">
 <img src=figures/framework.png />
