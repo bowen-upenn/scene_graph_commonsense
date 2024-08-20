@@ -42,7 +42,7 @@ This diagram provides an overview of HIERCOM. The core components of HIERCOM are
 
 
 ## Citation
-If you believe our work has inspired your research, please kindly cite our work. Thank you!
+If you are also working on scene graph generation and find our work interesting, please consider citing our work. Thank you!
 
     @article{jiang2023enhancing,
      title={Enhancing Scene Graph Generation with Hierarchical Relationships and Commonsense Knowledge},
