@@ -6,7 +6,7 @@ This documentation will guide you on how to integrate these two methods as plug-
 We assume that you have already built your own repository using the [Scene-Graph-Benchmark](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) framework.
 Our methods are generalizable to many current SOTA works, including but not limited to 
 [Neural Motifs](https://arxiv.org/abs/1711.06640), 
-[VTransE](https://arxiv.org/abs/1702.08319), 
+[Transformer](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch), 
 [VCTree](https://arxiv.org/abs/1812.01880), 
 [TDE](https://arxiv.org/pdf/2002.11949.pdf), 
 [NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf), 
@@ -16,7 +16,7 @@ or modify the final classification layer of the relation head (not a flat classi
 
 In our provided repository here, [Scene-Graph-Benchmark.pytorch/](https://github.com/zzjun725/Scene-Graph-Benchmark.pytorch/tree/5544610cfed0be574f6d34aa8d15f063a637a806)
 plugs our methods into [Neural Motifs](https://arxiv.org/abs/1711.06640), 
-[VTransE](https://arxiv.org/abs/1702.08319), and
+[Transformer](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch), and
 [VCTree](https://arxiv.org/abs/1812.01880), with additional [TDE](https://arxiv.org/pdf/2002.11949.pdf) that addresses long-tailed distribution problems.
 Besides, [scenegraph_benchmark_ietrans/](scenegraph_benchmark_ietrans/) plugs our methods into [IETrans](https://arxiv.org/abs/2203.11654),
 and [scenegraph_benchmark_nice/](scenegraph_benchmark_nice/) plugs our methods into [NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf).
