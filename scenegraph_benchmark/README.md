@@ -18,9 +18,6 @@ In our provided repository here, [Scene-Graph-Benchmark.pytorch/](https://github
 plugs our methods into [Neural Motifs](https://arxiv.org/abs/1711.06640), 
 [Transformer](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch), and
 [VCTree](https://arxiv.org/abs/1812.01880), with additional [TDE](https://arxiv.org/pdf/2002.11949.pdf) that addresses long-tailed distribution problems.
-Besides, [scenegraph_benchmark_ietrans/](scenegraph_benchmark_ietrans/) plugs our methods into [IETrans](https://arxiv.org/abs/2203.11654),
-and [scenegraph_benchmark_nice/](scenegraph_benchmark_nice/) plugs our methods into [NICE](https://openaccess.thecvf.com/content/CVPR2022/papers/Li_The_Devil_Is_in_the_Labels_Noisy_Label_Correction_for_CVPR_2022_paper.pdf).
-We find in all these SOTA works, we can raise their mR@k scores to continue reducing long-tailed problems, while simultaneously achieving even higher R@k scores. 
 
 Here is an illustration of how to plug our hierarchical relationships into [VCTree](https://arxiv.org/abs/1812.01880). We hope it is straightforward but highly effective.
 <p align="center">
